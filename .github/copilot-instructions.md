@@ -1,6 +1,8 @@
 # Project: AI-Based Network Vulnerability Assessment Tool
 # Focus: context-aware risk prioritisation ("Context Is Not Free")
 
+Read docs/PROJECT.md first. It is the whole idea. Every task must name the PROJECT.md pipeline stage or cross-cutting research component it serves in its plan.
+
 ## What we are building
 
 A local-first Python 3.11+ CLI that:

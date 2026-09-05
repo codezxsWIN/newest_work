@@ -1,13 +1,29 @@
 # Methodology
 
-The original eight-step deck text was not present when this repository was seeded. The following v0 captures the required workflow and must be replaced with the deck wording if exact verbatim text becomes available.
+The canonical [project brief](PROJECT.md) now supplies the deck-derived pipeline
+names, replacing the provisional day-zero sequence. This is a summary of that
+supplied brief, not a verbatim transcription of an independently inspected slide deck.
 
-1. **Define authorised scope.** Load the safety policy, resolve candidate targets, and reject any address or host not permitted by `config/scope.yaml`.
-2. **Collect scanner evidence.** Run approved adapters for Nmap, Nikto, and ZAP, retaining raw artifacts, command metadata, timestamps, and tool versions.
-3. **Normalize findings.** Convert heterogeneous observations to a shared schema while preserving provenance, uncertainty, and source-specific evidence.
-4. **Enrich vulnerability intelligence.** Join only confirmed identifiers to dated NVD, EPSS, and KEV snapshots, recording missing data and match provenance.
-5. **Infer bounded asset context.** Combine explicit tags and cited observations to classify approved roles, exposure, environment, and criticality; prefer `unknown` to unsupported claims.
-6. **Score and explain.** Apply the versioned hypothesis in `docs/scoring.md`, retain component contributions, assign bands, and produce a human-readable rationale.
-7. **Evaluate ranking quality.** Compare CVSS-only and context-aware rankings with expert full rankings and `expert-critical` sets using Kendall's tau, NDCG@10, and critical-queue reduction.
-8. **Review, tune, and reproduce.** Review errors, tune only in Stage 4, record decisions and versions, rerun held-out evaluation, and publish reproducible commands and limitations.
+1. **Target input.** Resolve requested targets and enforce the explicit lab scope
+   before scanner execution.
+2. **Scan orchestrator.** Discover with Nmap first, derive observed web endpoints,
+   select tools, and record the run plan and outcomes.
+3. **Safe scanning.** Use scoped, non-destructive scanner settings and preserve
+   execution metadata, raw observations, coverage, and safety evidence.
+4. **Unified result engine.** Normalize observations, justify duplicate merges,
+   preserve every source, and expose evidence-based confidence.
+5. **AI security analyst.** Infer context with rules and produce validated,
+   score-independent local-model rationales under the current LLM boundary.
+6. **CVE intelligence.** Match against dated, human-provided NVD, EPSS, and KEV
+   snapshots offline, retaining uncertainty and match provenance.
+7. **Report.** Present ranks, reasons, evidence, methodology, provenance,
+   low-confidence findings, and later re-scan trends.
+8. **Re-scan validation.** Distinguish justified fixes, still-open findings,
+   regressions, and not-observable cases using comparable runs.
 
+Risk ranking, expert evaluation, and the lab/demo are cross-cutting components.
+Pipeline stage numbers are not the four implementation phases or a strict
+execution schedule: intelligence matching precedes final unification, context,
+ranking, and reporting. Formula and band definitions remain in [scoring.md](scoring.md).
+Only the evaluation phase may tune the hypothesis, with recorded decisions and
+held-out judgments.
