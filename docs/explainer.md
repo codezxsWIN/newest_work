@@ -20,7 +20,7 @@ Every enrichment records its source, retrieval or publication date, and match ke
 
 ## 4. Context
 
-Context includes environment, exposure or vantage, asset role, business criticality, and inference confidence. Explicit inventory tags outrank inferred values. Inference must cite its evidence and may return `unknown`. The local model can help classify bounded evidence into the approved role list, but its output must pass schema validation and cannot create technical facts.
+Context includes exposure or vantage, asset role, observed controls, and inference confidence. Manual environment and business-criticality tags are recorded separately from inference. Inference must cite its evidence and may return `unknown`. Per Prompt 0, the local model writes rationales only; it cannot infer a role that affects scoring. Prompt 5's conflicting LLM role fallback is deferred in `decisions.md`.
 
 ## 5. Figure 2 — why identical vulnerabilities rank differently
 
@@ -29,9 +29,9 @@ Figure 2 is a two-branch evidence flow:
 1. An identical normalized vulnerability enters both branches with the same CVE, CVSS, EPSS, and KEV facts.
 2. Branch A joins the finding to an internal test asset with low business criticality and no external exposure.
 3. Branch B joins it to an internet-facing production database with high business criticality.
-4. The scoring function applies the same published formula to both evidence bundles.
-5. Technical severity stays constant. Only documented context terms differ.
-6. Branch B ranks higher, and each contribution is shown in the explanation.
+4. The scoring function fills CVSS v4.0 Environmental metrics, applies the EPSS percentile factor, and then applies the KEV floor.
+5. Technical base severity stays constant. Only documented context mappings differ.
+6. Branch B may rank higher for appropriate non-KEV inputs. If KEV is true for this CVE, both branches must be Critical because risk is at least 90.
 
 This demonstrates that context changes priority without rewriting vulnerability evidence.
 
@@ -41,7 +41,7 @@ Experts receive the same lab findings and return a full ranking plus an `expert-
 
 ## Golden two-machine example
 
-**Golden CVE:** `CVE-2012-2122`, the MySQL authentication bypass associated with versions found in common Metasploitable 2 lab images. The fixture scan must confirm the affected product/version before the test treats it as a matched finding.
+**Candidate CVE, not yet verified:** `CVE-2012-2122`, retained from the provisional day-zero notes. No scan artifact or dated feed has been supplied, so neither applicability to the selected Metasploitable 2 image nor KEV status is established here. Confirm affected product/version and intelligence evidence before using any CVE as a golden fixture.
 
 | Input | Machine A | Machine B |
 |---|---|---|
@@ -50,7 +50,8 @@ Experts receive the same lab findings and return a full ranking plus an `expert-
 | Exposure | Internal-only | Internet-facing |
 | Role | Database | Database |
 | Criticality | 1 | 5 |
-| Expected relation | Lower score and rank | Higher score and rank |
+| Expected relation | Context-dependent Environmental score | Context-dependent Environmental score |
 
-The golden test asserts the ordering and explanation contributions, not a hard-coded absolute score. If real fixture evidence does not support this CVE, replace it through a recorded decision before implementing the test.
+Prompt 7 requests Medium/Low versus Critical and printed breakdowns. Its formula also imposes `risk >= 90` whenever KEV is true. These cannot both hold for identical CVE/feed evidence with KEV=true. Do not change KEV status per host to force a desired result.
 
+Before Prompt 7, choose confirmed evidence that supports a context-only comparison with the same non-KEV facts on both machines, and verify the resulting bands rather than assuming them. Separately test that KEV=true makes both machines Critical and print both breakdowns. Any replacement CVE or revised acceptance expectation must be recorded in `decisions.md`.
