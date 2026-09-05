@@ -1,0 +1,21 @@
+allowed_cidrs:
+  - 172.28.0.0/24 # isolated lab bridge network only
+allowed_hosts: []
+vantage: internal
+lab_targets:
+  - name: metasploitable2
+    ip: 172.28.0.10
+    tags:
+      environment: test
+  - name: dvwa
+    ip: 172.28.0.11
+    tags:
+      environment: prod
+      criticality: 4
+  - name: juice-shop
+    ip: 172.28.0.12
+    tags:
+      environment: prod
+      criticality: 3
+      vantage: external # simulates internet-facing
+
