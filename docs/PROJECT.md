@@ -12,8 +12,10 @@ pipeline stage or cross-cutting research component it serves.
 
 This document describes requirements and planned behavior, not completed features
 or measured results. The [operating rules](../.github/copilot-instructions.md),
-[security boundary](security.md), and append-only [decisions](decisions.md) remain
-binding. No installation, download, scan, or broader LLM permission is granted here.
+[fixed contracts](contracts.md), [security boundary](security.md), and append-only
+[decisions](decisions.md) remain binding. The contracts arrived during preparation
+of this brief and have been incorporated without changing them. No installation,
+download, scan, or broader LLM permission is granted here.
 
 ## 1. What this is
 
@@ -50,11 +52,13 @@ inference: asset role, exposure, and observed compensating controls. A determini
 published formula combines that context with CVSS Environmental metrics, EPSS, and
 CISA KEV. A local model supplies a validated one-line reason, never a risk score.
 
-The current [scoring hypothesis](scoring.md) uses:
+The published risk formula remains a hypothesis. Under the current
+[fixed weight configuration](contracts.md), it is:
 
 ```text
 base = environmental_score * 10
-threat = 0.5 + 0.5 * epss_percentile  # threat = 0.5 if EPSS is missing
+percentile = epss_percentile if available else 0.5
+threat = 0.5 + 0.5 * percentile
 risk = base * threat
 if kev:
     risk = max(risk, 90)
@@ -63,7 +67,13 @@ if kev:
 EPSS percentile is in `[0, 1]`; it is not EPSS probability. Bands are Critical
 `>= 80`, High `>= 60`, Medium `>= 35`, otherwise Low. Context mappings, missing-data
 policies, translation provenance, and any later changes belong in the scoring
-specification and decision log.
+specification and decision log. The fixed contract's missing percentile of `0.5`
+produces a threat multiplier of `0.75`; the earlier [scoring notes](scoring.md)
+instead specified a missing-data multiplier of `0.5`. This discrepancy must be
+reconciled before scoring implementation; do not silently conflate probability,
+percentile, and multiplier. The fixed contract governs unless a human approves an
+ADR. It also defines additional role mappings, criticality adjustments, and
+native-evidence fallbacks absent from the older notes.
 
 Evaluate against 2-3 practitioners' full rankings and `expert-critical` sets:
 
@@ -124,7 +134,8 @@ The attachment proposes LLM-assisted roles, but existing hard rules forbid that
 ranking influence. Clarification was requested and no answer was available.
 The conservative current boundary is retained, not presented as a newly approved
 change. Any expansion needs an explicit decision, provenance, reproducibility
-controls, and revised evaluation. See decisions 31-33 in [decisions.md](decisions.md).
+controls, and revised evaluation. See the "Canonical project brief" and
+"Project brief reconciliation" sections in [decisions.md](decisions.md).
 
 ## 6. The two-machine test
 
@@ -174,12 +185,15 @@ be presented as real scanner or feed captures.
    **not run by the agent**. Local artifact presence alone is not installation approval.
 3. Scoring is pure and does not import from `explain/`. The LLM must neither compute
    scores nor select inputs that alter them under the current policy.
-4. All scanner, feed, and model content is untrusted. Delimit, cap, and label model
-   inputs; validate model outputs. Treat the referenced "I2 guard" as a requirement
-   awaiting its supplied contract, not an existing implementation.
+4. All scanner, feed, and model content is untrusted. Invariant I2 in
+   [contracts.md](contracts.md) requires delimited, length-capped, control-character-
+   stripped scanner content prefixed `untrusted data follows`, and schema-validated
+   model output. A specified guard is not proof that its implementation passed.
 5. Every inferred feature carries confidence, source (`rule`, `llm`, or `manual`),
    and a verbatim evidence quote. A provenance label does not authorise LLM scoring
-   inputs. Record manual tags separately from inferred observations.
+   inputs. Record manual tags separately from inferred observations. Invariant I3
+   requires a raw-record substring or the exact sentinel `none observed`; that
+   sentinel does not prove a control or weakness is absent.
 6. Preserve tool, raw path, record index, original finding IDs, and all evidence.
    Identical evidence, configuration, and pinned feed snapshots produce identical
    ranks, with deterministic tie-breaking.
@@ -235,9 +249,15 @@ Before the relevant implementation, resolve:
   that different URLs, instances, or vulnerabilities are the same weakness.
 - Re-scan proof: a changed banner or missing CVE match alone cannot establish a
   patch; record scan success, comparable coverage, and vulnerability evidence.
-- The missing engineering `docs/contracts.md`, the definitions of prompts A/1A/1B,
-  and the precise "I2" contract referenced by the supplied roadmap. Do not invent
-  these documents or claim their gates ran.
+- Align the older scoring notes with the supplied fixed weight configuration,
+  including the missing-EPSS discrepancy described in section 3.
+- The definitions of prompts A/1A/1B are still not supplied by this attachment.
+  The [engineering contract](contracts.md), including I1-I5, now exists; its
+  presence does not establish that its gates have run.
+- Obtain human-approved ADRs for roadmap extensions to fixed commands, signatures,
+  configuration, and storage. In particular, re-scan history must coexist with the
+  fixed upsert rule that changes only `last_seen` and preserves original run
+  ownership; do not invent a cross-run association table or migration.
 
 ## 10. Who did what
 
@@ -266,13 +286,16 @@ A -> 1A -> 1B -> 2 -> 3 -> 3B -> 4 -> 4B -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 -> 11 ->
 ```
 
 The initial Prompt 1 scaffold predates this expanded sequence. The definitions of
-A/1A/1B and `docs/contracts.md` have not been supplied in this workspace. This
-roadmap does not imply those prerequisites are implemented or passed.
+A/1A/1B remain unspecified in this attachment. [contracts.md](contracts.md) is now
+present and governs fixed interfaces. This roadmap does not imply those
+prerequisites are implemented or passed.
 
 Each implementation plan must name its branch, served stage, dependencies,
 objective, tests, acceptance evidence, decisions, and next prompt. Read this brief,
-the operating rules, and the actual engineering contract when supplied; do not
-silently infer the missing contract. Preserve one-prompt-at-a-time review gates.
+the operating rules, and the engineering contract. Preserve one-prompt-at-a-time
+review gates. New orchestrator/unification/re-scan APIs, commands, configuration
+keys, and tables below are proposals: any extension to the fixed contract requires
+a human-approved ADR before implementation. The brief is not that approval.
 
 ### Prompt 3B - Scan orchestrator
 
