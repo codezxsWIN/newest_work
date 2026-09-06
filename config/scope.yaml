@@ -1,21 +1,10 @@
-allowed_cidrs:
-  - 172.28.0.0/24 # isolated lab bridge network only
+# The safety fence. Only these addresses may be imported; everything else is refused
+# before any scan file is read. Three /32s rather than the /24 so the canary is provably outside.
+allowed_cidrs: [172.28.0.10/32, 172.28.0.11/32, 172.28.0.12/32]
 allowed_hosts: []
 vantage: internal
 lab_targets:
-  - name: metasploitable2
-    ip: 172.28.0.10
-    tags:
-      environment: test
-  - name: dvwa
-    ip: 172.28.0.11
-    tags:
-      environment: prod
-      criticality: 4
-  - name: juice-shop
-    ip: 172.28.0.12
-    tags:
-      environment: prod
-      criticality: 3
-      vantage: external # simulates internet-facing
-
+  - {name: metasploitable2, ip: 172.28.0.10, tags: {environment: test}}
+  - {name: dvwa,            ip: 172.28.0.11, tags: {environment: prod, criticality: 4}}
+  - {name: juice-shop,      ip: 172.28.0.12, tags: {environment: prod, criticality: 3, vantage: external}}
+canary: {ip: 172.28.0.250}
