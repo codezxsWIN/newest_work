@@ -134,6 +134,26 @@ class TestIntelTrace(unittest.TestCase):
         self.assertGreaterEqual(result["trace_counts"]["fallback:native_severity"], 4)
         self.assertTrue(all(item["reasons"] for item in result["unmatched"]))
 
+    def test_trace_run_reports_decisions_without_writing_enrichments(self):
+        with TemporaryDirectory() as directory, self.store(directory) as store:
+            pipeline.do_import(
+                SETTINGS,
+                store,
+                "trace-read-only",
+                "172.28.0.11",
+                SYNTHETIC / "synthetic_nmap_two_machines.xml",
+                SYNTHETIC / "synthetic_zap_dvwa.json",
+            )
+            finding_ids = [item.id for item in store.findings("trace-read-only")]
+            before = {finding_id: store.enrichments(finding_id) for finding_id in finding_ids}
+            result = intel.trace_run("trace-read-only", store)
+            after = {finding_id: store.enrichments(finding_id) for finding_id in finding_ids}
+
+        self.assertEqual(before, after)
+        self.assertEqual(result["findings"], 4)
+        self.assertEqual(set(result["traces"]), set(finding_ids))
+        self.assertEqual(result["unmatched_count"], len(result["unmatched"]))
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

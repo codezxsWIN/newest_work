@@ -1011,9 +1011,29 @@ class TestWalls(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- real fixtures (2)
+def real_fixture_paths(directory: Path, pattern: str) -> list[Path]:
+    return sorted(
+        path
+        for path in directory.glob(pattern)
+        if not path.name.lower().startswith(("example-", "synthetic_", "synthetic-"))
+    )
+
+
 class TestRealFixtures(unittest.TestCase):
+    def test_example_and_synthetic_names_never_count_as_real(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in (
+                "EXAMPLE-synthetic-capture.xml",
+                "synthetic_capture.xml",
+                "synthetic-capture.xml",
+            ):
+                (root / name).write_text("synthetic", encoding="utf-8")
+
+            self.assertEqual(real_fixture_paths(root, "*.xml"), [])
+
     def test_real_nmap_captures_parse(self):
-        captures = sorted((FIXTURES / "nmap").glob("*.xml"))
+        captures = real_fixture_paths(FIXTURES / "nmap", "*.xml")
         if not captures:
             self.skipTest("fixture not provided: tests/fixtures/nmap/*.xml")
         for path in captures:
@@ -1022,7 +1042,7 @@ class TestRealFixtures(unittest.TestCase):
                 self.assertGreaterEqual(len(hosts), 1)
 
     def test_real_zap_reports_parse(self):
-        reports = sorted((FIXTURES / "zap").glob("*.json"))
+        reports = real_fixture_paths(FIXTURES / "zap", "*.json")
         if not reports:
             self.skipTest("fixture not provided: tests/fixtures/zap/*.json")
         for path in reports:

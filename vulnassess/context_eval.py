@@ -333,8 +333,11 @@ def evaluate_context(
             else None
         ),
     }
+    evidence_status = "VERIFIED" if human_only else "NOT RUN"
     return {
-        "status": "VERIFIED" if human_only else "TESTED WITH SYNTHETIC",
+        "status": evidence_status,
+        "evidence_status": evidence_status,
+        "data_kind": "human" if human_only else "synthetic",
         "manual_tags_used": False,
         "truth_hosts": len(truth),
         "truth_groups": len({item.group for item in truth}),

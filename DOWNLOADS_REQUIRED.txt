@@ -1,0 +1,288 @@
+VULNASSESS - HUMAN DOWNLOAD AND PROVISIONING CHECKLIST
+Inventory date: 2026-09-07
+Workspace: C:\Users\amitdamle\Downloads\fragmented
+
+IMPORTANT
+=========
+All download, install, pull, and feed-fetch commands described by this file were
+not run by the agent. A human must review and provision every artifact.
+
+Before provisioning a package, image, scanner, model, or feed, record:
+[ ] exact version
+[ ] direct, transitive, and build dependencies
+[ ] official source and publisher
+[ ] SHA-256 or independently approved vendor digest
+[ ] license
+[ ] dated vulnerability review
+[ ] reviewer and approval date
+
+Do not commit credentials, full public feeds, production scan output, or model
+secrets. Keep live feeds under data/ and generated reports under reports/.
+
+
+1. CURRENTLY PRESENT - DO NOT DOWNLOAD AGAIN
+=============================================
+[PRESENT] Python 3.12.10 (project requires Python 3.11+)
+[PRESENT] PyYAML 6.0.3 (import name: yaml)
+[PRESENT] Packaging 24.2
+[PRESENT] pytest
+[PRESENT] Java 17: Microsoft OpenJDK 17.0.17
+[PRESENT] Docker CLI/Desktop
+[PRESENT] Git
+[PRESENT] GitHub CLI (gh)
+
+The current flat implementation has only two runtime Python dependencies:
+- pyyaml
+- packaging
+
+Do not install pydantic, typer, rich, scipy, jinja2, cvss, or httpx merely to run
+the current flat package. Those belong to older/canonical design material, not
+its current requirements.txt.
+
+
+2. REQUIRED FOR THE COMPLETE QUALITY GATE
+=========================================
+[MISSING] Ruff
+Purpose: lint and formatting checks.
+Python package/module: ruff
+Official source: https://github.com/astral-sh/ruff
+
+[MISSING] Pyright
+Purpose: static type checking.
+Package/tool: pyright
+Official source: https://github.com/microsoft/pyright
+Note: use an approved standalone distribution or approved Python package. Do not
+use npm in this environment.
+
+[MISSING] pytest-cov
+Purpose: source coverage and the required >=75% gate.
+Python package/module: pytest-cov / pytest_cov
+Official source: https://github.com/pytest-dev/pytest-cov
+
+[RECOMMENDED, MISSING] Hypothesis
+Purpose: property-based tests for scoring, parsers, and ranking invariants.
+Python package/module: hypothesis
+Official source: https://github.com/HypothesisWorks/hypothesis
+Not required by the current tests, but recommended for the stronger test suite.
+
+[OPTIONAL, MISSING] GNU Make
+Purpose: run `make check`.
+Not needed on Windows because this equivalent exists:
+    python3.12 scripts/check.py
+
+After approved provisioning, run:
+    python3.12 scripts/check.py
+
+Expected stages:
+[ ] Ruff lint
+[ ] Ruff format check
+[ ] Pyright
+[ ] pytest with coverage >=75%
+
+Do not use an unpinned `pip install` command as supply-chain approval. Provision
+approved, pinned, hash-verified artifacts through the human review process.
+
+
+3. REQUIRED TO RUN REAL SCANS
+=============================
+[MISSING] Nmap
+Purpose: service/version and OS discovery plus XML output.
+Official source: https://nmap.org/download.html
+Required command on PATH: nmap
+Expected output: tests/fixtures/nmap/*.xml or another local import path.
+
+[MISSING] Vulners Nmap NSE script (only if approved)
+Purpose: emit explicit CVE evidence during the current Nmap command.
+Upstream project: https://github.com/vulnersCom/nmap-vulners
+Required by the current command flag: --script vulners
+Alternative: omit that flag and rely on CPE/version matching against local NVD.
+
+[MISSING] Nikto
+Purpose: web-server checks and JSON output.
+Official upstream: https://github.com/sullo/nikto
+Required command on PATH: nikto
+Expected output: tests/fixtures/nikto/*.json or another local import path.
+
+[MISSING] Perl runtime (only for a native Nikto installation)
+Purpose: execute Nikto without a container.
+One Windows distribution: https://strawberryperl.com/
+Alternative: use a separately reviewed and digest-pinned Nikto container image.
+
+[MISSING] OWASP ZAP baseline runner
+Purpose: passive web baseline checks and JSON output.
+Official source: https://www.zaproxy.org/download/
+Required command for the current orchestrator: zap-baseline.py
+Java 17 is already present.
+Preferred isolated route: a human-provided, reviewed, digest-pinned ZAP container
+image used with Docker `--pull=never`.
+Expected output: tests/fixtures/zap/*.json or another local import path.
+
+[REQUIRES HUMAN PROVISIONING] Scanner container images
+Docker is present, but no scanner image is approved merely because Docker exists.
+Record exact immutable image IDs/digests for ZAP and optional Nikto use. Never use
+a floating tag as assessment provenance.
+
+Safety requirements before any scan:
+[ ] target is explicitly listed in config/scope.yaml
+[ ] canary 172.28.0.250 remains outside scope
+[ ] isolated lab network exists
+[ ] written authorisation exists
+[ ] command, tool version, target, operator, and time are recorded
+[ ] canary access log is supplied and empty
+
+Scanner commands in docs/fixtures.md and fixture README files are not run by the
+agent.
+
+
+4. REQUIRED OFFLINE VULNERABILITY FEEDS
+======================================
+[MISSING] NVD API 2.0 JSON snapshot/subset
+Official endpoint: https://services.nvd.nist.gov/rest/json/cves/2.0
+Local layout:
+    data/feeds/nvd/*.json
+or for approved real fixtures:
+    tests/fixtures/intel/nvd/*.json
+
+[MISSING] EPSS daily CSV or CSV.GZ
+Official source: https://epss.cyentia.com/
+Expected filename form: epss_scores-YYYY-MM-DD.csv.gz
+Local layout:
+    data/feeds/epss.csv
+or:
+    data/feeds/epss.csv.gz
+
+[MISSING] CISA Known Exploited Vulnerabilities JSON
+Official source:
+    https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json
+Local layout:
+    data/feeds/kev.json
+
+For every feed file record:
+[ ] fetch date
+[ ] exact official URL
+[ ] SHA-256
+[ ] snapshot/file date
+[ ] row count
+[ ] person who fetched and reviewed it
+
+A human must fetch these files. The runtime reads them locally and never refreshes
+them automatically. Do not commit full feeds; commit only approved minimal subsets
+needed for reproducible tests, with provenance.
+
+
+5. OPTIONAL LOCAL LLM RATIONALE
+===============================
+[MISSING] Ollama runtime
+Purpose: local one-line rationale rewording only.
+Official source: https://ollama.com/download
+Required commands on PATH/runtime: ollama, ollama serve
+Runtime endpoint is restricted to HTTP loopback only.
+
+[MISSING] One approved local model artifact
+Current code default: llama3.2:3b
+Earlier project decision: qwen2.5:7b with Q4_K_M quantisation
+
+Do not download both by default. A human reviewer must choose one, record the
+choice in docs/decisions.md, align vulnassess/explain.py DEFAULT_MODEL, and record:
+[ ] exact model name and immutable digest/hash
+[ ] quantisation
+[ ] upstream publisher/source
+[ ] model license
+[ ] file size
+[ ] machine CPU/RAM
+[ ] local smoke-test output
+[ ] rationale validation/fallback results
+
+The model never computes a score, role, exposure, control, CVE match, merge, or
+remediation result. The system works without it by using deterministic rationales.
+Any model pull command is not run by the agent.
+
+
+6. HUMAN-GENERATED INPUTS - NOT DOWNLOADS, BUT REQUIRED FOR REAL CLAIMS
+======================================================================
+[MISSING] Real Nmap captures
+Paths: tests/fixtures/nmap/*.xml
+Provenance form: tests/fixtures/nmap/README.md
+
+[MISSING] Real ZAP reports
+Paths: tests/fixtures/zap/*.json
+Provenance form: tests/fixtures/zap/README.md
+
+[MISSING] Real Nikto reports
+Paths: tests/fixtures/nikto/*.json
+A provenance README must be added for the Nikto fixture directory.
+
+[MISSING] Independent host context truth for RQ1/H1
+Required fields: host/capture group, role, exposure, applicable controls,
+reviewer, provenance, evidence_status=VERIFIED.
+Do not derive these labels from this tool's own rules or model.
+
+[MISSING] Disjoint human role-model datasets
+Required splits:
+[ ] training hosts/groups
+[ ] calibration hosts/groups
+[ ] untouched test hosts/groups
+No host/capture group may occur in more than one split.
+
+[MISSING] Expert finding rankings for RQ2/RQ3
+Target: 2-3 independent security practitioners.
+Each expert supplies:
+[ ] full frozen-cohort ranking
+[ ] documented ties
+[ ] that expert's critical finding set
+[ ] reviewer/provenance metadata
+[ ] no access to system ranks before completing the judgment
+
+[MISSING] Frozen evaluation/cohort manifest
+Must bind finding IDs, config hash, weights hash, feed snapshot hash, model hash,
+metric definitions, tie policy, and human approval identifier.
+
+[MISSING] Canary access evidence
+A human-provided access log is required. Missing means MISSING, not verified safe.
+
+
+7. OPTIONAL FUTURE DEVELOPMENT ARTIFACTS
+========================================
+[OPTIONAL] Pre-commit
+Purpose: local Ruff and Pyright hooks after approved provisioning.
+
+[OPTIONAL] CVSS v4.0 MacroVector lookup/specification artifact
+Purpose: future CVSS v4.0 Environmental scoring.
+Current implemented and tested scoring is CVSS v3.1. Do not substitute a partial
+or invented v4 lookup table.
+
+[OPTIONAL] PDF renderer
+Purpose: automated report PDF export.
+Not needed now: reports are self-contained, print-friendly HTML.
+
+
+8. WHAT DOES NOT NEED A DOWNLOAD
+===============================
+- The context-aware deterministic scoring engine
+- The nine-class shadow role model implementation
+- The synthetic role-model JSON artifact used for code-path simulation
+- Nmap/ZAP/Nikto parsers
+- RQ1-RQ4 evaluation arithmetic
+- Ablation and stability engine
+- Visual simulation HTML
+- SQLite (included with Python)
+- HTML/report templates (implemented without external assets)
+
+The bundled synthetic scanner/feed/model data proves only tested code paths. It
+must never be presented as real scanner, feed, model, or research evidence.
+
+
+9. POST-PROVISIONING CHECKLIST
+==============================
+[ ] Verify each command with `Get-Command <name>` or `<name> --version`
+[ ] Record versions and hashes in fixture READMEs / docs/decisions.md
+[ ] Run: python3.12 scripts/check.py
+[ ] Run: python3.12 -m unittest discover -s tests -p "test*.py" -v
+[ ] Run: python3.12 run_model_simulation.py
+[ ] Run: python3.12 run_research_simulation.py
+[ ] Run: python3.12 run_visual_simulation.py
+[ ] Import real captures only after scope validation
+[ ] Load reviewed feed snapshots from local data/feeds
+[ ] Run independent context and ranking evaluation once the cohort is frozen
+
+END OF CHECKLIST

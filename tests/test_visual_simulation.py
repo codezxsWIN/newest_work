@@ -37,6 +37,11 @@ class TestVisualSimulation(unittest.TestCase):
         self.assertEqual(len(self.data["comparison"]), 2)
         self.assertEqual(len(self.data["model"]["classes"]), 9)
         self.assertEqual(self.data["model"]["features"], 134)
+        self.assertEqual(self.data["pipeline_counts"]["canonical_findings"], 6)
+        self.assertEqual(self.data["pipeline_counts"]["context_profiles"], 3)
+        self.assertTrue(all("provenance" in item for item in self.data["ranked"]))
+        self.assertTrue(all("baseline_position" in item for item in self.data["ranked"]))
+        self.assertTrue(all("enrichment_candidates" in item for item in self.data["ranked"]))
         self.assertEqual(
             {item["ip"]: item["prediction"]["label"] for item in self.data["hosts"]},
             {
@@ -49,15 +54,25 @@ class TestVisualSimulation(unittest.TestCase):
     def test_all_eight_stages_and_visual_surfaces_are_present(self):
         self.assertEqual(len(self.data["stages"]), 8)
         for text in (
-            "Evidence moving through the pipeline",
-            "What just happened",
-            "Probability and evidence",
-            "Score construction",
+            "Decision path",
+            "Evidence inspector",
+            "Canonical record",
+            "Selected finding trace",
+            "Class probability distribution",
+            "Deterministic score reconstruction",
             "Same CVE. Same base. Different operational risk.",
             "Remediation queue",
         ):
             self.assertIn(text, self.html)
-        for control in ('id="play"', 'id="restart"', 'id="scrubber"', 'data-speed="460"'):
+        self.assertIn("const stageRenderers=", self.html)
+        self.assertNotIn('class="topology"', self.html)
+        for control in (
+            'id="play"',
+            'id="restart"',
+            'id="findingSelect"',
+            'id="stageRail"',
+            'data-speed="460"',
+        ):
             self.assertIn(control, self.html)
 
     def test_visual_replay_is_self_contained_and_offline(self):
@@ -91,9 +106,9 @@ class TestVisualSimulation(unittest.TestCase):
         self.assertEqual(first, second)
 
     def test_mobile_layout_rules_are_shipped(self):
-        self.assertIn("@media (max-width:700px)", self.html)
-        self.assertIn("width:90px;min-width:90px", self.html)
-        self.assertIn(".queue td .micro{display:none}", self.html)
+        self.assertIn("@media(max-width:760px)", self.html)
+        self.assertIn(".layout{display:block}", self.html)
+        self.assertIn(".trace-path{display:flex;overflow:auto}", self.html)
         self.assertIn("prefers-reduced-motion:reduce", self.html)
 
     def test_visualize_command_renders_an_existing_run(self):

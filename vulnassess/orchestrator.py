@@ -4,8 +4,11 @@ Tests inject an executor. The agent never invokes a scanner through this module.
 """
 
 import re
+import shutil
+import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,9 @@ from vulnassess.schema import Host, Service
 WEB_PORTS = {80, 443, 3000, 8000, 8080, 8443}
 WEB_SERVICE = re.compile(r"(?:^|/)(?:https?|ssl/http)(?:$|[-_])", re.IGNORECASE)
 TOOLS = ("nmap", "nikto", "zap")
+BINARIES = {"nmap": "nmap", "nikto": "nikto", "zap": "zap-baseline.py"}
+NOT_RUN_BY_AGENT = "not run by the agent"
+MAX_EXECUTION_DETAIL = 2048
 
 
 @dataclass(frozen=True)
@@ -109,6 +115,41 @@ class OrchestrationPlan:
 
 
 Executor = Callable[[ScannerCommand], Execution]
+
+
+def missing_binaries(tools: Sequence[str]) -> list[str]:
+    required = tuple(dict.fromkeys(("nmap", *tools)))
+    unknown = sorted(set(required) - set(TOOLS))
+    if unknown:
+        raise ConfigError(f"unknown scanner {unknown[0]!r}; expected one of {TOOLS}")
+    return [BINARIES[tool] for tool in required if shutil.which(BINARIES[tool]) is None]
+
+
+def execute_local(command: ScannerCommand, timeout: float = 1800.0) -> Execution:
+    """Run one human-approved lab command; not run by the agent."""
+    if not 0 < timeout <= 7200:
+        raise ConfigError("scanner timeout must be greater than 0 and at most 7200 seconds")
+    started = datetime.now(timezone.utc).isoformat()
+    completed = subprocess.run(
+        list(command.argv),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+        shell=False,
+    )
+    ended = datetime.now(timezone.utc).isoformat()
+    detail = (completed.stderr or completed.stdout or "").strip()
+    detail = "".join(
+        character if character in "\n\r\t" or ord(character) >= 32 else " "
+        for character in detail
+    )[:MAX_EXECUTION_DETAIL]
+    return Execution(
+        exit_code=completed.returncode,
+        started_at=started,
+        ended_at=ended,
+        detail=detail,
+    )
 
 
 def _authorize(settings, target_ip: str) -> None:

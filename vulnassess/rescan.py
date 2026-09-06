@@ -4,12 +4,16 @@ A missing finding is never called fixed without comparable successful coverage
 and a parseable version increase on the affected service.
 """
 
+import json
 from dataclasses import dataclass
+from hashlib import sha256
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
 from packaging.version import InvalidVersion, Version
 
+from vulnassess.audit import load_json_payload
 from vulnassess.errors import ConfigError
 from vulnassess.schema import Finding, Host, ScoreBreakdown, Service
 
@@ -20,6 +24,23 @@ OUTCOMES = (
     "new_finding",
     "regression_candidate",
 )
+OBSERVATION_SCHEMA_VERSION = 1
+MAX_OBSERVATION_BYTES = 64 * 1024 * 1024
+EVIDENCE_STATUSES = ("VERIFIED", "TESTED WITH MOCKS", "NOT RUN", "MISSING")
+
+
+def _canonical(payload: Any) -> str:
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    )
+
+
+def _digest(payload: Any) -> str:
+    return sha256(_canonical(payload).encode("utf-8")).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -60,6 +81,14 @@ class RunObservation:
 
 
 @dataclass(frozen=True)
+class ObservationArtifact:
+    observation: RunObservation
+    scores: tuple[ScoreBreakdown, ...]
+    evidence_status: str
+    artifact_hash: str
+
+
+@dataclass(frozen=True)
 class RescanItem:
     finding_id: str
     host_ip: str
@@ -87,6 +116,143 @@ class RescanItem:
             "band_before": self.band_before,
             "band_after": self.band_after,
         }
+
+
+def build_observation_artifact(
+    observation: RunObservation,
+    scores: Sequence[ScoreBreakdown] = (),
+    *,
+    evidence_status: str,
+) -> dict[str, Any]:
+    if evidence_status not in EVIDENCE_STATUSES:
+        raise ConfigError(f"observation evidence_status must be one of {EVIDENCE_STATUSES}")
+    if not observation.run_id.strip():
+        raise ConfigError("observation run_id is required")
+    for name, value in (
+        ("config_hash", observation.config_hash),
+        ("feed_snapshot_hash", observation.feed_snapshot_hash),
+        ("scope_hash", observation.scope_hash),
+    ):
+        if not value.strip():
+            raise ConfigError(f"observation {name} is required")
+    finding_ids = [finding.id for finding in observation.findings]
+    host_ips = [host.ip for host in observation.hosts]
+    coverage_keys = [(item.host_ip, item.tool) for item in observation.coverage]
+    score_ids = [score.finding_id for score in scores]
+    if len(finding_ids) != len(set(finding_ids)):
+        raise ConfigError("observation contains duplicate finding IDs")
+    if len(host_ips) != len(set(host_ips)):
+        raise ConfigError("observation contains duplicate host IPs")
+    if len(coverage_keys) != len(set(coverage_keys)):
+        raise ConfigError("observation contains duplicate host/tool coverage records")
+    if len(score_ids) != len(set(score_ids)):
+        raise ConfigError("observation contains duplicate score finding IDs")
+    unknown_score = sorted(set(score_ids) - set(finding_ids))
+    if unknown_score:
+        raise ConfigError(
+            f"observation score references missing finding {unknown_score[0]!r}"
+        )
+    missing_hosts = sorted({finding.host_ip for finding in observation.findings} - set(host_ips))
+    if missing_hosts:
+        raise ConfigError(f"observation finding references missing host {missing_hosts[0]!r}")
+    unknown_coverage_hosts = sorted({item.host_ip for item in observation.coverage} - set(host_ips))
+    if unknown_coverage_hosts:
+        raise ConfigError(
+            f"observation coverage references missing host {unknown_coverage_hosts[0]!r}"
+        )
+    core = {
+        "schema_version": OBSERVATION_SCHEMA_VERSION,
+        "evidence_status": evidence_status,
+        "run_id": observation.run_id,
+        "config_hash": observation.config_hash,
+        "feed_snapshot_hash": observation.feed_snapshot_hash,
+        "scope_hash": observation.scope_hash,
+        "hosts": [host.to_json() for host in observation.hosts],
+        "findings": [finding.to_json() for finding in observation.findings],
+        "coverage": [record.to_json() for record in observation.coverage],
+        "scores": [score.to_json() for score in scores],
+    }
+    return {**core, "observation_hash": _digest(core)}
+
+
+def load_observation_artifact(path: str | Path) -> ObservationArtifact:
+    path = Path(path)
+    payload = load_json_payload(
+        path, "re-scan observation artifact", max_bytes=MAX_OBSERVATION_BYTES
+    )
+    if not isinstance(payload, dict):
+        raise ConfigError(f"invalid re-scan observation artifact {path}: expected an object")
+    allowed = {
+        "schema_version",
+        "evidence_status",
+        "run_id",
+        "config_hash",
+        "feed_snapshot_hash",
+        "scope_hash",
+        "hosts",
+        "findings",
+        "coverage",
+        "scores",
+        "observation_hash",
+    }
+    extra = sorted(set(payload) - allowed)
+    if extra:
+        raise ConfigError(f"invalid re-scan observation artifact {path}: unknown key {extra[0]!r}")
+    if payload.get("schema_version") != OBSERVATION_SCHEMA_VERSION:
+        raise ConfigError(
+            f"re-scan observation schema must be {OBSERVATION_SCHEMA_VERSION}, got "
+            f"{payload.get('schema_version')!r}"
+        )
+    evidence_status = payload.get("evidence_status")
+    if evidence_status not in EVIDENCE_STATUSES:
+        raise ConfigError(f"observation evidence_status must be one of {EVIDENCE_STATUSES}")
+    claimed = payload.get("observation_hash")
+    core = {key: value for key, value in payload.items() if key != "observation_hash"}
+    computed = _digest(core)
+    if claimed != computed:
+        raise ConfigError(
+            f"re-scan observation hash mismatch: artifact says {claimed!r}, "
+            f"computed {computed!r}"
+        )
+    try:
+        hosts = tuple(Host.from_json(item) for item in payload["hosts"])
+        findings = tuple(Finding.from_json(item) for item in payload["findings"])
+        coverage = tuple(
+            CoverageRecord(
+                host_ip=str(item["host_ip"]),
+                tool=str(item["tool"]),
+                status=str(item["status"]),
+                scanner_fingerprint=str(item["scanner_fingerprint"]),
+                endpoints=tuple(str(value) for value in item.get("endpoints", [])),
+                detail=str(item.get("detail", "")),
+            )
+            for item in payload["coverage"]
+        )
+        scores = tuple(ScoreBreakdown.from_json(item) for item in payload["scores"])
+        observation = RunObservation(
+            run_id=str(payload["run_id"]),
+            findings=findings,
+            hosts=hosts,
+            coverage=coverage,
+            config_hash=str(payload["config_hash"]),
+            feed_snapshot_hash=str(payload["feed_snapshot_hash"]),
+            scope_hash=str(payload["scope_hash"]),
+        )
+        rebuilt = build_observation_artifact(
+            observation, scores, evidence_status=str(evidence_status)
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ConfigError(f"invalid re-scan observation artifact {path}: {error}") from error
+    if rebuilt != payload:
+        raise ConfigError(
+            f"re-scan observation artifact {path} is not canonical or contains invalid values"
+        )
+    return ObservationArtifact(
+        observation=observation,
+        scores=scores,
+        evidence_status=str(evidence_status),
+        artifact_hash=str(claimed),
+    )
 
 
 def _origin(url: str | None) -> str | None:

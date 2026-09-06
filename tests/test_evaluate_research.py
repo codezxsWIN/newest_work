@@ -89,11 +89,13 @@ class TestResearchEvaluation(unittest.TestCase):
         synthetic_result = evaluate.evaluate(methods, synthetic)
         unverified_result = evaluate.evaluate(methods, unverified)
 
-        self.assertEqual(synthetic_result["evidence_status"], "TESTED WITH SYNTHETIC")
+        self.assertEqual(synthetic_result["evidence_status"], "NOT RUN")
+        self.assertEqual(synthetic_result["data_kind"], "synthetic")
         self.assertFalse(synthetic_result["h2"]["eligible"])
         self.assertIsNone(synthetic_result["h2"]["passes"]["cvss_only"])
         self.assertIsNone(synthetic_result["h3"]["pass"])
-        self.assertEqual(unverified_result["evidence_status"], "UNVERIFIED HUMAN INPUT")
+        self.assertEqual(unverified_result["evidence_status"], "NOT RUN")
+        self.assertEqual(unverified_result["data_kind"], "human")
         self.assertFalse(unverified_result["h2"]["eligible"])
         self.assertFalse(unverified_result["h3"]["eligible"])
 

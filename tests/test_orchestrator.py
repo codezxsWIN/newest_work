@@ -1,15 +1,24 @@
 """Nmap-first orchestration tests with an injected scanner executor."""
 
+import io
+import json
 import shutil
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from vulnassess.errors import ScopeError
+from vulnassess.cli import main
+from vulnassess.errors import ConfigError, ScopeError
 from vulnassess.orchestrator import (
     Execution,
+    ScannerCommand,
     check_canary_log,
     derive_endpoints,
+    execute_local,
+    missing_binaries,
     orchestrate,
     plan,
     web_plan,
@@ -53,6 +62,127 @@ class FakeExecutor:
 
 
 class TestOrchestrator(unittest.TestCase):
+    def test_scan_cli_plans_only_nmap_and_never_creates_output(self):
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "captures"
+            stdout = io.StringIO()
+            with patch(
+                "vulnassess.orchestrator.shutil.which", return_value=None
+            ), redirect_stdout(stdout):
+                code = main(
+                    [
+                        "--config",
+                        str(ROOT / "config"),
+                        "scan",
+                        "--run-id",
+                        "synthetic-plan",
+                        "--target-ip",
+                        "172.28.0.10",
+                        "--tool",
+                        "nikto",
+                        "--out-dir",
+                        str(output),
+                        "--json",
+                    ]
+                )
+            result = json.loads(stdout.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertFalse(result["executed"])
+        self.assertEqual(result["notice"], "not run by the agent")
+        self.assertEqual(result["plan"]["discovery"]["tool"], "nmap")
+        self.assertEqual(result["plan"]["web_tools"], ["nikto"])
+        self.assertEqual(result["missing"], ["nmap", "nikto"])
+        self.assertFalse(output.exists())
+
+    def test_scan_cli_execute_uses_injected_nmap_first_path(self):
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "captures"
+            canary = root / "synthetic_canary.log"
+            canary.write_text("", encoding="utf-8")
+            executor = FakeExecutor()
+            stdout = io.StringIO()
+            with patch(
+                "vulnassess.cli.orchestrator.missing_binaries", return_value=[]
+            ), patch(
+                "vulnassess.cli.orchestrator.execute_local",
+                side_effect=lambda command, timeout: executor(command),
+            ), redirect_stdout(stdout):
+                code = main(
+                    [
+                        "--config",
+                        str(ROOT / "config"),
+                        "scan",
+                        "--run-id",
+                        "synthetic-execute",
+                        "--target-ip",
+                        "172.28.0.10",
+                        "--out-dir",
+                        str(output),
+                        "--canary-log",
+                        str(canary),
+                        "--execute",
+                        "--json",
+                    ]
+                )
+            result = json.loads(stdout.getvalue())
+
+        self.assertEqual(code, 0)
+        self.assertEqual([call.tool for call in executor.calls], ["nmap", "nikto", "zap"])
+        self.assertTrue(result["executed"])
+        self.assertTrue(result["complete"])
+        self.assertEqual(result["canary_evidence"]["status"], "VERIFIED")
+        self.assertEqual(result["canary_evidence_after"]["status"], "VERIFIED")
+
+    def test_scan_cli_refuses_execute_when_a_binary_is_missing(self):
+        errors = io.StringIO()
+        with patch(
+            "vulnassess.cli.orchestrator.missing_binaries", return_value=["nmap"]
+        ), patch("vulnassess.cli.orchestrator.execute_local") as execute, redirect_stdout(
+            io.StringIO()
+        ), redirect_stderr(errors):
+            code = main(
+                [
+                    "--config",
+                    str(ROOT / "config"),
+                    "scan",
+                    "--run-id",
+                    "synthetic-missing",
+                    "--target-ip",
+                    "172.28.0.10",
+                    "--execute",
+                ]
+            )
+
+        self.assertEqual(code, 2)
+        execute.assert_not_called()
+        self.assertIn("MISSING scanner binary", errors.getvalue())
+
+    def test_local_executor_is_shell_free_bounded_and_mocked(self):
+        command = ScannerCommand("nmap", ("nmap", "127.0.0.1"), Path("synthetic.xml"))
+        completed = SimpleNamespace(
+            returncode=0,
+            stderr="synthetic\x00detail" + "x" * 3000,
+            stdout="",
+        )
+        with patch("vulnassess.orchestrator.subprocess.run", return_value=completed) as run:
+            execution = execute_local(command, timeout=30)
+
+        self.assertEqual(execution.exit_code, 0)
+        self.assertNotIn("\x00", execution.detail)
+        self.assertEqual(len(execution.detail), 2048)
+        self.assertFalse(run.call_args.kwargs["shell"])
+        self.assertFalse(run.call_args.kwargs["check"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 30)
+        with self.assertRaises(ConfigError):
+            execute_local(command, timeout=0)
+
+    def test_binary_check_always_includes_mandatory_nmap(self):
+        with patch("vulnassess.orchestrator.shutil.which", return_value=None):
+            missing = missing_binaries(("zap",))
+        self.assertEqual(missing, ["nmap", "zap-baseline.py"])
+
     def test_scope_and_canary_are_rejected_before_output_or_execution(self):
         for target in ("8.8.8.8", "172.28.0.250"):
             with self.subTest(target=target), TemporaryDirectory() as directory:

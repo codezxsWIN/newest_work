@@ -170,10 +170,11 @@ def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[s
     result: dict[str, Any] = {
         "experts": [expert["name"] for expert in experts],
         "evidence_status": (
-            "TESTED WITH SYNTHETIC"
+            "NOT RUN"
             if synthetic
-            else ("VERIFIED" if verified else "UNVERIFIED HUMAN INPUT")
+            else ("VERIFIED" if verified else "NOT RUN")
         ),
+        "data_kind": "synthetic" if synthetic else "human",
         "critical_sets": critical_by_expert,
     }
 

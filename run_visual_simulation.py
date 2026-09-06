@@ -93,7 +93,7 @@ def main() -> int:
     path = build()
     payload = json.loads(MODEL_REPORT.read_text(encoding="utf-8"))
     print("VISUAL PRODUCT SIMULATION")
-    print("  status: TESTED WITH SYNTHETIC; real labelled captures are MISSING")
+    print("  evidence: NOT RUN; data kind: synthetic; real labelled captures are MISSING")
     print(f"  role model: {payload['model']['hash']} ({len(payload['model']['classes'])} classes)")
     print(f"  output: {path}")
     print(f"  open: {path.as_uri()}")

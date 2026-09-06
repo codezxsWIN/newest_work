@@ -7,7 +7,7 @@ run, configuration, and feed metadata so drift is distinct from nondeterminism.
 import json
 from dataclasses import replace
 from hashlib import sha256
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from vulnassess import evaluate, scoring
 from vulnassess.errors import ConfigError
@@ -197,6 +197,8 @@ def run_ablations(
     run_id: str,
     scenarios: Sequence[str] = SCENARIOS,
     truth: dict[str, Any] | None = None,
+    cohort_ids: Sequence[str] | None = None,
+    research_binding: Mapping[str, str] | None = None,
 ) -> dict[str, Any]:
     """Run the predeclared scenarios against one immutable store snapshot."""
     requested = tuple(dict.fromkeys(("full", *scenarios)))
@@ -205,10 +207,27 @@ def run_ablations(
         for scenario in requested
     }
     full = results["full"]
-    methods = {
+    all_methods = {
         scenario: [item.finding_id for item in scores]
         for scenario, scores in results.items()
     }
+    methods = all_methods
+    if cohort_ids is not None:
+        selected = tuple(str(finding_id) for finding_id in cohort_ids)
+        if len(selected) != len(set(selected)):
+            raise ConfigError("ablation cohort contains duplicate finding IDs")
+        missing = sorted(set(selected) - set(all_methods["full"]))
+        if missing:
+            raise ConfigError(
+                f"ablation cohort finding {missing[0]!r} is not present in run {run_id!r}"
+            )
+        selected_set = set(selected)
+        methods = {
+            scenario: [
+                finding_id for finding_id in order if finding_id in selected_set
+            ]
+            for scenario, order in all_methods.items()
+        }
     serialized = {
         scenario: [item.to_json() for item in scores]
         for scenario, scores in results.items()
@@ -243,8 +262,17 @@ def run_ablations(
             scenario for scenario, item in comparisons.items() if item["inactive"]
         ),
     }
+    if cohort_ids is not None:
+        payload["evaluation_cohort_ids"] = sorted(set(str(item) for item in cohort_ids))
     if truth is not None:
         payload["expert_evaluation"] = evaluate.evaluate(methods, truth)
+        payload["evidence_status"] = payload["expert_evaluation"]["evidence_status"]
+        payload["data_kind"] = payload["expert_evaluation"]["data_kind"]
+    else:
+        payload["evidence_status"] = "NOT RUN"
+        payload["data_kind"] = "assessment_diagnostic"
+    if research_binding is not None:
+        payload["research_binding"] = dict(sorted(research_binding.items()))
     payload["experiment_hash"] = _digest(payload)
     return payload
 

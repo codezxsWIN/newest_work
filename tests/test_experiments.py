@@ -90,6 +90,36 @@ class TestExperiments(unittest.TestCase):
         self.assertIn("tau_b_mean", methods["full"])
         self.assertIn("ndcg_at_10_mean", methods["full"])
 
+    def test_expert_metrics_are_filtered_to_the_frozen_cohort(self):
+        with TemporaryDirectory() as directory:
+            with prepared_store(directory) as store:
+                cohort_ids = [item.id for item in store.findings("experiment")[:2]]
+                truth = {
+                    "_comment": "SYNTHETIC cohort filtering test.",
+                    "experts": [
+                        {
+                            "name": "synthetic-expert",
+                            "ranking": list(cohort_ids),
+                            "critical": [cohort_ids[0]],
+                        }
+                    ],
+                }
+                result = experiments.run_ablations(
+                    SETTINGS,
+                    store,
+                    "experiment",
+                    scenarios=("full", "no_kev"),
+                    truth=truth,
+                    cohort_ids=cohort_ids,
+                )
+
+        self.assertEqual(result["evaluation_cohort_ids"], sorted(cohort_ids))
+        self.assertEqual(set(result["orders"]["full"]), set(cohort_ids))
+        self.assertEqual(len(result["orders"]["full"]), 2)
+        self.assertEqual(
+            set(result["expert_evaluation"]["methods"]), {"full", "no_kev"}
+        )
+
     def test_unknown_scenario_and_invalid_repeat_count_fail_closed(self):
         with TemporaryDirectory() as directory:
             with prepared_store(directory) as store:

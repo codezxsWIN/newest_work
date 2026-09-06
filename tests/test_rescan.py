@@ -1,9 +1,18 @@
 """Comparability-aware re-scan outcome tests."""
 
+import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from vulnassess.errors import ConfigError
-from vulnassess.rescan import CoverageRecord, RunObservation, compare_runs
+from vulnassess.rescan import (
+    CoverageRecord,
+    RunObservation,
+    build_observation_artifact,
+    compare_runs,
+    load_observation_artifact,
+)
 from vulnassess.schema import Finding, Host, Provenance, Service
 
 
@@ -84,6 +93,40 @@ def observation(
 
 
 class TestRescan(unittest.TestCase):
+    def test_observation_artifact_round_trips_and_rejects_tampering(self):
+        source = observation("before", findings=(finding(),))
+        payload = build_observation_artifact(source, evidence_status="NOT RUN")
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "observation.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            loaded = load_observation_artifact(path)
+            tampered = dict(payload)
+            tampered["scope_hash"] = "changed"
+            path.write_text(json.dumps(tampered), encoding="utf-8")
+            with self.assertRaises(ConfigError) as caught:
+                load_observation_artifact(path)
+
+        self.assertEqual(loaded.observation, source)
+        self.assertEqual(loaded.evidence_status, "NOT RUN")
+        self.assertEqual(loaded.artifact_hash, payload["observation_hash"])
+        self.assertIn("hash mismatch", str(caught.exception))
+
+    def test_observation_artifact_requires_known_status_and_host_relationships(self):
+        with self.assertRaises(ConfigError):
+            build_observation_artifact(observation("before"), evidence_status="SYNTHETIC")
+        invalid = RunObservation(
+            run_id="before",
+            findings=(finding(),),
+            hosts=(),
+            coverage=(coverage(),),
+            config_hash="config-a",
+            feed_snapshot_hash="feed-a",
+            scope_hash="scope-a",
+        )
+        with self.assertRaises(ConfigError) as caught:
+            build_observation_artifact(invalid, evidence_status="NOT RUN")
+        self.assertIn("missing host", str(caught.exception))
+
     def test_same_fingerprint_is_still_open(self):
         item = finding()
         result = compare_runs(

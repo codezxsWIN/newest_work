@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from vulnassess.audit import load_json_payload
 from vulnassess.errors import ConfigError
 
 SNAPSHOT_SCHEMA_VERSION = 1
@@ -72,7 +73,8 @@ def build_snapshot(settings, store, run_id: str, *, model_hash: str | None = Non
     }
     core = {
         "schema_version": SNAPSHOT_SCHEMA_VERSION,
-        "evidence_status": "NOT CLASSIFIED",
+        "evidence_status": "NOT RUN",
+        "data_kind": "assessment_state",
         "run": run,
         "configuration": {
             "hash_current": settings.config_hash(),
@@ -146,14 +148,9 @@ def save_snapshot(payload: dict[str, Any], path: str | Path) -> Path:
 
 def load_snapshot(path: str | Path) -> dict[str, Any]:
     path = Path(path)
-    if not path.is_file():
-        raise ConfigError(f"MISSING: assessment snapshot {path}")
-    if path.stat().st_size > MAX_SNAPSHOT_BYTES:
-        raise ConfigError(f"assessment snapshot {path} exceeds {MAX_SNAPSHOT_BYTES} bytes")
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ConfigError(f"invalid assessment snapshot {path}: {error}") from error
+    payload = load_json_payload(
+        path, "assessment snapshot", max_bytes=MAX_SNAPSHOT_BYTES
+    )
     if not isinstance(payload, dict):
         raise ConfigError(f"invalid assessment snapshot {path}: expected an object")
     return validate_snapshot(payload)

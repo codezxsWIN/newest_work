@@ -3,30 +3,76 @@
 import argparse
 import json
 import sys
+from datetime import date
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Sequence
 
 from vulnassess import (
     __version__,
+    assessment_snapshot,
+    audit,
+    cohort,
+    context_eval,
     diff,
     evaluate,
     explain,
+    experiments,
     intel,
+    model_governance,
+    orchestrator,
     pipeline,
+    rescan,
     role_model,
-    runner,
+    unify,
     visual_simulation,
 )
-from vulnassess.errors import ConfigError, VulnAssessError
+from vulnassess.errors import AdapterError, ConfigError, VulnAssessError
 from vulnassess.settings import Settings
 from vulnassess.store import Store
 
 DEFAULT_DB = "data/vulnassess.db"
 DEFAULT_CONFIG = "config"
+MAX_COHORT_IDS_BYTES = 1024 * 1024
 
 
 def _emit(payload: Any, text: str, as_json: bool) -> None:
     print(json.dumps(payload, sort_keys=True, indent=2) if as_json else text)
+
+
+def _payload_digest(payload: Any) -> str:
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
+def _write_json_payload(payload: dict[str, Any], output: str | None) -> str | None:
+    if output is None:
+        return None
+    path = Path(output)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix(path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps(payload, sort_keys=True, indent=2, allow_nan=False) + "\n",
+            encoding="utf-8",
+        )
+        temporary.replace(path)
+    except OSError as error:
+        raise ConfigError(f"cannot write JSON artifact {path}: {error}") from error
+    return str(path)
+
+
+def _iso_date(value: str, label: str) -> date:
+    try:
+        return date.fromisoformat(value)
+    except ValueError as error:
+        raise ConfigError(f"{label} must be an ISO date, got {value!r}") from error
 
 
 def _parse_target(spec: str) -> tuple[str, str, str | None]:
@@ -55,6 +101,60 @@ def _store(args: argparse.Namespace) -> Store:
     return Store(args.db)
 
 
+def _require_artifact_run(actual: Any, expected: str, artifact: str) -> None:
+    if str(actual) != expected:
+        raise ConfigError(
+            f"{artifact} belongs to run {actual!r}, not requested run {expected!r}"
+        )
+
+
+def _cohort_finding_ids(args: argparse.Namespace, snapshot: dict[str, Any]) -> list[str]:
+    if args.all_findings:
+        return [str(item["id"]) for item in snapshot["findings"]]
+    if args.finding_id:
+        return list(args.finding_id)
+    path = Path(args.ids_file)
+    if not path.is_file():
+        raise ConfigError(f"MISSING: cohort finding ID file {path}")
+    if path.stat().st_size > MAX_COHORT_IDS_BYTES:
+        raise ConfigError(
+            f"cohort finding ID file {path} exceeds {MAX_COHORT_IDS_BYTES} bytes"
+        )
+    try:
+        finding_ids = [
+            line.strip()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+    except OSError as error:
+        raise ConfigError(f"cannot read cohort finding ID file {path}: {error}") from error
+    if not finding_ids:
+        raise ConfigError(f"cohort finding ID file {path} is empty")
+    return finding_ids
+
+
+def _load_bound_research_truth(
+    args: argparse.Namespace, settings: Settings, store: Store
+) -> tuple[cohort.CohortManifest, dict[str, Any]]:
+    snapshot = assessment_snapshot.load_snapshot(args.snapshot)
+    manifest = cohort.load_manifest(args.manifest)
+    _require_artifact_run(snapshot["run"].get("run_id"), args.run_id, "assessment snapshot")
+    _require_artifact_run(manifest.run_id, args.run_id, "cohort manifest")
+    cohort.validate_snapshot_against_manifest(snapshot, manifest)
+    cohort.load_evidence(args.evidence, manifest)
+    truth = evaluate.load_truth(args.truth)
+    cohort.validate_truth_against_cohort(truth, manifest)
+    live_snapshot = assessment_snapshot.build_snapshot(
+        settings, store, args.run_id, model_hash=manifest.model_hash
+    )
+    if live_snapshot["snapshot_hash"] != manifest.snapshot_hash:
+        raise ConfigError(
+            "live run state no longer matches the cohort assessment snapshot; "
+            "use the frozen inputs or create a new cohort"
+        )
+    return manifest, truth
+
+
 def cmd_import(args: argparse.Namespace) -> int:
     settings = _settings(args)
     with _store(args) as store:
@@ -72,14 +172,307 @@ def cmd_import(args: argparse.Namespace) -> int:
 
 def cmd_scan(args: argparse.Namespace) -> int:
     settings = _settings(args)
-    tools = args.tool or sorted(runner.BUILDERS)
-    summary = runner.run_scan(settings, args.target_ip, tools, args.out_dir, execute=args.execute)
-    lines = list(summary["commands"])
-    if summary["missing"]:
-        lines.append(f"MISSING binaries: {', '.join(summary['missing'])} - a human must install them")
-    if not summary["executed"]:
-        lines.append("Planned only. Pass --execute to run these yourself.")
-    _emit(summary, "\n".join(lines), args.json)
+    tools = args.tool or list(orchestrator.TOOLS)
+    scan_plan = orchestrator.plan(
+        settings,
+        args.target_ip,
+        args.out_dir,
+        tools=tools,
+        canary_log=args.canary_log,
+    )
+    missing = orchestrator.missing_binaries(tools)
+    notice = orchestrator.NOT_RUN_BY_AGENT
+    if not args.execute:
+        core = {
+            "run_id": args.run_id,
+            "executed": False,
+            "evidence_status": "NOT RUN",
+            "notice": notice,
+            "plan": scan_plan.to_json(),
+            "missing": missing,
+            "next_stage": (
+                "run Nmap discovery first; only observed HTTP(S) endpoints may produce "
+                "Nikto/ZAP commands"
+            ),
+        }
+        summary = {**core, "summary_hash": _payload_digest(core)}
+        output = _write_json_payload(summary, args.summary_out)
+        if output is not None:
+            summary["summary_output"] = output
+        lines = [
+            f"{notice}: {' '.join(scan_plan.discovery.argv)}",
+            "Nikto/ZAP commands are deferred until successful Nmap output proves web endpoints.",
+        ]
+        if missing:
+            lines.append(
+                f"MISSING binaries: {', '.join(missing)}; a human must provision them"
+            )
+        lines.append("Planned only. A human may pass --execute for the authorised lab target.")
+        _emit(summary, "\n".join(lines), args.json)
+        return 0
+    if missing:
+        raise ConfigError(
+            f"MISSING scanner binary/binaries {missing}; a human must provision them"
+        )
+
+    result = orchestrator.orchestrate(
+        scan_plan,
+        args.run_id,
+        lambda command: orchestrator.execute_local(command, timeout=args.timeout),
+    )
+    result["run_id"] = args.run_id
+    result["executed"] = True
+    result["evidence_status"] = "VERIFIED"
+    result["notice"] = notice
+    result["canary_evidence_after"] = orchestrator.check_canary_log(args.canary_log)
+    core = dict(result)
+    result["summary_hash"] = _payload_digest(core)
+    output = _write_json_payload(result, args.summary_out)
+    if output is not None:
+        result["summary_output"] = output
+    _emit(
+        result,
+        f"scan outcomes: success={result['successful_tools']} failed={result['failed_tools']} "
+        f"skipped={result['skipped_tools']}; {notice}",
+        args.json,
+    )
+    return 0 if result["complete"] else AdapterError.exit_code
+
+
+def cmd_research_snapshot_export(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    model_hash = None
+    if args.model_artifact:
+        model_hash = role_model.load_model(args.model_artifact).model_hash
+    with _store(args) as store:
+        payload = assessment_snapshot.build_snapshot(
+            settings, store, args.run_id, model_hash=model_hash
+        )
+    path = assessment_snapshot.save_snapshot(payload, args.out)
+    result = {
+        "run_id": args.run_id,
+        "path": str(path),
+        "snapshot_hash": payload["snapshot_hash"],
+        "findings": len(payload["findings"]),
+        "hosts": len(payload["hosts"]),
+        "config_drift": payload["configuration"]["drift"],
+        "model_hash": model_hash,
+    }
+    _emit(
+        result,
+        f"snapshot {payload['snapshot_hash']} for run {args.run_id}: "
+        f"{result['hosts']} hosts, {result['findings']} findings -> {path}",
+        args.json,
+    )
+    return 0
+
+
+def cmd_research_snapshot_verify(args: argparse.Namespace) -> int:
+    payload = assessment_snapshot.load_snapshot(args.snapshot)
+    _require_artifact_run(payload["run"].get("run_id"), args.run_id, "assessment snapshot")
+    result = {
+        "run_id": args.run_id,
+        "path": str(Path(args.snapshot)),
+        "snapshot_hash": payload["snapshot_hash"],
+        "findings": len(payload["findings"]),
+        "hosts": len(payload["hosts"]),
+        "verification": "VERIFIED",
+    }
+    _emit(
+        result,
+        f"VERIFIED snapshot hash {payload['snapshot_hash']} for run {args.run_id}",
+        args.json,
+    )
+    return 0
+
+
+def cmd_research_cohort_freeze(args: argparse.Namespace) -> int:
+    snapshot = assessment_snapshot.load_snapshot(args.snapshot)
+    _require_artifact_run(snapshot["run"].get("run_id"), args.run_id, "assessment snapshot")
+    finding_ids = _cohort_finding_ids(args, snapshot)
+    manifest, items = cohort.freeze_cohort(
+        snapshot,
+        finding_ids,
+        cohort_id=args.cohort_id,
+        created_on=args.created_on,
+        evidence_status=args.evidence_status,
+        reviewer=args.reviewer,
+        approval_id=args.approval_id,
+    )
+    output = cohort.save_cohort(manifest, items, args.out_dir)
+    result = {
+        "run_id": args.run_id,
+        "cohort_id": manifest.cohort_id,
+        "cohort_hash": manifest.manifest_hash,
+        "evidence_status": manifest.evidence_status,
+        "findings": len(items),
+        "path": str(output),
+        "finding_mode": manifest.finding_mode,
+    }
+    _emit(
+        result,
+        f"frozen {manifest.evidence_status} cohort {manifest.cohort_id} "
+        f"({len(items)} raw findings) at {output}; hash {manifest.manifest_hash}",
+        args.json,
+    )
+    return 0
+
+
+def cmd_research_cohort_verify(args: argparse.Namespace) -> int:
+    manifest = cohort.load_manifest(args.manifest)
+    _require_artifact_run(manifest.run_id, args.run_id, "cohort manifest")
+    items = cohort.load_evidence(args.evidence, manifest)
+    truth_validated = False
+    if args.truth:
+        truth = evaluate.load_truth(args.truth)
+        cohort.validate_truth_against_cohort(truth, manifest)
+        truth_validated = True
+    result = {
+        "run_id": args.run_id,
+        "cohort_id": manifest.cohort_id,
+        "cohort_hash": manifest.manifest_hash,
+        "evidence_status": manifest.evidence_status,
+        "findings": len(items),
+        "evidence_verified": True,
+        "truth_validated": truth_validated,
+    }
+    truth_text = " and expert truth covers it exactly" if truth_validated else ""
+    _emit(
+        result,
+        f"VERIFIED cohort {manifest.cohort_id} hash and {len(items)} evidence items"
+        f"{truth_text}",
+        args.json,
+    )
+    return 0
+
+
+def cmd_research_context_eval(args: argparse.Namespace) -> int:
+    truth = context_eval.load_context_truth(args.truth)
+    model = role_model.load_model(args.model_artifact) if args.model_artifact else None
+    with _store(args) as store:
+        if store.run_info(args.run_id) is None:
+            raise ConfigError(f"MISSING: run {args.run_id!r}")
+        profiles = store.profiles(args.run_id)
+        predictions = (
+            None
+            if model is None
+            else {host.ip: model.predict(host) for host in store.hosts(args.run_id)}
+        )
+    result = context_eval.evaluate_context(profiles, truth, predictions)
+    result["run_id"] = args.run_id
+    result["model_hash"] = None if model is None else model.model_hash
+    result["evaluation_hash"] = _payload_digest(result)
+    output = _write_json_payload(result, args.out)
+    if output is not None:
+        result["output"] = output
+    role = result["rule_role"]
+    exposure = result["exposure"]
+    _emit(
+        result,
+        f"{result['status']} RQ1 evaluation: role accuracy={role['accuracy']} "
+        f"coverage={role['coverage']}; exposure accuracy={exposure['accuracy']}; "
+        f"H1 eligible={result['h1']['eligible']}",
+        args.json,
+    )
+    return 0
+
+
+def cmd_research_ranking_eval(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    with _store(args) as store:
+        manifest, truth = _load_bound_research_truth(args, settings, store)
+        cohort_ids = set(manifest.finding_ids)
+        methods = {
+            name: [finding_id for finding_id in order if finding_id in cohort_ids]
+            for name, order in pipeline.baseline_orders(store, args.run_id).items()
+        }
+    result = evaluate.evaluate(methods, truth)
+    result["run_id"] = args.run_id
+    result["cohort_id"] = manifest.cohort_id
+    result["cohort_hash"] = manifest.manifest_hash
+    result["snapshot_hash"] = manifest.snapshot_hash
+    result["evaluation_hash"] = _payload_digest(result)
+    output = _write_json_payload(result, args.out)
+    if output is not None:
+        result["output"] = output
+    _emit(result, evaluate.markdown_table(result), args.json)
+    return 0
+
+
+def cmd_research_ablate(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    bundle_values = (args.snapshot, args.manifest, args.evidence, args.truth)
+    if any(bundle_values) and not all(bundle_values):
+        raise ConfigError(
+            "expert ablation needs --snapshot, --manifest, --evidence, and --truth together"
+        )
+    with _store(args) as store:
+        manifest = None
+        truth = None
+        if all(bundle_values):
+            manifest, truth = _load_bound_research_truth(args, settings, store)
+        result = experiments.run_ablations(
+            settings,
+            store,
+            args.run_id,
+            scenarios=args.scenario or experiments.SCENARIOS,
+            truth=truth,
+            cohort_ids=None if manifest is None else manifest.finding_ids,
+            research_binding=(
+                None
+                if manifest is None
+                else {
+                    "cohort_id": manifest.cohort_id,
+                    "cohort_hash": manifest.manifest_hash,
+                    "snapshot_hash": manifest.snapshot_hash,
+                }
+            ),
+        )
+    output = _write_json_payload(result, args.out)
+    if output is not None:
+        result["output"] = output
+    lines = [
+        f"{name}: changed={comparison['changed_findings']} "
+        f"bands={comparison['band_changes']} inactive={comparison['inactive']}"
+        for name, comparison in result["comparisons"].items()
+    ]
+    lines.append(f"experiment hash {result['experiment_hash']}")
+    _emit(result, "\n".join(lines), args.json)
+    return 0
+
+
+def cmd_research_stability(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    snapshot = assessment_snapshot.load_snapshot(args.snapshot)
+    _require_artifact_run(snapshot["run"].get("run_id"), args.run_id, "assessment snapshot")
+    with _store(args) as store:
+        live_snapshot = assessment_snapshot.build_snapshot(
+            settings,
+            store,
+            args.run_id,
+            model_hash=snapshot.get("model_hash"),
+        )
+        if live_snapshot["snapshot_hash"] != snapshot["snapshot_hash"]:
+            raise ConfigError(
+                "live run state no longer matches the supplied assessment snapshot"
+            )
+        result = experiments.stability_check(
+            settings, store, args.run_id, repeats=args.repeats
+        )
+    result["snapshot_hash"] = snapshot["snapshot_hash"]
+    result["input_evidence_status"] = snapshot["evidence_status"]
+    result["evidence_status"] = "VERIFIED"
+    result["stability_hash"] = _payload_digest(result)
+    output = _write_json_payload(result, args.out)
+    if output is not None:
+        result["output"] = output
+    _emit(
+        result,
+        f"{'VERIFIED' if result['deterministic'] else 'FAILED'}: "
+        f"{result['unique_score_hashes']} unique score hashes across "
+        f"{result['repeats']} repeats",
+        args.json,
+    )
     return 0
 
 
@@ -99,6 +492,160 @@ def cmd_diff(args: argparse.Namespace) -> int:
     with _store(args) as store:
         result = diff.diff_runs(store, args.before, args.after)
     _emit(result, diff.markdown_table(result), args.json)
+    return 0
+
+
+def cmd_unify_preview(args: argparse.Namespace) -> int:
+    settings = _settings(args)
+    snapshot = assessment_snapshot.load_snapshot(args.snapshot)
+    _require_artifact_run(snapshot["run"].get("run_id"), args.run_id, "assessment snapshot")
+    with _store(args) as store:
+        live_snapshot = assessment_snapshot.build_snapshot(
+            settings,
+            store,
+            args.run_id,
+            model_hash=snapshot.get("model_hash"),
+        )
+        if live_snapshot["snapshot_hash"] != snapshot["snapshot_hash"]:
+            raise ConfigError(
+                "live run state no longer matches the supplied assessment snapshot"
+            )
+        result = unify.unify_run(store, args.run_id).to_json()
+    core = {
+        "run_id": args.run_id,
+        "snapshot_hash": snapshot["snapshot_hash"],
+        "evidence_status": snapshot["evidence_status"],
+        "data_kind": "assessment_diagnostic",
+        "mode": "preview_only",
+        "downstream_ranking_changed": False,
+        **result,
+    }
+    payload = {**core, "preview_hash": _payload_digest(core)}
+    output = _write_json_payload(payload, args.out)
+    if output is not None:
+        payload["output"] = output
+    _emit(
+        payload,
+        f"unification preview: {result['raw_count']} raw -> "
+        f"{result['unified_count']} groups; {len(result['candidates'])} review candidates; "
+        "ranking remains raw",
+        args.json,
+    )
+    return 0
+
+
+def cmd_rescan_compare(args: argparse.Namespace) -> int:
+    before = rescan.load_observation_artifact(args.before)
+    after = rescan.load_observation_artifact(args.after)
+    _require_artifact_run(after.observation.run_id, args.run_id, "after observation")
+    payload = rescan.compare_runs(
+        before.observation,
+        after.observation,
+        before_scores=before.scores,
+        after_scores=after.scores,
+    )
+    statuses = (before.evidence_status, after.evidence_status)
+    if "MISSING" in statuses:
+        evidence_status = "MISSING"
+    elif statuses == ("VERIFIED", "VERIFIED"):
+        evidence_status = "VERIFIED"
+    elif "NOT RUN" in statuses:
+        evidence_status = "NOT RUN"
+    else:
+        evidence_status = "TESTED WITH MOCKS"
+    payload["evidence_status"] = evidence_status
+    payload["observation_hashes"] = {
+        "before": before.artifact_hash,
+        "after": after.artifact_hash,
+    }
+    core = dict(payload)
+    payload["comparison_hash"] = _payload_digest(core)
+    output = _write_json_payload(payload, args.out)
+    if output is not None:
+        payload["output"] = output
+    counts = payload["counts"]
+    _emit(
+        payload,
+        f"{evidence_status} re-scan preview: still_open={counts['still_open']} "
+        f"fixed_candidate={counts['fixed_candidate']} "
+        f"not_observable={counts['not_observable']} "
+        f"new={counts['new_finding']} regression_candidate={counts['regression_candidate']}",
+        args.json,
+    )
+    return 0
+
+
+def cmd_model_validate_promotion(args: argparse.Namespace) -> int:
+    model = role_model.load_model(args.model_artifact)
+    manifest = model_governance.load_manifest(args.manifest)
+    result = model_governance.validate_promotion(
+        model, manifest, as_of=_iso_date(args.as_of, "--as-of")
+    )
+    result["canonical_context_changed"] = False
+    result["notice"] = (
+        "validation authorizes recommendations only; model-derived context remains blocked "
+        "without the approved context-source ADR"
+    )
+    _emit(
+        result,
+        f"promotion manifest valid for model {model.model_hash}; "
+        "canonical context remains unchanged",
+        args.json,
+    )
+    return 0
+
+
+def cmd_model_hybrid_preview(args: argparse.Namespace) -> int:
+    as_of = _iso_date(args.as_of, "--as-of")
+    model = role_model.load_model(args.model_artifact)
+    manifest = model_governance.load_manifest(args.manifest)
+    model_governance.validate_promotion(model, manifest, as_of=as_of)
+    with _store(args) as store:
+        if store.run_info(args.run_id) is None:
+            raise ConfigError(f"MISSING: run {args.run_id!r}")
+        profiles = {profile.host_ip: profile for profile in store.profiles(args.run_id)}
+        recommendations = []
+        for host in store.hosts(args.run_id):
+            profile = profiles.get(host.ip)
+            if profile is None:
+                raise ConfigError(
+                    f"MISSING: context profile for host {host.ip!r} in run {args.run_id!r}"
+                )
+            prediction = model.predict(host)
+            recommendation = model_governance.recommend_hybrid_role(
+                profile.role,
+                prediction,
+                model,
+                manifest,
+                as_of=as_of,
+            )
+            recommendations.append(
+                {
+                    "host_ip": host.ip,
+                    "prediction": prediction.to_json(),
+                    "recommendation": recommendation.to_json(),
+                }
+            )
+    result = {
+        "run_id": args.run_id,
+        "model_hash": model.model_hash,
+        "manifest_approval_id": manifest.approval_id,
+        "as_of": as_of.isoformat(),
+        "canonical_context_changed": False,
+        "recommendations": recommendations,
+        "notice": "SHADOW ONLY: recommendations were not written and cannot change ranks",
+    }
+    _emit(
+        result,
+        "\n".join(
+            f"{item['host_ip']}: {item['recommendation']['action']} -> "
+            f"{item['recommendation']['selected_label']} "
+            f"({item['recommendation']['selected_source']})"
+            for item in recommendations
+        )
+        + "\nSHADOW ONLY: canonical context and ranks are unchanged",
+        args.json,
+    )
     return 0
 
 
@@ -364,7 +911,27 @@ def cmd_rank(args: argparse.Namespace) -> int:
 def cmd_report(args: argparse.Namespace) -> int:
     settings = _settings(args)
     with _store(args) as store:
-        path = pipeline.do_report(settings, store, args.run_id, args.out)
+        audit_data = audit.collect_report_audit(
+            settings,
+            store,
+            args.run_id,
+            snapshot_path=args.snapshot,
+            cohort_manifest_path=args.cohort_manifest,
+            cohort_evidence_path=args.cohort_evidence,
+            artifact_paths={
+                "scan": args.scan_artifact,
+                "context": args.context_artifact,
+                "ranking": args.ranking_artifact,
+                "ablation": args.ablation_artifact,
+                "stability": args.stability_artifact,
+                "unification": args.unification_artifact,
+                "rescan": args.rescan_artifact,
+            },
+            model_path=args.model_artifact,
+        )
+        path = pipeline.do_report(
+            settings, store, args.run_id, args.out, audit_data=audit_data
+        )
     _emit({"report": str(path)}, f"report written to {path}", args.json)
     return 0
 
@@ -472,15 +1039,20 @@ def build_parser() -> argparse.ArgumentParser:
     importer.add_argument("--nikto")
 
     scanner = add(
-        "scan", cmd_scan, run_id=False, help="plan the scanner commands for one authorised target"
+        "scan", cmd_scan, help="plan Nmap-first scanning for one authorised target"
     )
     scanner.add_argument("--target-ip", required=True)
     scanner.add_argument(
-        "--tool", action="append", default=None, choices=sorted(runner.BUILDERS)
+        "--tool", action="append", default=None, choices=orchestrator.TOOLS
     )
     scanner.add_argument("--out-dir", default="data/captures")
+    scanner.add_argument("--canary-log")
+    scanner.add_argument("--timeout", type=float, default=1800.0)
+    scanner.add_argument("--summary-out")
     scanner.add_argument(
-        "--execute", action="store_true", help="actually run them (a human decision)"
+        "--execute",
+        action="store_true",
+        help="human-only: execute against the authorised lab target",
     )
 
     intel_parser = subparsers.add_parser("intel", help="offline feed snapshots")
@@ -493,17 +1065,139 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--json", action="store_true")
     status.set_defaults(handler=cmd_intel_status)
 
+    research_parser = subparsers.add_parser(
+        "research", help="freeze and evaluate reproducible research artifacts"
+    )
+    research_sub = research_parser.add_subparsers(
+        dest="research_command", required=True
+    )
+
+    def add_research(name: str, handler, **kwargs) -> argparse.ArgumentParser:
+        command = research_sub.add_parser(name, **kwargs)
+        command.add_argument("--json", action="store_true", help="emit JSON")
+        command.add_argument("--run-id", required=True, help="run identifier")
+        command.set_defaults(handler=handler)
+        return command
+
+    snapshot_export = add_research(
+        "snapshot-export",
+        cmd_research_snapshot_export,
+        help="export a hash-verified assessment snapshot",
+    )
+    snapshot_export.add_argument("--out", required=True)
+    snapshot_export.add_argument("--model", dest="model_artifact")
+
+    snapshot_verify = add_research(
+        "snapshot-verify",
+        cmd_research_snapshot_verify,
+        help="verify a frozen assessment snapshot",
+    )
+    snapshot_verify.add_argument("--snapshot", required=True)
+
+    cohort_freeze = add_research(
+        "cohort-freeze",
+        cmd_research_cohort_freeze,
+        help="freeze a blind expert-review cohort from a snapshot",
+    )
+    cohort_freeze.add_argument("--snapshot", required=True)
+    cohort_freeze.add_argument("--cohort-id", required=True)
+    cohort_freeze.add_argument("--created-on", required=True, help="human-supplied ISO date")
+    cohort_freeze.add_argument(
+        "--evidence-status", choices=("VERIFIED", "NOT RUN"), required=True
+    )
+    cohort_freeze.add_argument("--reviewer")
+    cohort_freeze.add_argument("--approval-id")
+    cohort_freeze.add_argument("--out-dir", required=True)
+    selection = cohort_freeze.add_mutually_exclusive_group(required=True)
+    selection.add_argument("--finding-id", action="append")
+    selection.add_argument("--ids-file")
+    selection.add_argument("--all-findings", action="store_true")
+
+    cohort_verify = add_research(
+        "cohort-verify",
+        cmd_research_cohort_verify,
+        help="verify frozen cohort evidence and optional expert truth",
+    )
+    cohort_verify.add_argument("--manifest", required=True)
+    cohort_verify.add_argument("--evidence", required=True)
+    cohort_verify.add_argument("--truth")
+
+    context_evaluator = add_research(
+        "context-eval",
+        cmd_research_context_eval,
+        help="evaluate rule context and optional shadow-model roles",
+    )
+    context_evaluator.add_argument("--truth", required=True)
+    context_evaluator.add_argument("--model", dest="model_artifact")
+    context_evaluator.add_argument("--out")
+
+    ranking_evaluator = add_research(
+        "ranking-eval",
+        cmd_research_ranking_eval,
+        help="evaluate frozen-cohort ranks against expert truth",
+    )
+    ranking_evaluator.add_argument("--snapshot", required=True)
+    ranking_evaluator.add_argument("--manifest", required=True)
+    ranking_evaluator.add_argument("--evidence", required=True)
+    ranking_evaluator.add_argument("--truth", required=True)
+    ranking_evaluator.add_argument("--out")
+
+    ablation = add_research(
+        "ablate",
+        cmd_research_ablate,
+        help="run read-only predeclared ranking ablations",
+    )
+    ablation.add_argument("--scenario", action="append", choices=experiments.SCENARIOS)
+    ablation.add_argument("--snapshot")
+    ablation.add_argument("--manifest")
+    ablation.add_argument("--evidence")
+    ablation.add_argument("--truth")
+    ablation.add_argument("--out")
+
+    stability = add_research(
+        "stability",
+        cmd_research_stability,
+        help="repeat scoring against one frozen assessment snapshot",
+    )
+    stability.add_argument("--snapshot", required=True)
+    stability.add_argument("--repeats", type=int, default=3)
+    stability.add_argument("--out")
+
     add("enrich", cmd_enrich, help="attach CVE intelligence to findings")
     add("context", cmd_context, help="infer role, exposure and controls per host")
     rank = add("rank", cmd_rank, help="rank findings with the documented formula")
     rank.add_argument("--top", type=int)
     reporter = add("report", cmd_report, help="write the offline HTML report")
     reporter.add_argument("--out", required=True)
+    reporter.add_argument("--snapshot")
+    reporter.add_argument("--cohort-manifest")
+    reporter.add_argument("--cohort-evidence")
+    reporter.add_argument("--scan-artifact")
+    reporter.add_argument("--context-artifact")
+    reporter.add_argument("--ranking-artifact")
+    reporter.add_argument("--ablation-artifact")
+    reporter.add_argument("--stability-artifact")
+    reporter.add_argument("--unification-artifact")
+    reporter.add_argument("--rescan-artifact")
+    reporter.add_argument("--model", dest="model_artifact")
     evaluator = add("eval", cmd_eval, help="compare our ranking with expert rankings")
     evaluator.add_argument("--truth")
     evaluator.add_argument("--live", action="store_true")
     two = add("two-machine", cmd_two_machine, help="one CVE, two machines, two answers")
     two.add_argument("--cve")
+
+    unifier = add(
+        "unify", cmd_unify_preview, help="preview conservative evidence-preserving grouping"
+    )
+    unifier.add_argument("--snapshot", required=True)
+    unifier.add_argument("--out")
+
+    rescan_parser = add(
+        "rescan", cmd_rescan_compare, help="compare hash-verified re-scan observations"
+    )
+    rescan_parser.add_argument("--before", required=True)
+    rescan_parser.add_argument("--after", required=True)
+    rescan_parser.add_argument("--out")
 
     explainer = add("explain", cmd_explain, help="write a plain-English sentence per finding")
     explainer.add_argument("--model", default=explain.DEFAULT_MODEL)
@@ -574,6 +1268,25 @@ def build_parser() -> argparse.ArgumentParser:
     inspector.add_argument("--model", dest="model_artifact", required=True)
     inspector.add_argument("--top", type=int, default=8)
     inspector.set_defaults(handler=cmd_model_inspect)
+
+    promotion = model_sub.add_parser(
+        "validate-promotion", help="validate a fail-closed shadow-model promotion manifest"
+    )
+    promotion.add_argument("--json", action="store_true")
+    promotion.add_argument("--model", dest="model_artifact", required=True)
+    promotion.add_argument("--manifest", required=True)
+    promotion.add_argument("--as-of", required=True)
+    promotion.set_defaults(handler=cmd_model_validate_promotion)
+
+    hybrid = model_sub.add_parser(
+        "hybrid-preview", help="preview approved hybrid role recommendations without writes"
+    )
+    hybrid.add_argument("--json", action="store_true")
+    hybrid.add_argument("--run-id", required=True)
+    hybrid.add_argument("--model", dest="model_artifact", required=True)
+    hybrid.add_argument("--manifest", required=True)
+    hybrid.add_argument("--as-of", required=True)
+    hybrid.set_defaults(handler=cmd_model_hybrid_preview)
 
     visualizer = add(
         "visualize", cmd_visualize, help="render an interactive visual replay of an existing run"

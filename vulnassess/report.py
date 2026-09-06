@@ -20,6 +20,7 @@ tr.High{background:#FBE5D6}
 tr.Medium{background:#FFF3CD}
 tr.Low{background:#E3F1E4}
 .ev{font-family:Consolas,monospace;font-size:12px;color:#444;background:#f6f6f6;padding:2px 4px}
+.hash{font-family:Consolas,monospace;font-size:11px;overflow-wrap:anywhere}
 .muted{color:#666;font-size:12px}
 .kpi{display:inline-block;margin:0 24px 8px 0}
 .kpi b{font-size:22px;display:block}
@@ -228,6 +229,159 @@ def _provenance(scores: Sequence[ScoreBreakdown], findings: dict[str, Finding]) 
     )
 
 
+def _bounded(value: Any, limit: int = 2048) -> str:
+    text = str(value)
+    return text if len(text) <= limit else text[:limit] + "...[truncated]"
+
+
+def _audit(audit: dict[str, Any]) -> str:
+    body = "<h2>6. Research and audit evidence</h2>"
+    body += (
+        "<p class='muted'>Each row carries one permitted evidence label. A successful hash "
+        "check does not upgrade synthetic, missing, or otherwise unverified input evidence.</p>"
+    )
+    evidence_rows = [
+        _row(
+            [
+                f"<td>{_cell(item.get('component'))}</td>",
+                f"<td class='n'><b>{_cell(item.get('evidence_status'))}</b></td>",
+                f"<td class='hash'>{_cell(item.get('artifact_hash'))}</td>",
+                f"<td>{escape(_bounded(item.get('summary', '')))}</td>",
+                f"<td class='hash'>{escape(_bounded(item.get('path', '')))}</td>",
+            ]
+        )
+        for item in audit.get("rows", [])
+    ]
+    body += _table(
+        ["Component", "Evidence", "Content hash", "Result", "Artifact"],
+        evidence_rows,
+    )
+    limitations = audit.get("limitations", [])
+    if limitations:
+        body += "<h3>Limitations</h3><ul>" + "".join(
+            f"<li>{escape(_bounded(item))}</li>" for item in limitations
+        ) + "</ul>"
+
+    intelligence = audit.get("intelligence", {})
+    trace_rows = [
+        _row([f"<td>{escape(str(key))}</td>", f"<td>{escape(str(value))}</td>"])
+        for key, value in sorted(intelligence.get("trace_counts", {}).items())
+    ]
+    body += "<h3>Intelligence matching decisions</h3>"
+    body += _table(["Decision and method", "Count"], trace_rows)
+    unmatched_rows = [
+        _row(
+            [
+                f"<td class='hash'>{escape(str(item.get('finding_id', '')))}</td>",
+                f"<td>{escape(_bounded('; '.join(str(value) for value in item.get('reasons', []))))}</td>",
+            ]
+        )
+        for item in intelligence.get("unmatched", [])
+    ]
+    if unmatched_rows:
+        body += _table(["Unmatched finding", "Recorded reasons"], unmatched_rows)
+
+    unification = audit.get("unification", {})
+    group_rows = [
+        _row(
+            [
+                f"<td class='hash'>{escape(str(group.get('id', '')))}</td>",
+                f"<td class='hash'>{escape(', '.join(str(value) for value in group.get('source_finding_ids', [])))}</td>",
+                f"<td>{_cell(group.get('method'))}</td>",
+                f"<td>{_cell(group.get('confidence'))}</td>",
+                f"<td>{escape(_bounded(group.get('justification', '')))}</td>",
+            ]
+        )
+        for group in unification.get("groups", [])
+    ]
+    body += "<h3>Raw-to-group mapping (preview only)</h3>"
+    body += _table(
+        ["Group ID", "Source finding IDs", "Method", "Confidence", "Justification"],
+        group_rows,
+    )
+    candidate_rows = [
+        _row(
+            [
+                f"<td class='hash'>{escape(str(item.get('left_finding_id', '')))}</td>",
+                f"<td class='hash'>{escape(str(item.get('right_finding_id', '')))}</td>",
+                f"<td>{_cell(item.get('method'))}</td>",
+                f"<td>{_cell(item.get('confidence'))}</td>",
+                f"<td>{escape(_bounded(item.get('justification', '')))}</td>",
+            ]
+        )
+        for item in unification.get("candidates", [])
+    ]
+    if candidate_rows:
+        body += "<h3>Correlation candidates requiring review</h3>"
+        body += _table(
+            ["Left finding", "Right finding", "Method", "Confidence", "Why not merged"],
+            candidate_rows,
+        )
+
+    model_rows = [
+        _row(
+            [
+                f"<td>{_cell(item.get('host_ip'))}</td>",
+                f"<td>{_cell(item.get('rule'))}</td>",
+                f"<td>{_cell(item.get('model'))}</td>",
+                f"<td>{_cell(item.get('confidence'))}</td>",
+                f"<td>{_cell(item.get('margin'))}</td>",
+                f"<td>{'yes' if item.get('abstained') else 'no'}</td>",
+                f"<td>{escape(_bounded(item.get('evidence', '')))}</td>",
+            ]
+        )
+        for item in audit.get("model_cases", [])
+    ]
+    if model_rows:
+        body += "<h3>Shadow-model abstentions and disagreements</h3>"
+        body += _table(
+            ["Host", "Rule", "Model", "Confidence", "Margin", "Abstained", "Evidence"],
+            model_rows,
+        )
+
+    context_artifact = audit.get("artifacts", {}).get("context", {})
+    disagreement_rows = [
+        _row(
+            [
+                f"<td>{_cell(item.get('host_ip'))}</td>",
+                f"<td>{_cell(item.get('truth'))}</td>",
+                f"<td>{_cell(item.get('rule'))}</td>",
+                f"<td>{_cell(item.get('model'))}</td>",
+                f"<td>{_cell(item.get('model_confidence'))}</td>",
+                f"<td>{escape(_bounded(item.get('rule_evidence', '')))}</td>",
+            ]
+        )
+        for item in context_artifact.get("rule_model_disagreements", [])
+    ]
+    if disagreement_rows:
+        body += "<h3>Context-evaluation disagreements</h3>"
+        body += _table(
+            ["Host", "Truth", "Rule", "Model", "Model confidence", "Rule evidence"],
+            disagreement_rows,
+        )
+
+    rescan_artifact = audit.get("artifacts", {}).get("rescan", {})
+    rescan_rows = [
+        _row(
+            [
+                f"<td class='hash'>{escape(str(item.get('finding_id', '')))}</td>",
+                f"<td>{_cell(item.get('host_ip'))}</td>",
+                f"<td>{_cell(item.get('outcome'))}</td>",
+                f"<td>{escape(_bounded(item.get('evidence', '')))}</td>",
+                f"<td>{'yes' if item.get('evidence_loss') else 'no'}</td>",
+            ]
+        )
+        for item in rescan_artifact.get("outcomes", [])
+    ]
+    if rescan_rows:
+        body += "<h3>Re-scan outcomes requiring human adjudication</h3>"
+        body += _table(
+            ["Finding", "Host", "Outcome", "Evidence", "Evidence loss"],
+            rescan_rows,
+        )
+    return body
+
+
 def render(
     run: dict[str, Any],
     scores: Sequence[ScoreBreakdown],
@@ -237,6 +391,7 @@ def render(
     weights: dict,
     config_hash: str,
     rationales: dict[str, Rationale] | None = None,
+    audit: dict[str, Any] | None = None,
 ) -> str:
     by_id = {finding.id: finding for finding in findings}
     by_host = {profile.host_ip: profile for profile in profiles}
@@ -245,7 +400,13 @@ def render(
     header = (
         "<h1>AI-Based Network Vulnerability Assessment &mdash; report</h1>"
         f"<div class='muted'>Run {escape(str(run.get('run_id', '')))} &middot; started "
-        f"{escape(str(run.get('started_at', '')))} &middot; ranking by inferred context</div>"
+        f"{escape(str(run.get('started_at', '')))} &middot; ranking by inferred context"
+        + (
+            f" &middot; evidence {escape(str(audit.get('assessment_evidence_status')))}"
+            if audit is not None
+            else ""
+        )
+        + "</div>"
     )
     footer = (
         f"<footer>run_id {escape(str(run.get('run_id', '')))} &middot; config hash "
@@ -262,6 +423,7 @@ def render(
         + _context(profiles)
         + _methodology(weights, feeds, reworded)
         + _provenance(scores, by_id)
+        + (_audit(audit) if audit is not None else "")
         + footer
         + "</body></html>"
     )

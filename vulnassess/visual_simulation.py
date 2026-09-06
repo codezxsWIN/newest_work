@@ -7,6 +7,7 @@ from typing import Any
 from vulnassess.role_model import RoleModel
 from vulnassess.scoring import best_enrichment
 from vulnassess.store import Store
+from vulnassess.visual_template import HTML_TEMPLATE
 
 STAGES = (
     ("scope", "Scope fence", "Targets are checked before any scanner artifact is opened."),
@@ -36,6 +37,20 @@ def build_payload(
     findings = {finding.id: finding for finding in store.findings(run_id)}
     profiles = {profile.host_ip: profile for profile in store.profiles(run_id)}
     scores = store.scores(run_id)
+    enrichments = {
+      finding_id: [item.to_json() for item in store.enrichments(finding_id)]
+      for finding_id in findings
+    }
+    baseline_order = sorted(
+      scores,
+      key=lambda item: (
+        -(item.base_score if item.base_score is not None else item.risk / 10.0),
+        item.finding_id,
+      ),
+    )
+    baseline_positions = {
+      item.finding_id: position for position, item in enumerate(baseline_order, start=1)
+    }
     score_by_host: dict[str, list[Any]] = {}
     for score in scores:
         score_by_host.setdefault(score.host_ip, []).append(score)
@@ -82,18 +97,34 @@ def build_payload(
                 "finding_id": finding.id,
                 "host_ip": finding.host_ip,
                 "tool": finding.tool,
+                "tool_native_id": finding.tool_native_id,
                 "port": finding.port,
+                "protocol": finding.protocol,
+                "url": finding.url,
                 "title": finding.title,
+                "description": finding.description,
+                "evidence": finding.evidence,
+                "cve_ids": list(finding.cve_ids),
+                "cwe_ids": list(finding.cwe_ids),
+                "native_severity": finding.native_severity,
+                "native_confidence": finding.native_confidence,
+                "provenance": finding.provenance.to_json(),
                 "cve": score.cve_id,
                 "risk": score.risk,
                 "band": score.band,
+                "baseline_position": baseline_positions[score.finding_id],
+                "rank_delta": baseline_positions[score.finding_id] - position,
+                "base_vector": score.base_vector,
                 "base_score": score.base_score,
+                "env_vector": score.env_vector,
                 "env_score": score.env_score,
                 "env_modifications": score.env_modifications,
                 "epss_percentile": score.epss_percentile,
                 "threat_multiplier": score.threat_multiplier,
                 "kev": score.kev,
                 "native_fallback": score.native_fallback,
+                "inputs": score.inputs,
+                "weights_hash": score.weights_hash,
                 "reason": score.reason,
                 "fix": score.fix,
                 "role": None if profile is None else profile.role.value,
@@ -108,6 +139,8 @@ def build_payload(
                     if enrichment is None or not enrichment.patch_references
                     else enrichment.patch_references[0]
                 ),
+                  "enrichment": None if enrichment is None else enrichment.to_json(),
+                  "enrichment_candidates": enrichments[finding.id],
             }
         )
 
@@ -131,7 +164,8 @@ def build_payload(
       for name, metadata in store.feeds_meta().items()
     }
     return {
-        "status": "TESTED WITH SYNTHETIC",
+        "status": "NOT RUN",
+        "data_kind": "synthetic",
         "run_id": run_id,
         "stages": [
             {"id": stage_id, "name": name, "description": description}
@@ -165,6 +199,18 @@ def build_payload(
         },
         "feeds": feeds,
         "tool_counts": tool_counts,
+        "pipeline_counts": {
+          "hosts": len(hosts),
+          "canonical_findings": len(findings),
+          "enriched_findings": sum(bool(items) for items in enrichments.values()),
+          "enrichment_records": sum(len(items) for items in enrichments.values()),
+          "context_profiles": len(profiles),
+          "scored_findings": len(scores),
+          "unique_cves": len(
+            {item["cve_id"] for items in enrichments.values() for item in items}
+          ),
+        },
+        "findings": [findings[key].to_json() for key in sorted(findings)],
         "hosts": host_rows,
         "ranked": ranked,
         "comparison": comparison,
@@ -185,7 +231,7 @@ def _safe_json(payload: dict[str, Any]) -> str:
     )
 
 
-def render(payload: dict[str, Any]) -> str:
+def _render_legacy(payload: dict[str, Any]) -> str:
     """Render a standalone simulation with no external resources."""
     data = _safe_json(payload)
     title = escape(str(payload.get("run_id", "simulation")))
@@ -361,7 +407,7 @@ button.node{{text-align:left;color:var(--ink)}}
     <div><strong>VulnAssess</strong><small>Context-aware pipeline replay</small></div>
   </div>
   <div class="run-state">
-    <span class="badge synthetic">TESTED WITH SYNTHETIC</span>
+    <span class="badge synthetic">SYNTHETIC DATA &middot; NOT RUN</span>
     <span class="badge live" id="runBadge">RUN {title}</span>
     <span class="badge" id="modelBadge">MODEL</span>
   </div>
@@ -541,3 +587,12 @@ renderStatic();setStage(0,true);setTimeout(play,650);
 </script>
 </body>
 </html>"""
+
+
+def render(payload: dict[str, Any]) -> str:
+  """Render the stage-driven assessment workbench with embedded local data."""
+  title = escape(str(payload.get("run_id", "simulation")))
+  head, tail = HTML_TEMPLATE.split("%%PAYLOAD%%", 1)
+  return head.replace("%%TITLE%%", title) + _safe_json(payload) + tail.replace(
+    "%%TITLE%%", title
+  )

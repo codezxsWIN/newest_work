@@ -485,3 +485,45 @@ def enrich_run(run_id: str, store) -> dict[str, Any]:
         "trace_counts": dict(sorted(trace_counts.items())),
         "unmatched": unmatched,
     }
+
+
+def trace_run(run_id: str, store) -> dict[str, Any]:
+    """Recompute matching decisions for audit output without writing enrichment rows."""
+    meta = store.feeds_meta()
+    if not meta:
+        raise IntelUnavailable(
+            "MISSING feed snapshots in the store; run 'vulnassess intel load --from-dir <dir>' first"
+        )
+    feed_dates = {feed: (info.get("file_date") or "") for feed, info in meta.items()}
+    services = {host.ip: host.services for host in store.hosts(run_id)}
+    findings = store.findings(run_id)
+    matched = 0
+    trace_counts: dict[str, int] = {}
+    unmatched: list[dict[str, Any]] = []
+    traces_by_finding: dict[str, list[dict[str, Any]]] = {}
+    for finding in findings:
+        enrichments, traces = match_finding_with_trace(
+            finding, services.get(finding.host_ip, ()), store, feed_dates
+        )
+        matched += bool(enrichments)
+        serialized = [item.to_json() for item in traces]
+        traces_by_finding[finding.id] = serialized
+        for item in traces:
+            key = f"{item.decision}:{item.method}"
+            trace_counts[key] = trace_counts.get(key, 0) + 1
+        if not enrichments:
+            unmatched.append(
+                {
+                    "finding_id": finding.id,
+                    "reasons": [item.reason for item in traces],
+                }
+            )
+    return {
+        "run_id": run_id,
+        "findings": len(findings),
+        "matched": matched,
+        "unmatched_count": len(unmatched),
+        "trace_counts": dict(sorted(trace_counts.items())),
+        "unmatched": unmatched,
+        "traces": dict(sorted(traces_by_finding.items())),
+    }

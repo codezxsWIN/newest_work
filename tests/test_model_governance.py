@@ -103,7 +103,7 @@ class TestModelGovernance(unittest.TestCase):
 
     def test_synthetic_low_metric_weak_policy_and_leakage_are_denied(self):
         cases = {
-            "synthetic": self.manifest(test_evidence_status="TESTED WITH SYNTHETIC"),
+            "not verified": self.manifest(test_evidence_status="NOT RUN"),
             "low metric": self.manifest(
                 metrics={
                     "role_accuracy": 0.70,

@@ -128,7 +128,13 @@ def do_rank(settings: Settings, store: Store, run_id: str) -> list[ScoreBreakdow
     return sorted(scores, key=lambda item: (-item.risk, item.finding_id))
 
 
-def do_report(settings: Settings, store: Store, run_id: str, out_path: str | Path) -> Path:
+def do_report(
+    settings: Settings,
+    store: Store,
+    run_id: str,
+    out_path: str | Path,
+    audit_data: dict[str, Any] | None = None,
+) -> Path:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     html = report.render(
@@ -140,6 +146,7 @@ def do_report(settings: Settings, store: Store, run_id: str, out_path: str | Pat
         weights=settings.weights,
         config_hash=settings.config_hash(),
         rationales=store.rationales(run_id),
+        audit=audit_data,
     )
     out_path.write_text(html, encoding="utf-8")
     return out_path
