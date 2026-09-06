@@ -1,27 +1,133 @@
-# Real ZAP reports
+# Real ZAP Reports & Examples
 
-Empty until a human puts a report here. `tests/test_all.py` skips its ZAP fixture test with
-`fixture not provided: tests/fixtures/zap/*.json` while this directory holds no `.json` file, and a
-skipped test is never evidence that the reader works on real output.
+This directory contains both **real OWASP ZAP JSON reports** (for validation) and **synthetic examples** (for testing).
 
-## How to capture
+## 📋 Real Reports Provenance
+
+Add one row per file before committing. A report without a row is not usable as evidence.
+
+| File | Report Date | Command | Target(s) | Tool Version | Captured By | Authorization | Lab Network | Canary Status |
+|------|-------------|---------|-----------|--------------|-------------|----------------|-------------|----------------|
+| _(none yet)_ | | | | | | | | |
+
+## 📚 Synthetic Examples (Testing Only)
+
+These are **never produced by ZAP** and never evidence. Use only for unit/integration testing:
+
+| File | Purpose | Alerts | Instances | CWE Count |
+|------|---------|--------|-----------|-----------|
+| `EXAMPLE-synthetic-dvwa.json` | Demonstrate ZAP JSON structure with multiple alert severities | 3+ | Variable | Multiple (CWE-79, etc.) |
+
+## ✅ How to Capture Real Reports
 
 **Not run by the agent.** A human runs this against an address listed in `config/scope.yaml`, with
-written authorisation. The baseline scan is passive: it does not attack the target.
+written authorisation. **The baseline scan is passive:** it does not attack the target.
+
+### ZAP Baseline Command
 
 ```bash
-zap-baseline.py -t http://<authorised-ip> -J tests/fixtures/zap/<target-name>.json
+zap-baseline.py -t http://<authorised-ip> \
+  -J tests/fixtures/zap/<target-name>-<date>.json
 ```
 
-## Provenance
+### Alternative: Full ZAP Docker Container
 
-Add one row per file before committing it. A report without a row is not usable as evidence.
+```bash
+docker run -t --pull=always \
+  -v "$(pwd)/tests/fixtures/zap":/zap/wrk \
+  --network isolated-lab-net \
+  ghcr.io/zaproxy/zaproxy:stable \
+  zap-baseline.py -t http://<authorised-ip> \
+  -J /zap/wrk/<target-name>-<date>.json
+```
 
-| File | Capture date | Command | Target | Tool version | Captured by |
-| --- | --- | --- | --- | --- | --- |
-| _(none yet)_ | | | | | |
+**Note:** Use digest-pinned container image for reproducibility.
 
-## What must not be committed here
+## 🔒 Safety Checklist (Before Any Scan)
 
-Production or third-party scan output, reports containing session tokens or credentials in the
-`instances[].uri` values, and any file whose command, date or operator cannot be stated above.
+- [ ] Target(s) explicitly listed in `config/scope.yaml`
+- [ ] Canary `172.28.0.250` verified **NOT** in scope
+- [ ] Isolated lab network confirmed
+- [ ] Written authorization obtained and dated
+- [ ] Passive scan (baseline) only; no active attacks
+- [ ] Report command, version, operator, timestamp recorded
+- [ ] Lab access log provided and verified empty of canary
+
+## 📝 Validation Checklist (Before Commit)
+
+- [ ] Provenance table row filled in above
+- [ ] All URIs/targets in report are lab-only (no production data)
+- [ ] No session tokens, API keys, or credentials in `instances[].uri`
+- [ ] JSON is well-formed (validated locally with `json.load()`)
+- [ ] SHA-256 hash calculated and noted
+- [ ] File size reasonable (<16 MB)
+- [ ] Authorization reference is valid and dated
+
+## 🔍 Expected JSON Structure
+
+Real ZAP reports follow this pattern:
+
+```json
+{
+  "site": [
+    {
+      "[@name]": "http://<target>",
+      "alerts": [
+        {
+          "pluginid": "1234",
+          "alertRef": "50000",
+          "alert": "Cross-Site Scripting (Reflected)",
+          "name": "Cross-Site Scripting (Reflected)",
+          "riskcode": "2",
+          "confidence": "2",
+          "riskdesc": "Medium",
+          "confidencedesc": "High",
+          "desc": "...",
+          "instances": [
+            {
+              "uri": "http://<target>/path",
+              "method": "GET",
+              "param": "param_name",
+              "attack": "...",
+              "evidence": "..."
+            }
+          ],
+          "count": "1",
+          "solution": "..."
+        }
+      ]
+    }
+  ]
+}
+```
+
+**Key Elements:**
+- **`site.[@name]`** — Target URL (must be in lab network)
+- **`alerts[]`** — Array of security findings
+- **`pluginid`** — ZAP plugin identifier
+- **`riskcode`** — 0-3 (Low to High) / `3` = High
+- **`confidence`** — 0-2 (Low to High Confidence)
+- **`instances[]`** — Specific affected URIs/parameters
+- **CWE extraction** — Parsed from alert name/description
+
+## 🧪 Local Testing
+
+Before committing:
+
+```python
+from vulnassess.readers.zap_json import read_zap_json
+from vulnassess.settings import Config
+
+config = Config("config/scope.yaml")
+findings = read_zap_json("tests/fixtures/zap/your-file.json", config)
+print(f"✓ Parsed: {len(findings)} findings")
+```
+
+## 📖 References
+
+- [SCAN_FORMAT_REFERENCE.md](../../SCAN_FORMAT_REFERENCE.md) — Full technical specs
+- [FIXTURE_CREATION_GUIDE.md](../../FIXTURE_CREATION_GUIDE.md) — Step-by-step guide
+- [docs/fixtures.md](../../docs/fixtures.md) — ADR #27 (fixture policy)
+- [docs/decisions.md](../../docs/decisions.md) — Project decisions
+- [config/scope.yaml](../../config/scope.yaml) — Approved scan targets
+- [ZAP Documentation](https://www.zaproxy.org/) — Official ZAP docs
