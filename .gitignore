@@ -5,6 +5,7 @@ reports/
 .env.*
 !.env.example
 .venv/
+.venv.backup/
 venv/
 
 # Raw scanner exports are sensitive. Curated fixtures belong under tests/fixtures/.

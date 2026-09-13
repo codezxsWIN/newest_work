@@ -1,0 +1,68 @@
+:root {
+  color-scheme: light;
+
+  --paper: #f7f7f5;
+  --surface: #ffffff;
+  --wash: #eeefec;
+  --ink: #242724;
+  --muted: #5d635e;
+  --line: #d4d8d2;
+  --line-strong: #7a817b;
+  --critical: #842333;
+  --high: #886200;
+  --medium: #006ba0;
+  --low: #5e6563;
+
+  --font-prose: "Segoe UI", system-ui, sans-serif;
+  --font-display: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  --font-evidence: Consolas, "Liberation Mono", monospace;
+  --text-small: 0.8125rem;
+  --text-body: 1rem;
+  --text-section: 1.25rem;
+  --text-title: 2rem;
+  --text-brand: 1.25rem;
+  --leading-body: 1.6;
+  --leading-tight: 1.25;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --radius-small: 3px;
+  --radius-panel: 4px;
+  --rule: 1px;
+  --focus-width: 2px;
+  --page-width: 1120px;
+  --measure: 70ch;
+  --night-paper: #191c1b;
+  --night-surface: #222624;
+  --night-wash: #2b302d;
+  --night-ink: #eeeeea;
+  --night-muted: #b7beb8;
+  --night-line: #424a43;
+  --night-line-strong: #a1aaa3;
+  --night-critical: #ed9eac;
+  --night-high: #dfc26c;
+  --night-medium: #94c9e2;
+  --night-low: #b7c2bf;
+  --overlay: #00000066;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: var(--night-paper);
+  --surface: var(--night-surface);
+  --wash: var(--night-wash);
+  --ink: var(--night-ink);
+  --muted: var(--night-muted);
+  --line: var(--night-line);
+  --line-strong: var(--night-line-strong);
+  --critical: var(--night-critical);
+  --high: var(--night-high);
+  --medium: var(--night-medium);
+  --low: var(--night-low);
+}

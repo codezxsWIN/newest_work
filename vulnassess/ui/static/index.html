@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VulnAssess | Context Is Not Free</title>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/workbench.css">
+  <script type="module" src="/static/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#stage-evidence">Skip to assessment</a>
+  <header class="app-header">
+    <a class="brand" href="#stage-evidence" aria-label="VulnAssess home"><span class="brand-mark" aria-hidden="true">v/a</span><span>VulnAssess<small>Context Is Not Free</small></span></a>
+    <div class="header-note">THE ASSESSMENT NOTEBOOK</div>
+    <div class="header-actions">
+      <button id="start-tour" class="tour-button" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>Follow one door</button>
+      <button id="refresh" class="icon-button" type="button" title="Refresh stored records" aria-label="Refresh stored records"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6"/></svg></button>
+      <button id="theme" class="icon-button" type="button" title="Toggle dark theme" aria-label="Toggle dark theme" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 15A8 8 0 0 1 9 4 8 8 0 1 0 20 15Z"/></svg></button>
+    </div>
+  </header>
+  <div id="run-strip-slot"></div>
+  <div class="workspace">
+    <aside class="stage-rail">
+      <p class="rail-eyebrow">ONE ASSESSMENT</p>
+      <nav aria-label="Assessment stages">
+        <a class="stage-link active" href="#stage-evidence" data-stage="evidence" aria-current="page"><span class="stage-index">01</span><span><strong>Evidence</strong><small>What was observed</small></span></a>
+        <a class="stage-link" href="#stage-context" data-stage="context"><span class="stage-index">02</span><span><strong>Context</strong><small>What the clues imply</small></span></a>
+        <a class="stage-link" href="#stage-risk" data-stage="risk"><span class="stage-index">03</span><span><strong>Risk</strong><small>Why urgency changes</small></span></a>
+        <a class="stage-link" href="#stage-priorities" data-stage="priorities"><span class="stage-index">04</span><span><strong>Priorities</strong><small>What to examine first</small></span></a>
+      </nav>
+      <div class="rail-bottom"><span class="read-only-mark" aria-hidden="true"></span>LOCAL &amp; READ ONLY<p>Same weakness.<br>Different urgency.</p></div>
+    </aside>
+    <main id="notebook"></main>
+  </div>
+  <aside id="tour" class="tour" aria-label="Guided tour" hidden>
+    <div class="tour-heading"><span id="tour-position" class="eyebrow"></span><button id="tour-close" type="button" class="icon-button" aria-label="Dismiss tour" title="Dismiss tour"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+    <h2 id="tour-title"></h2><p id="tour-copy"></p>
+    <div class="tour-actions"><button id="tour-back" type="button" class="text-button">Back</button><button id="tour-next" type="button" class="primary-button">Next</button></div>
+  </aside>
+  <p id="app-status" role="status" class="sr-only"></p>
+</body>
+</html>

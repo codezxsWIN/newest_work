@@ -971,6 +971,30 @@ def cmd_two_machine(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ui(args: argparse.Namespace) -> int:
+    from vulnassess.ui.server import UiApplication, UiServer
+
+    application = UiApplication(args.db, args.config, args.run_id)
+    if args.export is not None:
+        from vulnassess.ui.export import export_html
+
+        path = export_html(application, args.export)
+        _emit({"path": str(path), "run_id": args.run_id, "read_only": True}, f"UI export: {path}", args.json)
+        return 0
+    with UiServer(application, port=args.port) as server:
+        url = f"http://127.0.0.1:{server.server_port}/"
+        _emit(
+            {"url": url, "run_id": args.run_id, "read_only": True},
+            f"VulnAssess: {url}\nRead-only viewer. Press Ctrl-C to stop.",
+            args.json,
+        )
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            return 0
+    return 0
+
+
 def cmd_demo(args: argparse.Namespace) -> int:
     settings = _settings(args)
     run_id = args.run_id
@@ -1031,6 +1055,13 @@ def build_parser() -> argparse.ArgumentParser:
             sub.add_argument("--run-id", required=True, help="run identifier")
         sub.set_defaults(handler=handler)
         return sub
+
+    viewer = add("ui", cmd_ui, run_id=False, help="view stored records on loopback, read-only")
+    viewer.add_argument("--run", "--run-id", dest="run_id", help="initial run identifier")
+    viewer.add_argument("--port", type=int, default=8765, help="loopback HTTP port")
+    viewer.add_argument("--db", default=argparse.SUPPRESS, help="existing SQLite store path")
+    viewer.add_argument("--config", default=argparse.SUPPRESS, help="configuration directory")
+    viewer.add_argument("--export", metavar="PATH", help="write one offline HTML file without starting a server")
 
     importer = add("import", cmd_import, help="import existing scanner output for one target")
     importer.add_argument("--target-ip", required=True)
