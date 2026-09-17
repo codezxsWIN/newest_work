@@ -21,9 +21,15 @@ human must supply: scanner captures, independent truth, expert rankings.
 
 STILL MISSING - HUMAN INPUT ONLY
 ================================
-[MISSING] Real Nmap/Nikto/ZAP captures from an authorised lab scan
-    Paths: tests/fixtures/nmap/*.xml, tests/fixtures/nikto/*.json,
-    tests/fixtures/zap/*.json (provenance READMEs exist in each).
+[PROVISIONED 2026-09-17] First real Nmap captures exist: two committed fixtures
+    under tests/fixtures/nmap/ (with provenance rows) from loopback lab scans
+    of this machine via `vulnassess scan --execute`. They contain no explicit
+    CVE evidence (keyless vulners); more captures still welcome.
+[OPTIONAL] A free Vulners API key at ~/.nmap/vulners.key unlocks CVE-level
+    findings from the vulners NSE during scans.
+[MISSING] Nikto and ZAP captures (tools not installed; optional).
+[MISSING] Real Nmap/Nikto/ZAP captures from a multi-host authorised lab
+    beyond the two committed loopback captures.
 [MISSING] Independent host-context truth for RQ1 (must not derive from this tool).
 [MISSING] Disjoint human role-model datasets (train/calibration/test splits).
 [MISSING] Expert finding rankings from 2-3 independent practitioners for RQ2/RQ3.
@@ -49,6 +55,8 @@ secrets. Keep live feeds under data/ and generated reports under reports/.
 1. CURRENTLY PRESENT - DO NOT DOWNLOAD AGAIN
 =============================================
 [PRESENT] Python 3.12.10 (project requires Python 3.11+)
+[PRESENT] Nmap 7.80 + Npcap + vulners NSE (installed 2026-09-17 via winget,
+    with owner approval; loops back only)
 [PRESENT] PyYAML 6.0.3 (import name: yaml)
 [PRESENT] Packaging 24.2
 [PRESENT] pytest + pytest-cov

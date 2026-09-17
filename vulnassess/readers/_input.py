@@ -10,7 +10,11 @@ from vulnassess.errors import AdapterError
 MAX_CAPTURE_BYTES = 16 * 1024 * 1024
 MAX_DEPTH = 128
 MAX_NODES = 200_000
-XML_DECLARATION = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
+# Real Nmap writes a bare <!DOCTYPE nmaprun> header; ElementTree ignores DOCTYPEs
+# and never expands user-declared entities. ENTITY declarations and any DOCTYPE with
+# an internal subset are rejected outright; a bare (optionally SYSTEM-id) DOCTYPE passes.
+ENTITY_DECLARATION = re.compile(rb"<!\s*ENTITY\b", re.IGNORECASE)
+DOCTYPE_DECLARATION = re.compile(rb"<!\s*DOCTYPE\b[^>]*>", re.IGNORECASE)
 
 
 def read_capture(path: str | Path, tool: str) -> tuple[Path, bytes]:
@@ -37,8 +41,11 @@ def read_capture(path: str | Path, tool: str) -> tuple[Path, bytes]:
 
 
 def reject_xml_declarations(content: bytes, path: Path, tool: str) -> None:
-    if XML_DECLARATION.search(content):
-        raise AdapterError(f"{tool}: DTD and entity declarations are forbidden in {path}")
+    if ENTITY_DECLARATION.search(content):
+        raise AdapterError(f"{tool}: entity declarations are forbidden in {path}")
+    for declaration in DOCTYPE_DECLARATION.finditer(content):
+        if b"[" in declaration.group(0):
+            raise AdapterError(f"{tool}: DTD internal subsets are forbidden in {path}")
 
 
 def validate_tree(root: Any, path: Path, tool: str) -> None:

@@ -30,7 +30,7 @@ class TestReaderSecurity(unittest.TestCase):
 
         self.assertIn("maximum is 16", str(caught.exception))
 
-    def test_xml_dtd_and_entity_declarations_are_forbidden(self):
+    def test_xml_entity_declarations_are_forbidden(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "synthetic_entity.xml"
             path.write_text(
@@ -41,7 +41,34 @@ class TestReaderSecurity(unittest.TestCase):
             with self.assertRaises(AdapterError) as caught:
                 parse_nmap_xml(path, "synthetic")
 
-        self.assertIn("DTD and entity", str(caught.exception))
+        self.assertIn("entity declarations are forbidden", str(caught.exception))
+
+    def test_doctype_internal_subsets_are_forbidden_even_without_entities(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "synthetic_subset.xml"
+            path.write_text(
+                '<!DOCTYPE nmaprun [<!NOTATION x SYSTEM "y">]><nmaprun/>',
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(AdapterError) as caught:
+                parse_nmap_xml(path, "synthetic")
+
+        self.assertIn("DTD internal subsets are forbidden", str(caught.exception))
+
+    def test_real_nmap_doctype_header_is_accepted(self):
+        """Real Nmap writes a bare <!DOCTYPE nmaprun>; the reader must not reject it."""
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "real_header.xml"
+            path.write_text(
+                '<?xml version="1.0" encoding="UTF-8"?>\n'
+                "<!DOCTYPE nmaprun>\n"
+                '<nmaprun scanner="nmap" start="1"><host>'
+                '<status state="up"/><address addr="172.28.0.12" addrtype="ipv4"/>'
+                "</host></nmaprun>",
+                encoding="utf-8",
+            )
+            parse_nmap_xml(path, "synthetic")
 
     def test_excessive_xml_depth_is_rejected(self):
         with TemporaryDirectory() as directory:
