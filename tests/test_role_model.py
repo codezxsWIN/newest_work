@@ -217,15 +217,16 @@ class TestRoleModel(unittest.TestCase):
     def test_label_template_is_explicitly_unlabeled(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "labels.jsonl"
-            export_label_template(
-                [host("web_frontend", 2), host("database", 1)], "run-1", path
-            )
+            export_label_template([host("web_frontend", 2), host("database", 1)], "run-1", path)
             payloads = [json.loads(line) for line in path.read_text().splitlines()]
 
-        self.assertEqual([item["host"]["ip"] for item in payloads], [
-            "198.51.100.1",
-            "198.51.100.2",
-        ])
+        self.assertEqual(
+            [item["host"]["ip"] for item in payloads],
+            [
+                "198.51.100.1",
+                "198.51.100.2",
+            ],
+        )
         self.assertTrue(all(item["label"] is None for item in payloads))
         self.assertTrue(all(item["label_source"] is None for item in payloads))
 
@@ -240,15 +241,32 @@ class TestRoleModel(unittest.TestCase):
             artifact = root / "model.json"
             errors = io.StringIO()
             with redirect_stderr(errors), redirect_stdout(io.StringIO()):
-                refused = main([
-                    "model", "train", "--data", str(data), "--out", str(artifact),
-                    "--epochs", "50",
-                ])
+                refused = main(
+                    [
+                        "model",
+                        "train",
+                        "--data",
+                        str(data),
+                        "--out",
+                        str(artifact),
+                        "--epochs",
+                        "50",
+                    ]
+                )
             with redirect_stdout(io.StringIO()):
-                accepted = main([
-                    "model", "train", "--data", str(data), "--out", str(artifact),
-                    "--epochs", "50", "--allow-synthetic",
-                ])
+                accepted = main(
+                    [
+                        "model",
+                        "train",
+                        "--data",
+                        str(data),
+                        "--out",
+                        str(artifact),
+                        "--epochs",
+                        "50",
+                        "--allow-synthetic",
+                    ]
+                )
 
             self.assertEqual(refused, 2)
             self.assertIn("--allow-synthetic", errors.getvalue())
@@ -266,11 +284,21 @@ class TestRoleModel(unittest.TestCase):
             )
             errors = io.StringIO()
             with redirect_stderr(errors), redirect_stdout(io.StringIO()):
-                code = main([
-                    "model", "train", "--data", str(data), "--validation", str(data),
-                    "--out", str(root / "model.json"), "--epochs", "50",
-                    "--allow-synthetic",
-                ])
+                code = main(
+                    [
+                        "model",
+                        "train",
+                        "--data",
+                        str(data),
+                        "--validation",
+                        str(data),
+                        "--out",
+                        str(root / "model.json"),
+                        "--epochs",
+                        "50",
+                        "--allow-synthetic",
+                    ]
+                )
 
         self.assertEqual(code, 2)
         self.assertIn("group leakage", errors.getvalue())
@@ -290,10 +318,18 @@ class TestRoleModel(unittest.TestCase):
 
             output = io.StringIO()
             with redirect_stdout(output):
-                code = main([
-                    "--db", str(database), "model", "predict", "--run-id", "shadow",
-                    "--model", str(artifact),
-                ])
+                code = main(
+                    [
+                        "--db",
+                        str(database),
+                        "model",
+                        "predict",
+                        "--run-id",
+                        "shadow",
+                        "--model",
+                        str(artifact),
+                    ]
+                )
 
             with Store(database) as store:
                 self.assertEqual(store.profiles("shadow"), before_profiles)

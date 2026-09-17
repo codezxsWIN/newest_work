@@ -78,11 +78,7 @@ def _compact_cve(entry: dict[str, Any]) -> dict[str, Any]:
     cvss31_vector, cvss31_base = metric("cvssMetricV31")
     cvss40_vector, cvss40_base = metric("cvssMetricV40")
     description = next(
-        (
-            item.get("value", "")
-            for item in cve.get("descriptions", [])
-            if item.get("lang") == "en"
-        ),
+        (item.get("value", "") for item in cve.get("descriptions", []) if item.get("lang") == "en"),
         "",
     )
     patch_references = [
@@ -135,8 +131,12 @@ def _read_epss(path: Path) -> tuple[list[tuple[str, float, float, str]], str | N
         if not cve:
             continue
         rows.append(
-            (cve, float(record.get("epss") or 0.0), float(record.get("percentile") or 0.0),
-             score_date or "")
+            (
+                cve,
+                float(record.get("epss") or 0.0),
+                float(record.get("percentile") or 0.0),
+                score_date or "",
+            )
         )
     return rows, score_date
 
@@ -313,9 +313,7 @@ def match_finding(
     store,
     feed_dates: dict[str, str],
 ) -> list[Enrichment]:
-    enrichments, _ = match_finding_with_trace(
-        finding, host_services, store, feed_dates
-    )
+    enrichments, _ = match_finding_with_trace(finding, host_services, store, feed_dates)
     return enrichments
 
 
@@ -414,7 +412,13 @@ def match_finding_with_trace(
                     continue
                 enrichments.append(
                     _enrichment(
-                        finding, record["id"], record, "cpe_range", confidence, end, store,
+                        finding,
+                        record["id"],
+                        record,
+                        "cpe_range",
+                        confidence,
+                        end,
+                        store,
                         feed_dates,
                     )
                 )
@@ -422,9 +426,7 @@ def match_finding_with_trace(
                 trace(
                     "accepted",
                     "cpe_range",
-                    (
-                        f"service CPE product matches and version {service.version!r} is in range"
-                    ),
+                    (f"service CPE product matches and version {service.version!r} is in range"),
                     record["id"],
                     confidence,
                 )

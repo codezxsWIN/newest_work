@@ -77,15 +77,11 @@ class TestOperationsCli(unittest.TestCase):
             before_path = root / "before.json"
             after_path = root / "after.json"
             before_path.write_text(
-                json.dumps(
-                    build_observation_artifact(baseline, evidence_status="NOT RUN")
-                ),
+                json.dumps(build_observation_artifact(baseline, evidence_status="NOT RUN")),
                 encoding="utf-8",
             )
             after_path.write_text(
-                json.dumps(
-                    build_observation_artifact(follow_up, evidence_status="NOT RUN")
-                ),
+                json.dumps(build_observation_artifact(follow_up, evidence_status="NOT RUN")),
                 encoding="utf-8",
             )
             output_path = root / "comparison.json"

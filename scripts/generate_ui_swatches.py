@@ -40,7 +40,7 @@ def read_tokens() -> dict[str, str]:
 
 
 def linear_rgb(colour: str) -> tuple[float, ...]:
-    channels = [int(colour[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+    channels = [int(colour[index : index + 2], 16) / 255 for index in (1, 3, 5)]
     return tuple(
         channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
         for channel in channels
@@ -61,7 +61,9 @@ def simulate(colour: str, mode: str) -> str:
 
 
 def luminance(colour: str) -> float:
-    return sum(weight * channel for weight, channel in zip((0.2126, 0.7152, 0.0722), linear_rgb(colour)))
+    return sum(
+        weight * channel for weight, channel in zip((0.2126, 0.7152, 0.0722), linear_rgb(colour))
+    )
 
 
 def contrast(first: str, second: str) -> float:
@@ -105,40 +107,77 @@ def validate_palette(tokens: dict[str, str]) -> list[str]:
     results.append("TEXT CONTRAST: all declared text/surface pairs >= 4.5:1")
     for mode in MATRICES:
         colours = {band: simulate(tokens[band], mode) for band in BANDS}
-        nearest = min(distance(colours[first], colours[second]) for first, second in combinations(BANDS, 2))
+        nearest = min(
+            distance(colours[first], colours[second]) for first, second in combinations(BANDS, 2)
+        )
         if nearest < MIN_DISTANCE:
-            raise ValueError(f"{mode}: minimum CIELAB distance {nearest:.2f} is below {MIN_DISTANCE}")
-        results.append(f"{mode}: minimum pairwise CIELAB distance {nearest:.2f} >= {MIN_DISTANCE:.0f}")
+            raise ValueError(
+                f"{mode}: minimum CIELAB distance {nearest:.2f} is below {MIN_DISTANCE}"
+            )
+        results.append(
+            f"{mode}: minimum pairwise CIELAB distance {nearest:.2f} >= {MIN_DISTANCE:.0f}"
+        )
     return results
 
 
 def svg_document(tokens: dict[str, str], mode: str) -> str:
-    document = ElementTree.Element("svg", {
-        "xmlns": "http://www.w3.org/2000/svg", "viewBox": "0 0 960 340",
-        "width": "960", "height": "340", "role": "img", "aria-labelledby": "title desc",
-    })
-    ElementTree.SubElement(document, "title", {"id": "title"}).text = f"Doors severity colours: {mode}"
+    document = ElementTree.Element(
+        "svg",
+        {
+            "xmlns": "http://www.w3.org/2000/svg",
+            "viewBox": "0 0 960 340",
+            "width": "960",
+            "height": "340",
+            "role": "img",
+            "aria-labelledby": "title desc",
+        },
+    )
+    ElementTree.SubElement(
+        document, "title", {"id": "title"}
+    ).text = f"Doors severity colours: {mode}"
     ElementTree.SubElement(document, "desc", {"id": "desc"}).text = (
         "Locally generated token swatches. Severity is always named as well as coloured. "
         "Full-severity linear-sRGB simulation is approximate."
     )
-    ElementTree.SubElement(document, "rect", {"width": "960", "height": "340", "fill": tokens["paper"]})
+    ElementTree.SubElement(
+        document, "rect", {"width": "960", "height": "340", "fill": tokens["paper"]}
+    )
     text_style = {"font-family": "Segoe UI, sans-serif", "fill": tokens["ink"]}
-    ElementTree.SubElement(document, "text", {**text_style, "x": "32", "y": "42", "font-size": "24"}).text = f"Doors / {mode}"
+    ElementTree.SubElement(
+        document, "text", {**text_style, "x": "32", "y": "42", "font-size": "24"}
+    ).text = f"Doors / {mode}"
     for index, band in enumerate(BANDS):
         colour = simulate(tokens[band], mode)
         left = str(32 + index * 232)
-        ElementTree.SubElement(document, "rect", {
-            "x": left, "y": "72", "width": "200", "height": "104", "rx": "3", "fill": colour,
-        })
-        ElementTree.SubElement(document, "text", {**text_style, "x": left, "y": "212", "font-size": "20"}).text = band.capitalize()
-        ElementTree.SubElement(document, "text", {
-            "font-family": "Consolas, monospace", "fill": tokens["muted"],
-            "x": left, "y": "242", "font-size": "16",
-        }).text = f"--{band}: {colour}"
-    ElementTree.SubElement(document, "text", {**text_style, "x": "32", "y": "304", "font-size": "15"}).text = (
-        "Simulation, not human-perception evidence. Labels remain authoritative."
-    )
+        ElementTree.SubElement(
+            document,
+            "rect",
+            {
+                "x": left,
+                "y": "72",
+                "width": "200",
+                "height": "104",
+                "rx": "3",
+                "fill": colour,
+            },
+        )
+        ElementTree.SubElement(
+            document, "text", {**text_style, "x": left, "y": "212", "font-size": "20"}
+        ).text = band.capitalize()
+        ElementTree.SubElement(
+            document,
+            "text",
+            {
+                "font-family": "Consolas, monospace",
+                "fill": tokens["muted"],
+                "x": left,
+                "y": "242",
+                "font-size": "16",
+            },
+        ).text = f"--{band}: {colour}"
+    ElementTree.SubElement(
+        document, "text", {**text_style, "x": "32", "y": "304", "font-size": "15"}
+    ).text = "Simulation, not human-perception evidence. Labels remain authoritative."
     ElementTree.indent(document, space="  ")
     return ElementTree.tostring(document, encoding="unicode") + "\n"
 

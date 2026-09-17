@@ -154,9 +154,7 @@ def main() -> int:
         "model-simulation",
     )
     scan_hosts.append(Host(ip="172.28.0.11"))
-    predictions = [
-        {"host_ip": item.ip, **model.predict(item).to_json()} for item in scan_hosts
-    ]
+    predictions = [{"host_ip": item.ip, **model.predict(item).to_json()} for item in scan_hosts]
 
     report = {
         "status": "TESTED WITH SYNTHETIC",
@@ -182,7 +180,7 @@ def main() -> int:
     REPORT.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     print("LOCAL ROLE-MODEL SIMULATION")
-    print(f"  status: TESTED WITH SYNTHETIC (real labelled captures are MISSING)")
+    print("  status: TESTED WITH SYNTHETIC (real labelled captures are MISSING)")
     print(f"  algorithm: {model.training['algorithm']}")
     print(f"  artifact: {ARTIFACT}")
     print(f"  training data: {TRAIN_DATA}")

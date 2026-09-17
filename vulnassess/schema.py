@@ -215,7 +215,8 @@ class Feature:
     evidence: str
 
     def __post_init__(self) -> None:
-        if not isinstance(self.confidence, (int, float)) or isinstance(self.confidence, bool):
+        # type() rather than isinstance(): bool is an int subclass and must be rejected
+        if type(self.confidence) not in (int, float):
             raise ValueError("Feature.confidence must be a number in [0, 1]")
         if not 0.0 <= float(self.confidence) <= 1.0:
             raise ValueError(f"Feature.confidence {self.confidence} is outside [0, 1]")
@@ -248,8 +249,8 @@ class ContextProfile:
     role: Feature
     exposure: Feature
     segment: str | None = None
-    controls: dict[str, Feature] = field(default_factory=dict)
-    manual: dict[str, Feature] = field(default_factory=dict)
+    controls: dict[str, Feature] = field(default_factory=dict[str, Feature])
+    manual: dict[str, Feature] = field(default_factory=dict[str, Feature])
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -292,7 +293,7 @@ class Enrichment:
     patch_references: tuple[str, ...] = ()
     description: str = ""
     version_end: str | None = None
-    feed_dates: dict[str, str] = field(default_factory=dict)
+    feed_dates: dict[str, str] = field(default_factory=dict[str, str])
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -353,12 +354,12 @@ class ScoreBreakdown:
     base_score: float | None = None
     env_vector: str | None = None
     env_score: float | None = None
-    env_modifications: dict[str, str] = field(default_factory=dict)
+    env_modifications: dict[str, str] = field(default_factory=dict[str, str])
     epss_percentile: float | None = None
     threat_multiplier: float | None = None
     kev: bool = False
     native_fallback: str | None = None
-    inputs: dict[str, Any] = field(default_factory=dict)
+    inputs: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -416,7 +417,7 @@ class Rationale:
     text: str
     source: str
     model: str | None = None
-    validation: dict[str, Any] = field(default_factory=dict)
+    validation: dict[str, Any] = field(default_factory=dict[str, Any])
 
     def __post_init__(self) -> None:
         if self.source not in ("llm", "template"):

@@ -119,8 +119,8 @@ print(f"✓ Parsed: {len(findings)} findings")
 
 ## 📖 References
 
-- [SCAN_FORMAT_REFERENCE.md](../../SCAN_FORMAT_REFERENCE.md) — Full technical specs
-- [FIXTURE_CREATION_GUIDE.md](../../FIXTURE_CREATION_GUIDE.md) — Step-by-step guide
+- [SCAN_FORMAT_REFERENCE.md](../../docs/SCAN_FORMAT_REFERENCE.md) — Full technical specs
+- [FIXTURE_CREATION_GUIDE.md](../../docs/FIXTURE_CREATION_GUIDE.md) — Step-by-step guide
 - [docs/fixtures.md](../../docs/fixtures.md) — ADR #27 (fixture policy)
 - [docs/decisions.md](../../docs/decisions.md) — Project decisions
 - [config/scope.yaml](../../config/scope.yaml) — Approved scan targets

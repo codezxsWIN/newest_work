@@ -50,7 +50,11 @@ def main() -> int:
                 stored = {
                     key: payload.get(key)
                     for key in (
-                        "base_score", "env_score", "risk", "band", "threat_multiplier",
+                        "base_score",
+                        "env_score",
+                        "risk",
+                        "band",
+                        "threat_multiplier",
                         "weights_hash",
                     )
                 }

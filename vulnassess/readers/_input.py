@@ -10,7 +10,7 @@ from vulnassess.errors import AdapterError
 MAX_CAPTURE_BYTES = 16 * 1024 * 1024
 MAX_DEPTH = 128
 MAX_NODES = 200_000
-XML_DECLARATION = re.compile(br"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
+XML_DECLARATION = re.compile(rb"<!\s*(?:DOCTYPE|ENTITY)\b", re.IGNORECASE)
 
 
 def read_capture(path: str | Path, tool: str) -> tuple[Path, bytes]:

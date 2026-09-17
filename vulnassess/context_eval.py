@@ -199,7 +199,9 @@ def _classification(
         "accuracy": round(correct / total, 6) if total else None,
         "coverage": round(covered / total, 6) if total else None,
         "abstention_rate": round(sum(flags) / total, 6) if total else None,
-        "missing_rate": round(sum(value is None for value in predicted) / total, 6) if total else None,
+        "missing_rate": round(sum(value is None for value in predicted) / total, 6)
+        if total
+        else None,
         "selective_accuracy": round(correct / covered, 6) if covered else None,
         "macro_f1": round(sum(f1_values) / len(f1_values), 6) if f1_values else None,
         "confusion_matrix": matrix,
@@ -222,11 +224,7 @@ def _prediction_map(
             result[host_ip] = (
                 prediction.get("label"),
                 bool(prediction.get("abstained", False)),
-                (
-                    None
-                    if prediction.get("confidence") is None
-                    else float(prediction["confidence"])
-                ),
+                (None if prediction.get("confidence") is None else float(prediction["confidence"])),
             )
     return result
 
@@ -267,9 +265,7 @@ def evaluate_context(
             rule_abstained.append(rule_label == "unknown")
             inferred_exposure.append(str(profile.exposure.value))
 
-        model_label, did_abstain, confidence = model_by_ip.get(
-            item.host_ip, (None, False, None)
-        )
+        model_label, did_abstain, confidence = model_by_ip.get(item.host_ip, (None, False, None))
         model_roles.append(model_label)
         model_abstained.append(did_abstain)
         if (

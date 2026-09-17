@@ -21,6 +21,21 @@ vulnassess = "vulnassess.cli:main"
 where = ["."]
 include = ["vulnassess*"]
 
+[tool.ruff]
+line-length = 100
+extend-exclude = ["data"]
+
+[tool.ruff.lint]
+# Explicit, version-stable set: pyflakes/pycodestyle errors plus import sorting.
+# Ruff >= 0.16 broadened its implicit defaults; this pins the contract.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.pyright]
+# The charter scopes the type gate to the package, not the test scaffolding;
+# scoring and schema are checked in strict mode (docs/decisions.md, fixed interfaces).
+include = ["vulnassess", "scripts"]
+strict = ["vulnassess/scoring.py", "vulnassess/schema.py"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

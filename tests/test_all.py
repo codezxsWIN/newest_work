@@ -7,7 +7,6 @@ score works on real data. Real captures are gated behind a skip until a human pr
 import io
 import json
 import socket
-import sqlite3
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
@@ -15,7 +14,17 @@ from tempfile import TemporaryDirectory
 
 import yaml
 
-from vulnassess import context, cvss31, diff, evaluate, explain, intel, pipeline, report, runner, scoring
+from vulnassess import (
+    context,
+    cvss31,
+    diff,
+    evaluate,
+    explain,
+    intel,
+    pipeline,
+    runner,
+    scoring,
+)
 from vulnassess.cli import main
 from vulnassess.errors import (
     AdapterError,
@@ -136,8 +145,12 @@ def make_profile(**kwargs) -> ContextProfile:
             kwargs["criticality"], 1.0, "manual", "scope.yaml tags.criticality"
         )
     controls = {
-        "waf": Feature(kwargs.get("waf", False) or False, 0.75 if kwargs.get("waf") else 0.5,
-                       "rule", kwargs.get("waf_evidence", "none observed")),
+        "waf": Feature(
+            kwargs.get("waf", False) or False,
+            0.75 if kwargs.get("waf") else 0.5,
+            "rule",
+            kwargs.get("waf_evidence", "none observed"),
+        ),
         "auth_required": Feature(kwargs.get("auth", False), 0.5, "rule", "none observed"),
         "tls": Feature(False, 0.5, "rule", "none observed"),
         "rate_limiting": Feature(False, 0.5, "rule", "none observed"),
@@ -322,8 +335,13 @@ class TestScoring(unittest.TestCase):
             patch_references=("https://httpd.apache.org/security/vulnerabilities_24.html",),
         )
         services = (
-            service(80, "http", "80/tcp http Apache httpd 2.4.49", product="Apache httpd",
-                    version="2.4.49"),
+            service(
+                80,
+                "http",
+                "80/tcp http Apache httpd 2.4.49",
+                product="Apache httpd",
+                version="2.4.49",
+            ),
         )
         text = scoring.fix_text(finding, enrichment, services)
         self.assertIn("Upgrade Apache httpd 2.4.49 to 2.4.51 or later", text)
@@ -346,10 +364,13 @@ class TestContext(unittest.TestCase):
         self.assertIn("3306/tcp mysql MySQL 5.5.62", role.evidence)
 
     def test_web_frontend_role_from_port_service_and_banner(self):
-        host = Host(ip="172.28.0.10", services=(
-            service(80, "http", "80/tcp http Apache httpd 2.4.49"),
-            service(22, "ssh", "22/tcp ssh SyntheticSSH 4.7p1"),
-        ))
+        host = Host(
+            ip="172.28.0.10",
+            services=(
+                service(80, "http", "80/tcp http Apache httpd 2.4.49"),
+                service(22, "ssh", "22/tcp ssh SyntheticSSH 4.7p1"),
+            ),
+        )
         role = context.infer_role(host, ROLES)
         self.assertEqual(role.value, "web_frontend")
         self.assertGreaterEqual(role.confidence, 0.7)
@@ -423,8 +444,12 @@ class TestContext(unittest.TestCase):
         hosts, findings = parse_nmap_xml(NMAP_SYNTH, "unit")
         host = next(item for item in hosts if item.ip == "172.28.0.12")
         profile = context.build_profile(host, findings, SETTINGS.scope, ROLES, CONTROLS)
-        features = [profile.role, profile.exposure, *profile.controls.values(),
-                    *profile.manual.values()]
+        features = [
+            profile.role,
+            profile.exposure,
+            *profile.controls.values(),
+            *profile.manual.values(),
+        ]
         self.assertGreaterEqual(len(features), 6)
         for feature in features:
             self.assertTrue(feature.evidence.strip())
@@ -510,9 +535,7 @@ class TestReadersAndImport(unittest.TestCase):
     def test_import_stores_findings_with_a_raw_copy_and_provenance(self):
         with TemporaryDirectory() as directory:
             with temp_store(directory) as store:
-                summary = pipeline.do_import(
-                    SETTINGS, store, "r1", "172.28.0.10", NMAP_SYNTH
-                )
+                summary = pipeline.do_import(SETTINGS, store, "r1", "172.28.0.10", NMAP_SYNTH)
                 self.assertEqual(summary["findings"]["nmap"], 1)
                 findings = store.findings("r1")
             raw = Path(directory) / "data" / "raw" / "r1" / NMAP_SYNTH.name
@@ -574,8 +597,12 @@ class TestIntel(unittest.TestCase):
             "versionStartIncluding": "2.4.49",
             "versionEndExcluding": "2.4.51",
         }
-        for version, expected in (("2.4.49", True), ("2.4.50", True), ("2.4.51", False),
-                                  ("2.4.48", False)):
+        for version, expected in (
+            ("2.4.49", True),
+            ("2.4.50", True),
+            ("2.4.51", False),
+            ("2.4.48", False),
+        ):
             with self.subTest(version=version):
                 matched, _, _ = intel._in_range(version, cpe_match)
                 self.assertEqual(matched, expected)
@@ -631,14 +658,21 @@ class TestEndToEnd(unittest.TestCase):
             root = Path(directory)
             out = root / "report.html"
             argv = [
-                "--config", str(ROOT / "config"),
-                "--db", str(root / "data" / "vulnassess.db"),
+                "--config",
+                str(ROOT / "config"),
+                "--db",
+                str(root / "data" / "vulnassess.db"),
                 "demo",
-                "--target", f"172.28.0.10:{NMAP_SYNTH}",
-                "--target", f"172.28.0.12:{NMAP_SYNTH}",
-                "--target", f"172.28.0.11:{NMAP_SYNTH}:{ZAP_SYNTH}",
-                "--feeds", str(FEEDS_SYNTH),
-                "--out", str(out),
+                "--target",
+                f"172.28.0.10:{NMAP_SYNTH}",
+                "--target",
+                f"172.28.0.12:{NMAP_SYNTH}",
+                "--target",
+                f"172.28.0.11:{NMAP_SYNTH}:{ZAP_SYNTH}",
+                "--feeds",
+                str(FEEDS_SYNTH),
+                "--out",
+                str(out),
             ]
             buffer = io.StringIO()
             with redirect_stdout(buffer):
@@ -693,9 +727,19 @@ class TestEndToEnd(unittest.TestCase):
             errors = io.StringIO()
             with redirect_stderr(errors), redirect_stdout(io.StringIO()):
                 scope_code = main(
-                    ["--config", str(ROOT / "config"), "--db", database, "import",
-                     "--run-id", "r1", "--target-ip", "8.8.8.8",
-                     "--nmap", str(root / "absent.xml")]
+                    [
+                        "--config",
+                        str(ROOT / "config"),
+                        "--db",
+                        database,
+                        "import",
+                        "--run-id",
+                        "r1",
+                        "--target-ip",
+                        "8.8.8.8",
+                        "--nmap",
+                        str(root / "absent.xml"),
+                    ]
                 )
                 intel_code = main(
                     ["--db", database, "intel", "load", "--from-dir", str(root / "no-feeds")]

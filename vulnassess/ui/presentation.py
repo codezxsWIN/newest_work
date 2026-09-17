@@ -18,7 +18,7 @@ def _text(value: Any) -> str:
 
 def _band(value: str | None) -> str:
     name = value if value in BAND_CLASSES else None
-    return f'<span class="band {BAND_CLASSES.get(name, "band-unscored")}">{escape(name or "Unscored")}</span>'
+    return f'<span class="band {BAND_CLASSES.get(name or "", "band-unscored")}">{escape(name or "Unscored")}</span>'
 
 
 def _heading(section: str, title: str, sentence: str) -> str:
@@ -33,14 +33,14 @@ def _section_header(title: str, detail: str = "") -> str:
 
 
 def _finding_title(finding: dict[str, Any]) -> str:
-    return evidence(finding["title"], f'{finding["tool"]} / finding title', False)
+    return evidence(finding["title"], f"{finding['tool']} / finding title", False)
 
 
 def _inspection_button(finding: dict[str, Any], content: str, css: str = "inspect-link") -> str:
     return (
         f'<button type="button" class="{css}" data-inspect="{escape(finding["id"])}" '
         f'aria-haspopup="dialog" aria-controls="inspector" aria-label="Inspect {escape(finding["title"])}">'
-        f'{content}</button>'
+        f"{content}</button>"
     )
 
 
@@ -52,13 +52,18 @@ def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         profile = profiles.get(host["ip"])
         role = profile["role"]["value"] if profile else "unknown"
         findings = [finding for finding in payload["findings"] if finding["host_ip"] == host["ip"]]
-        openings = ''.join(
-            _inspection_button(finding, door(scores.get(finding["id"], {}).get("band"), finding["id"]), "door-button")
+        openings = "".join(
+            _inspection_button(
+                finding,
+                door(scores.get(finding["id"], {}).get("band"), finding["id"]),
+                "door-button",
+            )
             for finding in findings
         )
-        banners = ''.join(
-            evidence(service["banner"], f'{service["port"]}/{service["protocol"]} / scanner banner')
-            for service in host["services"] if service.get("banner")
+        banners = "".join(
+            evidence(service["banner"], f"{service['port']}/{service['protocol']} / scanner banner")
+            for service in host["services"]
+            if service.get("banner")
         )
         hosts.append(
             f'<article class="asset" id="host-{escape(host["ip"])}">'
@@ -68,46 +73,62 @@ def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
             + f'<p class="asset-exposure">{escape(str(profile["exposure"]["value"]).replace("_", " ") if profile else "No context recorded")}</p>'
             + f'<div class="asset-doors">{openings or "No findings recorded"}</div>'
             + f'<details class="asset-evidence"><summary>Scanner evidence</summary>{banners or "No banner recorded"}</details>'
-            + '</article>'
+            + "</article>"
         )
     scope = config.get("scope", {})
     scope_values = scope.get("values", {})
     targets = scope_values.get("lab_targets", [])
-    allowlist = ''.join(evidence(target["ip"], "Scope / explicit lab target", False) for target in targets)
+    allowlist = "".join(
+        evidence(target["ip"], "Scope / explicit lab target", False) for target in targets
+    )
     canary = scope_values.get("canary", {}).get("ip")
     fence = (
         '<div class="scope-fence"><div><span class="eyebrow">PERMISSION BOUNDARY</span>'
-        '<h2>The fence is part of the evidence.</h2></div>'
+        "<h2>The fence is part of the evidence.</h2></div>"
         f'<div class="scope-targets">{allowlist or "Configuration not attached"}</div>'
         '<div class="canary-record"><span class="stamp">OUT OF SCOPE</span>'
-        + (evidence(canary, "Scope / canary address", False) if canary else '<p>Canary not recorded</p>')
+        + (
+            evidence(canary, "Scope / canary address", False)
+            if canary
+            else "<p>Canary not recorded</p>"
+        )
         + '<p class="quiet">Refusal history is not stored.</p></div></div>'
     )
-    feeds = ''.join(
+    feeds = "".join(
         '<article class="feed"><div class="feed-heading">'
         f'<h3>{escape(feed["feed"].upper())}</h3><span class="stamp">SNAPSHOT</span></div>'
         + evidence(feed["file_date"] or "Not recorded", "Feed / snapshot date", False)
         + '<p class="quiet">Age in days: not stored</p>'
         + evidence(str(feed["rows"]), "Feed / stored rows", False)
-        + f'<details><summary>Snapshot provenance</summary>{evidence(feed["sha256"], "Feed / SHA-256")}'
-        + evidence(feed["path"], "Feed / source path") + '</details></article>'
+        + f"<details><summary>Snapshot provenance</summary>{evidence(feed['sha256'], 'Feed / SHA-256')}"
+        + evidence(feed["path"], "Feed / source path")
+        + "</details></article>"
         for feed in payload["feeds_meta"]
     )
     return (
         '<section id="stage-evidence" class="stage-panel" data-panel="evidence" aria-labelledby="evidence-title">'
-        + _heading("01 / EVIDENCE", '<span id="evidence-title">Start with what was seen.</span>', "The scanner's words. Preserved, not paraphrased.")
+        + _heading(
+            "01 / EVIDENCE",
+            '<span id="evidence-title">Start with what was seen.</span>',
+            "The scanner's words. Preserved, not paraphrased.",
+        )
         + '<div class="section-head"><h2>Observed assets</h2><span>Each door opens a finding</span></div>'
         + f'<div class="asset-grid">{"".join(hosts)}</div>'
-        + fence + _section_header("Intelligence has a date.", "Current store metadata; not frozen per run")
+        + fence
+        + _section_header("Intelligence has a date.", "Current store metadata; not frozen per run")
         + f'<div class="feed-grid">{feeds or "No feed metadata recorded"}</div>'
-        + '<details class="archive"><summary>Recorded pipeline details</summary>' + pipeline_map(payload) + '</details>'
-        + '<details class="archive"><summary>The drawing key</summary>' + legend() + '</details></section>'
+        + '<details class="archive"><summary>Recorded pipeline details</summary>'
+        + pipeline_map(payload)
+        + "</details>"
+        + '<details class="archive"><summary>The drawing key</summary>'
+        + legend()
+        + "</details></section>"
     )
 
 
 def _feature(feature: dict[str, Any], label: str, threshold: float | None = None) -> str:
     confidence = feature["confidence"]
-    state = '<span class="stamp">MANUAL</span>' if feature["source"] == "manual" else ''
+    state = '<span class="stamp">MANUAL</span>' if feature["source"] == "manual" else ""
     if threshold is not None and confidence < threshold:
         state += '<span class="stamp">BELOW SCORING THRESHOLD</span>'
     ring = (
@@ -121,26 +142,44 @@ def _feature(feature: dict[str, Any], label: str, threshold: float | None = None
         f'<span class="eyebrow">{escape(label)}</span>{state}</div>'
         f'<div class="feature-value"><span class="inferred">{escape(_text(feature["value"]).replace("_", " "))}</span>'
         f'<span class="confidence" aria-label="Confidence {confidence}">{ring}{confidence}</span></div>'
-        + evidence(feature["evidence"], f'{feature["source"]} / {label} evidence') + '</div>'
+        + evidence(feature["evidence"], f"{feature['source']} / {label} evidence")
+        + "</div>"
     )
 
 
 def _context_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
-    threshold = config.get("weights", {}).get("values", {}).get("environmental", {}).get("min_confidence_to_apply")
+    threshold = (
+        config.get("weights", {})
+        .get("values", {})
+        .get("environmental", {})
+        .get("min_confidence_to_apply")
+    )
     profiles = []
     for profile in payload["context"]:
-        features = _feature(profile["role"], "Role", threshold) + _feature(profile["exposure"], "Exposure", threshold)
-        features += ''.join(_feature(feature, name.replace("_", " "), threshold) for name, feature in profile["controls"].items())
-        features += ''.join(_feature(feature, name.replace("_", " ")) for name, feature in profile["manual"].items())
+        features = _feature(profile["role"], "Role", threshold) + _feature(
+            profile["exposure"], "Exposure", threshold
+        )
+        features += "".join(
+            _feature(feature, name.replace("_", " "), threshold)
+            for name, feature in profile["controls"].items()
+        )
+        features += "".join(
+            _feature(feature, name.replace("_", " ")) for name, feature in profile["manual"].items()
+        )
         profiles.append(
             f'<article class="context-column" id="context-{escape(profile["host_ip"])}">'
             + evidence(profile["host_ip"], "Stored context / host", False)
             + f'<div class="context-mark">{building(profile["role"]["value"])}</div>'
-            + features + '</article>'
+            + features
+            + "</article>"
         )
     return (
         '<section id="stage-context" class="stage-panel" data-panel="context" hidden>'
-        + _heading("02 / CONTEXT", "Every inference needs a clue.", "A role is a conclusion. The words beside it are the evidence.")
+        + _heading(
+            "02 / CONTEXT",
+            "Every inference needs a clue.",
+            "A role is a conclusion. The words beside it are the evidence.",
+        )
         + '<p class="context-key"><span class="ring-key" aria-hidden="true"></span>Confidence is how sure, not how dangerous.</p>'
         + f'<div class="context-grid">{"".join(profiles) or "No context profiles stored"}</div>'
         + '<p class="stage-footnote">Rule-based context is authoritative. No model is run by this viewer.</p></section>'
@@ -175,15 +214,16 @@ def _comparison(payload: dict[str, Any]) -> str:
         ("Band", [score["band"] for score in pair]),
     ]
     for label, values in rowspec:
-        state = ' class="differs"' if values[0] != values[1] else ''
-        cells = ''.join(f'<td>{escape(_text(value).replace("_", " "))}</td>' for value in values)
+        state = ' class="differs"' if values[0] != values[1] else ""
+        cells = "".join(f"<td>{escape(_text(value).replace('_', ' '))}</td>" for value in values)
         rows.append(f'<tr{state}><th scope="row">{label}</th>{cells}</tr>')
-    illustrations = ''.join(
+    illustrations = "".join(
         '<div class="compare-asset">'
         + building(score["inputs"].get("role", {}).get("value", "unknown"))
         + evidence(score["host_ip"], "Stored score / host", False)
         + f'<div class="compare-risk {BAND_CLASSES.get(score["band"], "")}"><strong>{score["risk"]}</strong>{_band(score["band"])}</div>'
-        + '</div>' for score in pair
+        + "</div>"
+        for score in pair
     )
     return (
         '<div class="comparison" id="comparison"><div class="shared-weakness"><span class="eyebrow">ONE SHARED WEAKNESS</span>'
@@ -191,26 +231,34 @@ def _comparison(payload: dict[str, Any]) -> str:
         + '<span class="comparison-connector" aria-hidden="true"></span></div>'
         + f'<div class="compare-assets">{illustrations}</div>'
         + '<table id="compare-table" class="compare-table"><caption class="sr-only">Same vulnerability on two hosts</caption>'
-        + f'<thead><tr><th>Stored input or result</th><th>{escape(pair[0]["host_ip"])}</th><th>{escape(pair[1]["host_ip"])}</th></tr></thead>'
-        + f'<tbody>{"".join(rows)}</tbody></table></div>'
+        + f"<thead><tr><th>Stored input or result</th><th>{escape(pair[0]['host_ip'])}</th><th>{escape(pair[1]['host_ip'])}</th></tr></thead>"
+        + f"<tbody>{''.join(rows)}</tbody></table></div>"
     )
 
 
 def _flatten(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
     if not isinstance(value, dict):
         return [(prefix, value)]
-    return [item for key, child in value.items() for item in _flatten(child, f"{prefix}.{key}".strip("."))]
+    return [
+        item
+        for key, child in value.items()
+        for item in _flatten(child, f"{prefix}.{key}".strip("."))
+    ]
 
 
 def _risk_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
     weights = config.get("weights", {})
-    rows = ''.join(
-        f'<tr><th>{evidence(key, "Configuration / key", False)}</th><td>{evidence(_text(value), "Configuration / value", False)}</td></tr>'
+    rows = "".join(
+        f"<tr><th>{evidence(key, 'Configuration / key', False)}</th><td>{evidence(_text(value), 'Configuration / value', False)}</td></tr>"
         for key, value in _flatten(weights.get("values", {}))
     )
     return (
         '<section id="stage-risk" class="stage-panel" data-panel="risk" hidden>'
-        + _heading("03 / RISK", "Same weakness.<br><em>Different urgency.</em>", "Context changes the priority. The original severity stays visible.")
+        + _heading(
+            "03 / RISK",
+            "Same weakness.<br><em>Different urgency.</em>",
+            "Context changes the priority. The original severity stays visible.",
+        )
         + _comparison(payload)
         + _sandbox(payload, config)
         + '<details class="archive" id="weights-view"><summary>The weights, in the open</summary>'
@@ -225,8 +273,14 @@ def _sandbox(payload: dict[str, Any], config: dict[str, Any]) -> str:
     weights = config.get("weights", {}).get("values", {})
     if not candidates or not weights:
         return '<p class="state-message">Sandbox unavailable: a stored CVSS vector and current weights are required.</p>'
-    options = ''.join(f'<option value="{score["finding_id"]}">{escape(score["host_ip"])} / {escape(score["cve_id"] or "CVSS")}</option>' for score in candidates)
-    roles = ''.join(f'<option value="{escape(role)}">{escape(role.replace("_", " "))}</option>' for role in weights["environmental"]["role_requirements"])
+    options = "".join(
+        f'<option value="{score["finding_id"]}">{escape(score["host_ip"])} / {escape(score["cve_id"] or "CVSS")}</option>'
+        for score in candidates
+    )
+    roles = "".join(
+        f'<option value="{escape(role)}">{escape(role.replace("_", " "))}</option>'
+        for role in weights["environmental"]["role_requirements"]
+    )
     return (
         '<section class="sandbox" id="sandbox" aria-labelledby="sandbox-heading">'
         '<div class="sandbox-banner"><span class="stamp">SANDBOX</span><strong>Sandbox. Nothing stored changes.</strong></div>'
@@ -249,7 +303,7 @@ def _sandbox(payload: dict[str, Any], config: dict[str, Any]) -> str:
         '</div><p id="sandbox-error" role="alert" hidden></p>'
         '<details><summary>Calculated vector</summary><pre id="sandbox-vector" class="sandbox-vector"></pre></details>'
         '<details><summary>CVSS arithmetic self-check</summary><button id="selfcheck" class="text-button" type="button">Run local arithmetic check</button><output id="selfcheck-result" aria-live="polite">Not run</output></details>'
-        '</section>'
+        "</section>"
     )
 
 
@@ -259,76 +313,124 @@ def _facets(payload: dict[str, Any]) -> str:
         ("band", "Band", sorted({score["band"] for score in payload["scores"]})),
         ("host", "Host", sorted({finding["host_ip"] for finding in payload["findings"]})),
         ("scanner", "Scanner", sorted({finding["tool"] for finding in payload["findings"]})),
-        ("exposure", "Exposure", sorted({profile["exposure"]["value"] for profile in profiles.values()})),
-        ("kev", "KEV", ["yes", "no"]), ("cve", "CVE", ["yes", "no"]),
+        (
+            "exposure",
+            "Exposure",
+            sorted({profile["exposure"]["value"] for profile in profiles.values()}),
+        ),
+        ("kev", "KEV", ["yes", "no"]),
+        ("cve", "CVE", ["yes", "no"]),
         ("unscored", "Threat unscored", ["yes", "no"]),
     )
-    return '<div class="facets">' + ''.join(
-        f'<label>{label}<select data-facet="{key}" aria-label="Filter {label}"><option value="">All</option>'
-        + ''.join(f'<option value="{escape(value)}">{escape(value.replace("_", " "))}</option>' for value in values)
-        + '</select></label>' for key, label, values in specs
-    ) + '<button type="button" class="text-button" id="clear-filters">Clear</button></div>'
+    return (
+        '<div class="facets">'
+        + "".join(
+            f'<label>{label}<select data-facet="{key}" aria-label="Filter {label}"><option value="">All</option>'
+            + "".join(
+                f'<option value="{escape(value)}">{escape(value.replace("_", " "))}</option>'
+                for value in values
+            )
+            + "</select></label>"
+            for key, label, values in specs
+        )
+        + '<button type="button" class="text-button" id="clear-filters">Clear</button></div>'
+    )
 
 
 def _priorities_stage(payload: dict[str, Any]) -> str:
     finding_map = {finding["id"]: finding for finding in payload["findings"]}
     profiles = {profile["host_ip"]: profile for profile in payload["context"]}
     rows = []
-    ordered = [(finding_map[score["finding_id"]], score) for score in payload["scores"] if score["finding_id"] in finding_map]
+    ordered = [
+        (finding_map[score["finding_id"]], score)
+        for score in payload["scores"]
+        if score["finding_id"] in finding_map
+    ]
     scored = {score["finding_id"] for score in payload["scores"]}
     ordered += [(finding, {}) for finding in payload["findings"] if finding["id"] not in scored]
     for finding, score in ordered:
         exposure = profiles.get(finding["host_ip"], {}).get("exposure", {}).get("value", "unknown")
         data = {
-            "band": score.get("band", "Unscored"), "host": finding["host_ip"], "scanner": finding["tool"],
-            "exposure": exposure, "kev": "yes" if score.get("kev") else "no",
+            "band": score.get("band", "Unscored"),
+            "host": finding["host_ip"],
+            "scanner": finding["tool"],
+            "exposure": exposure,
+            "kev": "yes" if score.get("kev") else "no",
             "cve": "yes" if finding["cve_ids"] or score.get("cve_id") else "no",
             "unscored": "yes" if score.get("threat_multiplier") is None else "no",
         }
-        attrs = ' '.join(f'data-{key}="{escape(value)}"' for key, value in data.items())
+        attrs = " ".join(f'data-{key}="{escape(value)}"' for key, value in data.items())
         risk = score.get("risk")
         risk_text = "Unscored" if risk is None else str(risk)
-        meter = '' if risk is None else f'<meter class="risk-meter" min="0" max="100" value="{risk}" aria-label="Stored risk {risk}"></meter>'
+        meter = (
+            ""
+            if risk is None
+            else f'<meter class="risk-meter" min="0" max="100" value="{risk}" aria-label="Stored risk {risk}"></meter>'
+        )
         rows.append(
             f'<tr class="queue-row" {attrs}><td class="risk-cell {BAND_CLASSES.get(score.get("band"), "")}">'
-            f'<span>{risk_text}</span>{meter}</td><td>{_band(score.get("band"))}</td>'
-            f'<td>{_inspection_button(finding, escape(finding["title"]), "finding-link")}'
-            + evidence(', '.join(finding["cve_ids"]) or score.get("cve_id") or finding["tool_native_id"], "Scanner / vulnerability identifier", False)
+            f"<span>{risk_text}</span>{meter}</td><td>{_band(score.get('band'))}</td>"
+            f"<td>{_inspection_button(finding, escape(finding['title']), 'finding-link')}"
+            + evidence(
+                ", ".join(finding["cve_ids"]) or score.get("cve_id") or finding["tool_native_id"],
+                "Scanner / vulnerability identifier",
+                False,
+            )
             + f'</td><td>{evidence(finding["host_ip"], "Scanner / host", False)}<span class="quiet">{escape(exposure.replace("_", " "))}</span></td>'
-            + f'<td>{evidence(finding["tool"], "Provenance / scanner", False)}</td></tr>'
+            + f"<td>{evidence(finding['tool'], 'Provenance / scanner', False)}</td></tr>"
         )
     return (
         '<section id="stage-priorities" class="stage-panel" data-panel="priorities" hidden>'
-        + _heading("04 / PRIORITIES", "What deserves attention first?", "The stored order. Every finding still connected to its evidence.")
+        + _heading(
+            "04 / PRIORITIES",
+            "What deserves attention first?",
+            "The stored order. Every finding still connected to its evidence.",
+        )
         + _facets(payload)
         + '<div class="table-scroll"><table id="ranked-list" class="queue-table"><thead><tr><th>Risk</th><th>Band</th><th>Finding</th><th>Host</th><th>Source</th></tr></thead>'
-        + f'<tbody>{"".join(rows)}</tbody></table></div>'
+        + f"<tbody>{''.join(rows)}</tbody></table></div>"
         + '<p id="no-results" class="state-message" hidden>No findings match these filters.</p>'
         + '<section class="evaluation"><span class="stamp">NOT EVALUATED HERE</span><h2>A ranking is a hypothesis.</h2>'
-        '<p>No persisted expert-evaluation result is attached to this run. Kendall\'s W, tau, NDCG and critical queue are unavailable.</p>'
+        "<p>No persisted expert-evaluation result is attached to this run. Kendall's W, tau, NDCG and critical queue are unavailable.</p>"
         '<p class="quiet">This viewer does not compute or substitute evaluation metrics.</p></section></section>'
     )
 
 
 def _anatomy(score: dict[str, Any]) -> str:
-    nodes = (("Base", score.get("base_score")), ("Environmental", score.get("env_score")), ("Risk", score.get("risk")))
-    flow = ''.join(
+    nodes = (
+        ("Base", score.get("base_score")),
+        ("Environmental", score.get("env_score")),
+        ("Risk", score.get("risk")),
+    )
+    flow = "".join(
         f'<div class="score-node"><span>{name}</span><strong>{escape(_text(value))}</strong></div>'
         for name, value in nodes
     )
-    modifications = ''.join(
-        f'<tr><th>{escape(metric)}</th><td>{evidence(value, "Stored Environmental modification", False)}</td></tr>'
+    modifications = "".join(
+        f"<tr><th>{escape(metric)}</th><td>{evidence(value, 'Stored Environmental modification', False)}</td></tr>"
         for metric, value in score.get("env_modifications", {}).items()
     )
     return (
         f'<div class="score-chain" aria-label="Stored score chain">{flow}</div>'
         + evidence(score.get("base_vector") or "No vector stored", "Stored score / base vector")
-        + evidence(score.get("env_vector") or "Native severity path", "Stored score / Environmental vector")
+        + evidence(
+            score.get("env_vector") or "Native severity path", "Stored score / Environmental vector"
+        )
         + f'<table class="record-table"><tbody>{modifications}</tbody></table>'
         + '<p class="quiet">Rule names and historical weight values were not persisted per modification.</p>'
         + evidence(_text(score.get("epss_percentile")), "Stored score / EPSS percentile", False)
-        + evidence("Threat unscored" if score.get("threat_multiplier") is None else str(score["threat_multiplier"]), "Stored score / threat multiplier", False)
-        + evidence(score.get("native_fallback") or "Environmental scoring path", "Stored score / fallback", False)
+        + evidence(
+            "Threat unscored"
+            if score.get("threat_multiplier") is None
+            else str(score["threat_multiplier"]),
+            "Stored score / threat multiplier",
+            False,
+        )
+        + evidence(
+            score.get("native_fallback") or "Environmental scoring path",
+            "Stored score / fallback",
+            False,
+        )
     )
 
 
@@ -338,79 +440,158 @@ def _inspector(payload: dict[str, Any]) -> str:
     panels = []
     for finding in payload["findings"]:
         score = scores.get(finding["id"], {})
-        enrichments = [item for item in payload["enrichments"] if item["finding_id"] == finding["id"]]
-        references = sorted({reference for item in enrichments for reference in item.get("patch_references", [])})
+        enrichments = [
+            item for item in payload["enrichments"] if item["finding_id"] == finding["id"]
+        ]
+        references = sorted(
+            {reference for item in enrichments for reference in item.get("patch_references", [])}
+        )
         fix = (
             evidence(score["fix"], "Stored score / recorded recommendation")
-            + ''.join(evidence(reference, "Enrichment / recorded advisory reference") for reference in references)
-            if score.get("fix") and references else '<p>No vendor fix recorded in the loaded feeds.</p>'
+            + "".join(
+                evidence(reference, "Enrichment / recorded advisory reference")
+                for reference in references
+            )
+            if score.get("fix") and references
+            else "<p>No vendor fix recorded in the loaded feeds.</p>"
         )
         related = [
-            item for item in payload["findings"]
-            if item["id"] != finding["id"] and item["host_ip"] != finding["host_ip"]
+            item
+            for item in payload["findings"]
+            if item["id"] != finding["id"]
+            and item["host_ip"] != finding["host_ip"]
             and set(item["cve_ids"]) & set(finding["cve_ids"])
         ]
-        provenance = ''.join(evidence(_text(value), f'Provenance / {key}', False) for key, value in finding["provenance"].items())
+        provenance = "".join(
+            evidence(_text(value), f"Provenance / {key}", False)
+            for key, value in finding["provenance"].items()
+        )
         provenance += evidence(finding["first_seen"], "Finding / first seen", False)
         provenance += evidence(finding["last_seen"], "Finding / last seen", False)
         context_used = score.get("inputs", {}) or profiles.get(finding["host_ip"], {})
-        context_markup = ''.join(
+        context_markup = "".join(
             _feature(context_used[key], key.capitalize())
-            for key in ("role", "exposure") if key in context_used
+            for key in ("role", "exposure")
+            if key in context_used
         )
-        context_markup += '<details><summary>Controls and manual tags</summary>' + ''.join(
-            _feature(value, key.replace("_", " "))
-            for collection in (context_used.get("controls", {}), context_used.get("manual", {}))
-            for key, value in collection.items()
-        ) + '</details>'
-        stored_detail = {"finding": finding, "score": score, "enrichments": enrichments, "context_used": context_used}
+        context_markup += (
+            "<details><summary>Controls and manual tags</summary>"
+            + "".join(
+                _feature(value, key.replace("_", " "))
+                for collection in (context_used.get("controls", {}), context_used.get("manual", {}))
+                for key, value in collection.items()
+            )
+            + "</details>"
+        )
+        stored_detail = {
+            "finding": finding,
+            "score": score,
+            "enrichments": enrichments,
+            "context_used": context_used,
+        }
         panels.append(
             f'<article class="inspection" id="inspection-{escape(finding["id"])}" data-inspection="{escape(finding["id"])}" hidden>'
             + f'<span class="eyebrow">FINDING / {escape(finding["tool"].upper())}</span>'
-            + f'<h2>{escape(finding["title"])}</h2>{_band(score.get("band"))}'
+            + f"<h2>{escape(finding['title'])}</h2>{_band(score.get('band'))}"
             + f'<p class="inspector-reason">{escape(score.get("reason", "No reason recorded"))}</p>'
-            + '<h3>How this score was recorded</h3>' + _anatomy(score)
-            + '<h3>Evidence</h3>' + evidence(finding["evidence"], f'{finding["tool"]} / verbatim finding evidence')
-            + '<details><summary>Context used</summary>' + (context_markup or '<p class="quiet">Context inputs not recorded.</p>') + '</details>'
-            + '<h3>Recommended fix</h3>' + fix
-            + '<h3>Back to the source</h3><div class="provenance">' + provenance + '</div>'
-            + '<h3>Same CVE, elsewhere</h3>'
-            + (''.join(_inspection_button(item, escape(item["host_ip"])) for item in related) or '<p class="quiet">No other host shares this recorded CVE.</p>')
-            + '<details><summary>Complete stored record</summary>' + evidence(json.dumps(stored_detail, indent=2), "Database / complete finding record") + '</details>'
-            + '</article>'
+            + "<h3>How this score was recorded</h3>"
+            + _anatomy(score)
+            + "<h3>Evidence</h3>"
+            + evidence(finding["evidence"], f"{finding['tool']} / verbatim finding evidence")
+            + "<details><summary>Context used</summary>"
+            + (context_markup or '<p class="quiet">Context inputs not recorded.</p>')
+            + "</details>"
+            + "<h3>Recommended fix</h3>"
+            + fix
+            + '<h3>Back to the source</h3><div class="provenance">'
+            + provenance
+            + "</div>"
+            + "<h3>Same CVE, elsewhere</h3>"
+            + (
+                "".join(_inspection_button(item, escape(item["host_ip"])) for item in related)
+                or '<p class="quiet">No other host shares this recorded CVE.</p>'
+            )
+            + "<details><summary>Complete stored record</summary>"
+            + evidence(json.dumps(stored_detail, indent=2), "Database / complete finding record")
+            + "</details>"
+            + "</article>"
         )
     return (
         '<dialog id="inspector" class="inspector" aria-label="Finding inspector">'
         '<div class="inspector-bar"><span class="eyebrow">EVIDENCE INSPECTOR</span>'
         '<button id="close-inspector" class="icon-button" type="button" aria-label="Close inspector" title="Close inspector">'
         '<svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>'
-        + ''.join(panels) + '</dialog>'
+        + "".join(panels)
+        + "</dialog>"
     )
 
 
-def render_workbench(template: str, payload: dict[str, Any] | None, runs: list[dict[str, Any]], config: dict[str, Any]) -> str:
+def render_workbench(
+    template: str,
+    payload: dict[str, Any] | None,
+    runs: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> str:
     if payload is None:
-        options = ''.join(f'<option value="{escape(run["run_id"])}">{escape(run["run_id"])}</option>' for run in runs)
+        options = "".join(
+            f'<option value="{escape(run["run_id"])}">{escape(run["run_id"])}</option>'
+            for run in runs
+        )
         content = (
             '<section class="stage-panel" id="stage-evidence" data-panel="evidence">'
             + _heading("ASSESSMENT", "Begin with a recorded run.", "No scan starts here.")
-            + (f'<label class="run-choice">Stored run<select id="select-run"><option value="">Choose an assessment</option>{options}</select></label>'
-               if runs else '<div class="state-message"><span class="stamp">NO RUNS</span><p>Import an authorized capture through the CLI, then refresh.</p></div>')
-            + '</section>'
+            + (
+                f'<label class="run-choice">Stored run<select id="select-run"><option value="">Choose an assessment</option>{options}</select></label>'
+                if runs
+                else '<div class="state-message"><span class="stamp">NO RUNS</span><p>Import an authorized capture through the CLI, then refresh.</p></div>'
+            )
+            + "</section>"
         )
-        strip = ''
+        strip = ""
         boot = {"assessment": None, "configuration": config, "runs": runs}
     else:
-        content = _evidence_stage(payload, config) + _context_stage(payload, config) + _risk_stage(payload, config) + _priorities_stage(payload)
-        quotations = ''.join(evidence(text, source) for text, source in evidence_items(payload))
-        content += '<details class="archive all-evidence"><summary>Complete source evidence ledger</summary>' + quotations + '</details>' + _inspector(payload)
+        content = (
+            _evidence_stage(payload, config)
+            + _context_stage(payload, config)
+            + _risk_stage(payload, config)
+            + _priorities_stage(payload)
+        )
+        quotations = "".join(evidence(text, source) for text, source in evidence_items(payload))
+        content += (
+            '<details class="archive all-evidence"><summary>Complete source evidence ledger</summary>'
+            + quotations
+            + "</details>"
+            + _inspector(payload)
+        )
         strip = run_strip(payload)
-        synthetic = any("synthetic" in item["path"].lower() for item in payload["feeds_meta"]) or any("synthetic" in item["provenance"]["raw_path"].lower() for item in payload["findings"])
+        synthetic = any(
+            "synthetic" in item["path"].lower() for item in payload["feeds_meta"]
+        ) or any(
+            "synthetic" in item["provenance"]["raw_path"].lower() for item in payload["findings"]
+        )
         kind = "SYNTHETIC" if synthetic else "SOURCE UNLABELLED"
-        strip = strip.replace('<span>Run provenance</span>', f'<span class="stamp">{kind}</span><span>Run provenance</span>')
+        strip = strip.replace(
+            "<span>Run provenance</span>",
+            f'<span class="stamp">{kind}</span><span>Run provenance</span>',
+        )
         pair = _pair(payload)
-        boot = {"assessment": payload, "configuration": config, "runs": runs, "tour_finding": pair[0]["finding_id"] if pair else None}
-    serialized = json.dumps(boot, sort_keys=True, ensure_ascii=True, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    document = template.replace('<main id="notebook"></main>', f'<main id="notebook">{content}</main>')
+        boot = {
+            "assessment": payload,
+            "configuration": config,
+            "runs": runs,
+            "tour_finding": pair[0]["finding_id"] if pair else None,
+        }
+    serialized = (
+        json.dumps(boot, sort_keys=True, ensure_ascii=True, allow_nan=False)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+    document = template.replace(
+        '<main id="notebook"></main>', f'<main id="notebook">{content}</main>'
+    )
     document = document.replace('<div id="run-strip-slot"></div>', strip)
-    return document.replace('</body>', f'<script id="assessment-data" type="application/json">{serialized}</script></body>')
+    return document.replace(
+        "</body>",
+        f'<script id="assessment-data" type="application/json">{serialized}</script></body>',
+    )

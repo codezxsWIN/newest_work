@@ -27,15 +27,11 @@ def _reports(payload: object, path: Path) -> list[dict]:
         candidates = []
     reports = [item for item in candidates if isinstance(item.get("vulnerabilities"), list)]
     if not reports:
-        raise AdapterError(
-            f"nikto: {path} has no 'vulnerabilities' list; not a Nikto JSON report"
-        )
+        raise AdapterError(f"nikto: {path} has no 'vulnerabilities' list; not a Nikto JSON report")
     return reports
 
 
-def parse_nikto_json(
-    path: str | Path, run_id: str, host_ip: str | None = None
-) -> list[Finding]:
+def parse_nikto_json(path: str | Path, run_id: str, host_ip: str | None = None) -> list[Finding]:
     path, payload = load_json_capture(path, "nikto")
 
     seen = ""

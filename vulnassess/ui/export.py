@@ -35,16 +35,25 @@ def export_html(application: UiApplication, destination: str | Path) -> Path:
         raise ConfigError(f"UI export must not overwrite source or configuration files: {target}")
     response = application.get("/")
     if response.status != 200:
-        raise ConfigError(f"UI export cannot read run {application.run_id!r}: {response.body.decode('utf-8')}")
+        raise ConfigError(
+            f"UI export cannot read run {application.run_id!r}: {response.body.decode('utf-8')}"
+        )
     document = response.body.decode("utf-8")
-    script_match = re.search(r'<script id="assessment-data" type="application/json">(.*?)</script>', document, re.DOTALL)
+    script_match = re.search(
+        r'<script id="assessment-data" type="application/json">(.*?)</script>', document, re.DOTALL
+    )
     if script_match is None:
         raise ConfigError("UI export is missing the assessment-data element")
     bootstrap = json.loads(script_match.group(1))
     bootstrap["offline"] = True
     bootstrap["cvss_fixture"] = application.cvss_fixture()
-    serialized = json.dumps(bootstrap, sort_keys=True, ensure_ascii=True, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    document = document[:script_match.start(1)] + serialized + document[script_match.end(1):]
+    serialized = (
+        json.dumps(bootstrap, sort_keys=True, ensure_ascii=True, allow_nan=False)
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+    )
+    document = document[: script_match.start(1)] + serialized + document[script_match.end(1) :]
     style = _asset("tokens.css") + "\n" + _asset("workbench.css")
     import_line = "import { scoreVector, sandbox } from './cvss31.js';"
     app = _asset("app.js")
@@ -52,15 +61,18 @@ def export_html(application: UiApplication, destination: str | Path) -> Path:
         raise ConfigError("UI export requires the known local CVSS module import")
     script = _asset("cvss31.js") + "\n" + app.replace(import_line, "", 1)
     for name in ("tokens.css", "workbench.css"):
-        document = document.replace(f'<link rel="stylesheet" href="/static/{name}">', '')
-    document = document.replace('<script type="module" src="/static/app.js"></script>', '')
+        document = document.replace(f'<link rel="stylesheet" href="/static/{name}">', "")
+    document = document.replace('<script type="module" src="/static/app.js"></script>', "")
     policy = (
         f"default-src 'none'; script-src 'sha256-{_hash_source(script)}'; "
         f"style-src 'sha256-{_hash_source(style)}'; img-src data:; connect-src 'none'; "
         "base-uri 'none'; form-action 'none'"
     )
-    document = document.replace('</head>', f'<meta http-equiv="Content-Security-Policy" content="{policy}"><style>{style}</style></head>')
-    document = document.replace('</body>', f'<script type="module">{script}</script></body>')
+    document = document.replace(
+        "</head>",
+        f'<meta http-equiv="Content-Security-Policy" content="{policy}"><style>{style}</style></head>',
+    )
+    document = document.replace("</body>", f'<script type="module">{script}</script></body>')
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(document, encoding="utf-8", newline="\n")

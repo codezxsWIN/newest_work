@@ -99,9 +99,7 @@ class TestContextEvaluation(unittest.TestCase):
             truth("192.0.2.2", "web_frontend", "internal"),
         ]
 
-        result = evaluate_context(
-            [profile("192.0.2.1", "database", "internal")], labels
-        )
+        result = evaluate_context([profile("192.0.2.1", "database", "internal")], labels)
 
         self.assertEqual(result["missing_profile_hosts"], ["192.0.2.2"])
         self.assertEqual(result["rule_role"]["examples"], 2)
@@ -162,9 +160,7 @@ class TestContextEvaluation(unittest.TestCase):
 
     def test_human_truth_is_h1_eligible_only_when_every_profile_exists(self):
         labels = [truth("192.0.2.1", "database", "internal", source="human")]
-        result = evaluate_context(
-            [profile("192.0.2.1", "database", "internal")], labels
-        )
+        result = evaluate_context([profile("192.0.2.1", "database", "internal")], labels)
 
         self.assertTrue(result["h1"]["eligible"])
         self.assertTrue(result["h1"]["role_pass"])

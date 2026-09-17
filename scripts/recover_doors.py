@@ -13,23 +13,34 @@ ROOT = Path(__file__).resolve().parents[1]
 REVISION = "e89252e7be14472f587276224256ab9ae02eea43"
 DIRECTORIES = ("vulnassess/", "tests/", "scripts/", "config/", "docs/")
 ROOT_FILES = {
-    "pyproject.toml", "requirements.txt", "Makefile", "run_demo.py",
-    "run_visual_simulation.py", "run_model_simulation.py", "run_research_simulation.py",
-    "models/synthetic-role-model.json", ".github/copilot-instructions.md",
+    "pyproject.toml",
+    "requirements.txt",
+    "Makefile",
+    "run_demo.py",
+    "run_visual_simulation.py",
+    "run_model_simulation.py",
+    "run_research_simulation.py",
+    "models/synthetic-role-model.json",
+    ".github/copilot-instructions.md",
 }
 HISTORY_FILES = {
-    "vulnassess/cli.py", "tests/test_ui.py", "tests/__init__.py",
-    "scripts/check_ui_inputs.py", "scripts/check_ui_server.py",
-    "scripts/generate_ui_swatches.py", "scripts/capture_ui_phase2.py",
-    "docs/decisions.md", "docs/ui-contract.md", "docs/ui-phase-1.md",
-    "docs/ui-phase-2.md", "docs/ui.md",
+    "vulnassess/cli.py",
+    "tests/test_ui.py",
+    "tests/__init__.py",
+    "scripts/check_ui_inputs.py",
+    "scripts/check_ui_server.py",
+    "scripts/generate_ui_swatches.py",
+    "scripts/capture_ui_phase2.py",
+    "docs/decisions.md",
+    "docs/ui-contract.md",
+    "docs/ui-phase-1.md",
+    "docs/ui-phase-2.md",
+    "docs/ui.md",
 }
 
 
 def git(*arguments: str) -> bytes:
-    return subprocess.run(
-        ["git", *arguments], cwd=ROOT, check=True, capture_output=True
-    ).stdout
+    return subprocess.run(["git", *arguments], cwd=ROOT, check=True, capture_output=True).stdout
 
 
 def history_sources() -> dict[str, Path]:
@@ -46,7 +57,9 @@ def history_sources() -> dict[str, Path]:
             continue
         if relative not in HISTORY_FILES and not relative.startswith("vulnassess/ui/"):
             continue
-        entries = sorted(record.get("entries", []), key=lambda entry: entry["timestamp"], reverse=True)
+        entries = sorted(
+            record.get("entries", []), key=lambda entry: entry["timestamp"], reverse=True
+        )
         for entry in entries:
             snapshot = index_path.parent / entry["id"]
             if snapshot.is_file() and snapshot.stat().st_size:
@@ -64,8 +77,7 @@ def main() -> int:
     historical = history_sources()
     tracked = git("ls-tree", "-r", "--name-only", REVISION).decode("utf-8").splitlines()
     candidates = {
-        name for name in tracked
-        if name in ROOT_FILES or name.startswith(DIRECTORIES)
+        name for name in tracked if name in ROOT_FILES or name.startswith(DIRECTORIES)
     } | set(historical)
     restored = 0
     preserved = 0
@@ -78,7 +90,8 @@ def main() -> int:
         if not target.resolve().is_relative_to(ROOT):
             raise ValueError(f"recovery path leaves workspace: {name}")
         content = (
-            historical[name].read_bytes() if name in historical
+            historical[name].read_bytes()
+            if name in historical
             else git("show", f"{REVISION}:{name}")
         )
         digest = hashlib.sha256(content).hexdigest()
@@ -94,7 +107,9 @@ def main() -> int:
             restored += 1
         print(f"{'RESTORED' if arguments.apply else 'PLANNED'}: {name}; sha256={digest}")
     print(f"EXISTING PATHS PRESERVED: {preserved}")
-    print(f"MISSING PATHS {'RESTORED' if arguments.apply else 'CHECKED'}: {restored if arguments.apply else planned}")
+    print(
+        f"MISSING PATHS {'RESTORED' if arguments.apply else 'CHECKED'}: {restored if arguments.apply else planned}"
+    )
     print("No branch, existing file, database, or dependency was changed.")
     return 0
 

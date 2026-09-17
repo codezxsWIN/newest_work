@@ -47,15 +47,17 @@ def run_model(database: Path, artifact: Path, run_id: str) -> dict[str, Any]:
         host = Host.from_json(stored_host)
         values, evidence = extract_features(host)
         prediction = model.predict(host)
-        hosts.append({
-            "host_ip": host.ip,
-            "input": stored_host,
-            "features": [
-                {"name": name, "value": value, "evidence": evidence[name]}
-                for name, value in sorted(values.items())
-            ],
-            "prediction": prediction.to_json(),
-        })
+        hosts.append(
+            {
+                "host_ip": host.ip,
+                "input": stored_host,
+                "features": [
+                    {"name": name, "value": value, "evidence": evidence[name]}
+                    for name, value in sorted(values.items())
+                ],
+                "prediction": prediction.to_json(),
+            }
+        )
     return {
         "status": "completed",
         "source": "live_local_inference",

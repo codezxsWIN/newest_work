@@ -4,7 +4,6 @@ import copy
 import json
 import unittest
 from hashlib import sha256
-from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import yaml
@@ -149,9 +148,7 @@ class TestCohortFreeze(unittest.TestCase):
             )
             tampered_items = copy.deepcopy(loaded_items)
             tampered_items[0]["finding"]["title"] = "changed"
-            (output / "evidence.json").write_text(
-                json.dumps(tampered_items), encoding="utf-8"
-            )
+            (output / "evidence.json").write_text(json.dumps(tampered_items), encoding="utf-8")
 
             with self.assertRaises(ConfigError) as caught:
                 load_evidence(output / "evidence.json", loaded_manifest)

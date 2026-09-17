@@ -37,9 +37,7 @@ def _service(port_node: ET.Element) -> Service:
             cpe = cpe_node.text.strip()
     tunnel = service_node.get("tunnel") if service_node is not None else None
     banner = " ".join(
-        part
-        for part in [f"{port}/{protocol}", name, product, version, extrainfo]
-        if part
+        part for part in [f"{port}/{protocol}", name, product, version, extrainfo] if part
     )
     return Service(
         port=port,
@@ -94,9 +92,7 @@ def parse_nmap_xml(path: str | Path, run_id: str) -> tuple[list[Host], list[Find
         hostname_node = host_node.find("hostnames/hostname")
         hostname = hostname_node.get("name") if hostname_node is not None else None
         os_matches = host_node.findall("os/osmatch")
-        best_os = max(
-            os_matches, key=lambda node: int(node.get("accuracy") or 0), default=None
-        )
+        best_os = max(os_matches, key=lambda node: int(node.get("accuracy") or 0), default=None)
         first_seen = _iso(host_node.get("starttime"), run_start)
         last_seen = _iso(host_node.get("endtime"), first_seen)
 

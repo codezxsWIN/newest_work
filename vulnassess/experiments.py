@@ -82,9 +82,7 @@ def _profile_for(profile: ContextProfile, scenario: str) -> ContextProfile:
     )
 
 
-def _enrichment_for(
-    enrichment: Enrichment | None, scenario: str
-) -> Enrichment | None:
+def _enrichment_for(enrichment: Enrichment | None, scenario: str) -> Enrichment | None:
     if enrichment is None:
         return None
     changes: dict[str, Any] = {}
@@ -168,8 +166,7 @@ def _comparison(
                     "band_after": after.band,
                     "position_before": full_positions[finding_id],
                     "position_after": candidate_positions[finding_id],
-                    "position_delta": candidate_positions[finding_id]
-                    - full_positions[finding_id],
+                    "position_delta": candidate_positions[finding_id] - full_positions[finding_id],
                 }
             )
     common = sorted(set(full_positions) & set(candidate_positions))
@@ -179,9 +176,7 @@ def _comparison(
     )
     return {
         "changed_findings": len(changed),
-        "band_changes": sum(
-            item.get("band_before") != item.get("band_after") for item in changed
-        ),
+        "band_changes": sum(item.get("band_before") != item.get("band_after") for item in changed),
         "position_changes": sum(
             item.get("position_before") != item.get("position_after") for item in changed
         ),
@@ -203,13 +198,11 @@ def run_ablations(
     """Run the predeclared scenarios against one immutable store snapshot."""
     requested = tuple(dict.fromkeys(("full", *scenarios)))
     results = {
-        scenario: score_scenario(settings, store, run_id, scenario)
-        for scenario in requested
+        scenario: score_scenario(settings, store, run_id, scenario) for scenario in requested
     }
     full = results["full"]
     all_methods = {
-        scenario: [item.finding_id for item in scores]
-        for scenario, scores in results.items()
+        scenario: [item.finding_id for item in scores] for scenario, scores in results.items()
     }
     methods = all_methods
     if cohort_ids is not None:
@@ -223,14 +216,11 @@ def run_ablations(
             )
         selected_set = set(selected)
         methods = {
-            scenario: [
-                finding_id for finding_id in order if finding_id in selected_set
-            ]
+            scenario: [finding_id for finding_id in order if finding_id in selected_set]
             for scenario, order in all_methods.items()
         }
     serialized = {
-        scenario: [item.to_json() for item in scores]
-        for scenario, scores in results.items()
+        scenario: [item.to_json() for item in scores] for scenario, scores in results.items()
     }
     comparisons = {
         scenario: _comparison(full, scores)

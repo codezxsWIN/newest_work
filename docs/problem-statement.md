@@ -88,7 +88,7 @@ every aggregate. Undefined correlations, including degenerate tied rankings, sta
 Target three practitioners, with two as the floor for inter-rater evidence, while supporting
 N>=1 through one judgment format. For N>=2, present tie-corrected Kendall's W before method
 comparisons; report its unavailability when the data are degenerate. For N=1, omit W, state the
-single-annotator limitation specified in the [prototype DESIGN](../project-starter-kit/docs/DESIGN.md),
+single-annotator limitation specified in the [prototype DESIGN](DESIGN.md),
 and continue defined individual comparisons. N=0 or missing judgments is missing truth, not a
 successful evaluation. Expert identities and eventual panel size are logistics, not architecture.
 

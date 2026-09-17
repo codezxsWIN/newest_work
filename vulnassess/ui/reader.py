@@ -8,17 +8,51 @@ from typing import Any
 from vulnassess.errors import ConfigError
 
 HOST_KEYS = frozenset({"ip", "hostname", "os_guess", "services"})
-FINDING_KEYS = frozenset({
-    "id", "host_ip", "port", "protocol", "url", "tool", "tool_native_id", "title",
-    "description", "evidence", "cve_ids", "cwe_ids", "reference_urls", "native_severity",
-    "native_confidence", "first_seen", "last_seen", "provenance",
-})
-SCORE_KEYS = frozenset({
-    "finding_id", "host_ip", "risk", "band", "reason", "fix", "weights_hash", "cve_id",
-    "cvss_version_used", "base_vector", "base_score", "env_vector", "env_score",
-    "env_modifications", "epss_percentile", "threat_multiplier", "kev",
-    "native_fallback", "inputs",
-})
+FINDING_KEYS = frozenset(
+    {
+        "id",
+        "host_ip",
+        "port",
+        "protocol",
+        "url",
+        "tool",
+        "tool_native_id",
+        "title",
+        "description",
+        "evidence",
+        "cve_ids",
+        "cwe_ids",
+        "reference_urls",
+        "native_severity",
+        "native_confidence",
+        "first_seen",
+        "last_seen",
+        "provenance",
+    }
+)
+SCORE_KEYS = frozenset(
+    {
+        "finding_id",
+        "host_ip",
+        "risk",
+        "band",
+        "reason",
+        "fix",
+        "weights_hash",
+        "cve_id",
+        "cvss_version_used",
+        "base_vector",
+        "base_score",
+        "env_vector",
+        "env_score",
+        "env_modifications",
+        "epss_percentile",
+        "threat_multiplier",
+        "kev",
+        "native_fallback",
+        "inputs",
+    }
+)
 
 
 def local_path(value: str | Path) -> Path:
@@ -129,12 +163,16 @@ class ReadOnlyStore:
         )
         findings = self._records(
             "SELECT f.json FROM findings f JOIN finding_runs r ON r.finding_id = f.id "
-            "WHERE r.run_id = ? ORDER BY f.id", run_id, "findings", FINDING_KEYS,
+            "WHERE r.run_id = ? ORDER BY f.id",
+            run_id,
+            "findings",
+            FINDING_KEYS,
         )
         scores = []
         for row in self._rows(
             "SELECT finding_id, json, risk, band FROM scores WHERE run_id = ? "
-            "ORDER BY risk DESC, finding_id", (run_id,),
+            "ORDER BY risk DESC, finding_id",
+            (run_id,),
         ):
             score = _object(row["json"], f"{self.path}: scores {row['finding_id']}", SCORE_KEYS)
             if any(score[key] != row[key] for key in ("finding_id", "risk", "band")):
@@ -146,20 +184,25 @@ class ReadOnlyStore:
             "findings": findings,
             "context": self._records(
                 "SELECT json FROM context_profiles WHERE run_id = ? ORDER BY host_ip",
-                run_id, "context_profiles",
+                run_id,
+                "context_profiles",
             ),
             "scores": scores,
             "enrichments": self._records(
                 "SELECT e.json FROM enrichments e JOIN finding_runs r "
                 "ON r.finding_id = e.finding_id WHERE r.run_id = ? "
-                "ORDER BY e.finding_id, e.cve_id", run_id, "enrichments",
+                "ORDER BY e.finding_id, e.cve_id",
+                run_id,
+                "enrichments",
             ),
             "rationales": self._records(
                 "SELECT json FROM rationales WHERE run_id = ? ORDER BY finding_id",
-                run_id, "rationales",
+                run_id,
+                "rationales",
             ),
             "feeds_meta": [
-                dict(row) for row in self._rows(
+                dict(row)
+                for row in self._rows(
                     "SELECT feed, path, sha256, file_date, rows, loaded_at "
                     "FROM feeds_meta ORDER BY feed"
                 )

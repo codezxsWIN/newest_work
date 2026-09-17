@@ -1,6 +1,5 @@
 """Nested configuration validation tests."""
 
-import copy
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,16 +15,13 @@ CONFIG = ROOT / "config"
 
 def config_payloads() -> dict[str, dict]:
     return {
-        name: yaml.safe_load((CONFIG / name).read_text(encoding="utf-8"))
-        for name in CONFIG_FILES
+        name: yaml.safe_load((CONFIG / name).read_text(encoding="utf-8")) for name in CONFIG_FILES
     }
 
 
 def write_config(directory: Path, payloads: dict[str, dict]) -> None:
     for name, payload in payloads.items():
-        (directory / name).write_text(
-            yaml.safe_dump(payload, sort_keys=False), encoding="utf-8"
-        )
+        (directory / name).write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
 
 class TestStrictSettings(unittest.TestCase):
@@ -74,9 +70,9 @@ class TestStrictSettings(unittest.TestCase):
         self.assertIn("names must be unique", self.mutate(duplicate_name))
 
         def duplicate_ip(payloads):
-            payloads["scope.yaml"]["lab_targets"][1]["ip"] = payloads["scope.yaml"][
-                "lab_targets"
-            ][0]["ip"]
+            payloads["scope.yaml"]["lab_targets"][1]["ip"] = payloads["scope.yaml"]["lab_targets"][
+                0
+            ]["ip"]
 
         self.assertIn("IPs must be unique", self.mutate(duplicate_ip))
 
@@ -90,9 +86,7 @@ class TestStrictSettings(unittest.TestCase):
         self.assertIn("invalid regex", message)
 
         message = self.mutate(
-            lambda payloads: payloads["controls.yaml"]["waf"][0].update(
-                regex="(?P<broken"
-            )
+            lambda payloads: payloads["controls.yaml"]["waf"][0].update(regex="(?P<broken")
         )
         self.assertIn("waf[0].regex", message)
         self.assertIn("invalid regex", message)
@@ -119,39 +113,29 @@ class TestStrictSettings(unittest.TestCase):
         self.assertIn("must be <= 1", message)
 
         message = self.mutate(
-            lambda payloads: payloads["weights.yaml"]["threat"].update(
-                kev_multiplier=0.1
-            )
+            lambda payloads: payloads["weights.yaml"]["threat"].update(kev_multiplier=0.1)
         )
         self.assertIn("must not be below", message)
 
     def test_bands_and_native_fallbacks_are_validated(self):
         message = self.mutate(
-            lambda payloads: payloads["weights.yaml"]["bands"].update(
-                Critical=50, High=60
-            )
+            lambda payloads: payloads["weights.yaml"]["bands"].update(Critical=50, High=60)
         )
         self.assertIn("Critical > High > Medium", message)
 
         message = self.mutate(
-            lambda payloads: payloads["weights.yaml"]["native_fallback"]["zap"].update(
-                High=101
-            )
+            lambda payloads: payloads["weights.yaml"]["native_fallback"]["zap"].update(High=101)
         )
         self.assertIn("native_fallback.zap.High", message)
 
     def test_unknown_nested_keys_are_not_ignored(self):
         message = self.mutate(
-            lambda payloads: payloads["weights.yaml"]["threat"].update(
-                kev_boostt=10
-            )
+            lambda payloads: payloads["weights.yaml"]["threat"].update(kev_boostt=10)
         )
         self.assertIn("threat.kev_boostt", message)
 
         message = self.mutate(
-            lambda payloads: payloads["roles.yaml"]["roles"]["database"][0].update(
-                confidence=0.9
-            )
+            lambda payloads: payloads["roles.yaml"]["roles"]["database"][0].update(confidence=0.9)
         )
         self.assertIn("confidence", message)
 

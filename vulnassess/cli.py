@@ -16,8 +16,8 @@ from vulnassess import (
     context_eval,
     diff,
     evaluate,
-    explain,
     experiments,
+    explain,
     intel,
     model_governance,
     orchestrator,
@@ -103,9 +103,7 @@ def _store(args: argparse.Namespace) -> Store:
 
 def _require_artifact_run(actual: Any, expected: str, artifact: str) -> None:
     if str(actual) != expected:
-        raise ConfigError(
-            f"{artifact} belongs to run {actual!r}, not requested run {expected!r}"
-        )
+        raise ConfigError(f"{artifact} belongs to run {actual!r}, not requested run {expected!r}")
 
 
 def _cohort_finding_ids(args: argparse.Namespace, snapshot: dict[str, Any]) -> list[str]:
@@ -117,14 +115,10 @@ def _cohort_finding_ids(args: argparse.Namespace, snapshot: dict[str, Any]) -> l
     if not path.is_file():
         raise ConfigError(f"MISSING: cohort finding ID file {path}")
     if path.stat().st_size > MAX_COHORT_IDS_BYTES:
-        raise ConfigError(
-            f"cohort finding ID file {path} exceeds {MAX_COHORT_IDS_BYTES} bytes"
-        )
+        raise ConfigError(f"cohort finding ID file {path} exceeds {MAX_COHORT_IDS_BYTES} bytes")
     try:
         finding_ids = [
-            line.strip()
-            for line in path.read_text(encoding="utf-8").splitlines()
-            if line.strip()
+            line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
         ]
     except OSError as error:
         raise ConfigError(f"cannot read cohort finding ID file {path}: {error}") from error
@@ -204,16 +198,12 @@ def cmd_scan(args: argparse.Namespace) -> int:
             "Nikto/ZAP commands are deferred until successful Nmap output proves web endpoints.",
         ]
         if missing:
-            lines.append(
-                f"MISSING binaries: {', '.join(missing)}; a human must provision them"
-            )
+            lines.append(f"MISSING binaries: {', '.join(missing)}; a human must provision them")
         lines.append("Planned only. A human may pass --execute for the authorised lab target.")
         _emit(summary, "\n".join(lines), args.json)
         return 0
     if missing:
-        raise ConfigError(
-            f"MISSING scanner binary/binaries {missing}; a human must provision them"
-        )
+        raise ConfigError(f"MISSING scanner binary/binaries {missing}; a human must provision them")
 
     result = orchestrator.orchestrate(
         scan_plan,
@@ -339,8 +329,7 @@ def cmd_research_cohort_verify(args: argparse.Namespace) -> int:
     truth_text = " and expert truth covers it exactly" if truth_validated else ""
     _emit(
         result,
-        f"VERIFIED cohort {manifest.cohort_id} hash and {len(items)} evidence items"
-        f"{truth_text}",
+        f"VERIFIED cohort {manifest.cohort_id} hash and {len(items)} evidence items{truth_text}",
         args.json,
     )
     return 0
@@ -453,12 +442,8 @@ def cmd_research_stability(args: argparse.Namespace) -> int:
             model_hash=snapshot.get("model_hash"),
         )
         if live_snapshot["snapshot_hash"] != snapshot["snapshot_hash"]:
-            raise ConfigError(
-                "live run state no longer matches the supplied assessment snapshot"
-            )
-        result = experiments.stability_check(
-            settings, store, args.run_id, repeats=args.repeats
-        )
+            raise ConfigError("live run state no longer matches the supplied assessment snapshot")
+        result = experiments.stability_check(settings, store, args.run_id, repeats=args.repeats)
     result["snapshot_hash"] = snapshot["snapshot_hash"]
     result["input_evidence_status"] = snapshot["evidence_status"]
     result["evidence_status"] = "VERIFIED"
@@ -507,9 +492,7 @@ def cmd_unify_preview(args: argparse.Namespace) -> int:
             model_hash=snapshot.get("model_hash"),
         )
         if live_snapshot["snapshot_hash"] != snapshot["snapshot_hash"]:
-            raise ConfigError(
-                "live run state no longer matches the supplied assessment snapshot"
-            )
+            raise ConfigError("live run state no longer matches the supplied assessment snapshot")
         result = unify.unify_run(store, args.run_id).to_json()
     core = {
         "run_id": args.run_id,
@@ -649,9 +632,7 @@ def cmd_model_hybrid_preview(args: argparse.Namespace) -> int:
     return 0
 
 
-def _reject_synthetic_labels(
-    examples: Sequence[role_model.LabelledHost], allowed: bool
-) -> None:
+def _reject_synthetic_labels(examples: Sequence[role_model.LabelledHost], allowed: bool) -> None:
     synthetic = sum(example.label_source == "synthetic" for example in examples)
     if synthetic and not allowed:
         raise ConfigError(
@@ -723,9 +704,7 @@ def cmd_model_train(args: argparse.Namespace) -> int:
 def cmd_model_cross_validate(args: argparse.Namespace) -> int:
     examples = role_model.load_examples(args.data)
     _reject_synthetic_labels(examples, args.allow_synthetic)
-    result = role_model.cross_validate(
-        examples, folds=args.folds, **_training_options(args)
-    )
+    result = role_model.cross_validate(examples, folds=args.folds, **_training_options(args))
     aggregate = result["aggregate"]
     text = (
         f"{result['folds']}-fold grouped CV: accuracy={aggregate['accuracy']:.3f} "
@@ -756,9 +735,7 @@ def cmd_model_predict(args: argparse.Namespace) -> int:
         hosts = store.hosts(args.run_id)
     if not hosts:
         raise ConfigError(f"MISSING: hosts for run {args.run_id!r}")
-    predictions = [
-        {"host_ip": host.ip, **model.predict(host).to_json()} for host in hosts
-    ]
+    predictions = [{"host_ip": host.ip, **model.predict(host).to_json()} for host in hosts]
     lines = [
         f"{item['host_ip']}: {item['label']} confidence={item['confidence']:.3f} "
         f"margin={item['margin']:.3f}{' ABSTAINED' if item['abstained'] else ''}; "
@@ -779,8 +756,7 @@ def cmd_model_inspect(args: argparse.Namespace) -> int:
             key=lambda item: (-item[1], item[0]),
         )[: args.top]
         top[label] = [
-            {"feature": feature, "weight": round(weight, 6)}
-            for feature, weight in weighted
+            {"feature": feature, "weight": round(weight, 6)} for feature, weight in weighted
         ]
     payload = {**model.to_json(), "top_positive_features": top}
     lines = [
@@ -788,9 +764,7 @@ def cmd_model_inspect(args: argparse.Namespace) -> int:
         f"features={len(model.features)} temperature={model.temperature}"
     ]
     for label in model.classes:
-        summary = ", ".join(
-            f"{item['feature']}={item['weight']:+.3f}" for item in top[label]
-        )
+        summary = ", ".join(f"{item['feature']}={item['weight']:+.3f}" for item in top[label])
         lines.append(f"  {label}: {summary}")
     _emit(payload, "\n".join(lines), args.json)
     return 0
@@ -929,9 +903,7 @@ def cmd_report(args: argparse.Namespace) -> int:
             },
             model_path=args.model_artifact,
         )
-        path = pipeline.do_report(
-            settings, store, args.run_id, args.out, audit_data=audit_data
-        )
+        path = pipeline.do_report(settings, store, args.run_id, args.out, audit_data=audit_data)
     _emit({"report": str(path)}, f"report written to {path}", args.json)
     return 0
 
@@ -979,7 +951,11 @@ def cmd_ui(args: argparse.Namespace) -> int:
         from vulnassess.ui.export import export_html
 
         path = export_html(application, args.export)
-        _emit({"path": str(path), "run_id": args.run_id, "read_only": True}, f"UI export: {path}", args.json)
+        _emit(
+            {"path": str(path), "run_id": args.run_id, "read_only": True},
+            f"UI export: {path}",
+            args.json,
+        )
         return 0
     with UiServer(application, port=args.port) as server:
         url = f"http://127.0.0.1:{server.server_port}/"
@@ -1001,9 +977,7 @@ def cmd_demo(args: argparse.Namespace) -> int:
     with _store(args) as store:
         for spec in args.target:
             target_ip, nmap_path, zap_path = _parse_target(spec)
-            summary = pipeline.do_import(
-                settings, store, run_id, target_ip, nmap_path, zap_path
-            )
+            summary = pipeline.do_import(settings, store, run_id, target_ip, nmap_path, zap_path)
             counts = ", ".join(
                 f"{tool} {count}" for tool, count in sorted(summary["findings"].items())
             )
@@ -1061,7 +1035,9 @@ def build_parser() -> argparse.ArgumentParser:
     viewer.add_argument("--port", type=int, default=8765, help="loopback HTTP port")
     viewer.add_argument("--db", default=argparse.SUPPRESS, help="existing SQLite store path")
     viewer.add_argument("--config", default=argparse.SUPPRESS, help="configuration directory")
-    viewer.add_argument("--export", metavar="PATH", help="write one offline HTML file without starting a server")
+    viewer.add_argument(
+        "--export", metavar="PATH", help="write one offline HTML file without starting a server"
+    )
 
     importer = add("import", cmd_import, help="import existing scanner output for one target")
     importer.add_argument("--target-ip", required=True)
@@ -1069,13 +1045,9 @@ def build_parser() -> argparse.ArgumentParser:
     importer.add_argument("--zap")
     importer.add_argument("--nikto")
 
-    scanner = add(
-        "scan", cmd_scan, help="plan Nmap-first scanning for one authorised target"
-    )
+    scanner = add("scan", cmd_scan, help="plan Nmap-first scanning for one authorised target")
     scanner.add_argument("--target-ip", required=True)
-    scanner.add_argument(
-        "--tool", action="append", default=None, choices=orchestrator.TOOLS
-    )
+    scanner.add_argument("--tool", action="append", default=None, choices=orchestrator.TOOLS)
     scanner.add_argument("--out-dir", default="data/captures")
     scanner.add_argument("--canary-log")
     scanner.add_argument("--timeout", type=float, default=1800.0)
@@ -1099,9 +1071,7 @@ def build_parser() -> argparse.ArgumentParser:
     research_parser = subparsers.add_parser(
         "research", help="freeze and evaluate reproducible research artifacts"
     )
-    research_sub = research_parser.add_subparsers(
-        dest="research_command", required=True
-    )
+    research_sub = research_parser.add_subparsers(dest="research_command", required=True)
 
     def add_research(name: str, handler, **kwargs) -> argparse.ArgumentParser:
         command = research_sub.add_parser(name, **kwargs)
@@ -1133,9 +1103,7 @@ def build_parser() -> argparse.ArgumentParser:
     cohort_freeze.add_argument("--snapshot", required=True)
     cohort_freeze.add_argument("--cohort-id", required=True)
     cohort_freeze.add_argument("--created-on", required=True, help="human-supplied ISO date")
-    cohort_freeze.add_argument(
-        "--evidence-status", choices=("VERIFIED", "NOT RUN"), required=True
-    )
+    cohort_freeze.add_argument("--evidence-status", choices=("VERIFIED", "NOT RUN"), required=True)
     cohort_freeze.add_argument("--reviewer")
     cohort_freeze.add_argument("--approval-id")
     cohort_freeze.add_argument("--out-dir", required=True)

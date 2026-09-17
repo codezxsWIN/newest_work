@@ -272,9 +272,7 @@ def _tokens(text: str | None) -> list[str]:
     return TOKEN.findall((text or "").lower())
 
 
-def _put(
-    values: dict[str, float], evidence: dict[str, str], feature: str, quote: str
-) -> None:
+def _put(values: dict[str, float], evidence: dict[str, str], feature: str, quote: str) -> None:
     values[feature] = 1.0
     evidence.setdefault(feature, quote)
 
@@ -373,7 +371,7 @@ def train(
             probabilities = _softmax(logits)
             sample_weight = class_weights[target]
             for class_id in range(len(classes)):
-                error = (probabilities[class_id] - (1.0 if class_id == target else 0.0))
+                error = probabilities[class_id] - (1.0 if class_id == target else 0.0)
                 error *= sample_weight
                 intercept_gradient[class_id] += error
                 for index, value in vector.items():
@@ -423,7 +421,9 @@ def calibrate(model: RoleModel, validation: Sequence[LabelledHost]) -> RoleModel
     if unknown:
         raise ConfigError(f"validation contains class(es) absent from training: {unknown}")
     candidates = [value / 20 for value in range(5, 81)]
-    scored = [(temperature, _log_loss(model, validation, temperature)) for temperature in candidates]
+    scored = [
+        (temperature, _log_loss(model, validation, temperature)) for temperature in candidates
+    ]
     temperature, loss = min(scored, key=lambda item: (item[1], item[0]))
     training = {
         **model.training,
@@ -459,19 +459,30 @@ def evaluate(model: RoleModel, examples: Sequence[LabelledHost]) -> dict[str, An
     f1_values = []
     for label in model.classes:
         true_positive = sum(
-            1 for truth, result in zip(actual, predictions, strict=True)
+            1
+            for truth, result in zip(actual, predictions, strict=True)
             if truth == label and not result.abstained and result.label == label
         )
         false_positive = sum(
-            1 for truth, result in zip(actual, predictions, strict=True)
+            1
+            for truth, result in zip(actual, predictions, strict=True)
             if truth != label and not result.abstained and result.label == label
         )
         false_negative = sum(
-            1 for truth, result in zip(actual, predictions, strict=True)
+            1
+            for truth, result in zip(actual, predictions, strict=True)
             if truth == label and (result.abstained or result.label != label)
         )
-        precision = true_positive / (true_positive + false_positive) if true_positive + false_positive else 0.0
-        recall = true_positive / (true_positive + false_negative) if true_positive + false_negative else 0.0
+        precision = (
+            true_positive / (true_positive + false_positive)
+            if true_positive + false_positive
+            else 0.0
+        )
+        recall = (
+            true_positive / (true_positive + false_negative)
+            if true_positive + false_negative
+            else 0.0
+        )
         f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
         f1_values.append(f1)
         per_class[label] = {
@@ -483,7 +494,8 @@ def evaluate(model: RoleModel, examples: Sequence[LabelledHost]) -> dict[str, An
 
     covered = [index for index, result in enumerate(predictions) if not result.abstained]
     correct = sum(
-        1 for truth, result in zip(actual, predictions, strict=True)
+        1
+        for truth, result in zip(actual, predictions, strict=True)
         if not result.abstained and result.label == truth
     )
     probabilities = [model.probabilities(example.host) for example in examples]
@@ -567,7 +579,11 @@ def cross_validate(
     for name in ("accuracy", "coverage", "abstention_rate", "macro_f1", "log_loss", "brier_score"):
         values = [float(result[name]) for result in results]
         aggregate[name] = round(sum(values) / len(values), 8)
-    selective = [result["selective_accuracy"] for result in results if result["selective_accuracy"] is not None]
+    selective = [
+        result["selective_accuracy"]
+        for result in results
+        if result["selective_accuracy"] is not None
+    ]
     aggregate["selective_accuracy"] = (
         round(sum(selective) / len(selective), 8) if selective else None
     )
@@ -602,7 +618,10 @@ def _probability_log_loss(
     classes: Sequence[str], probabilities: Sequence[dict[str, float]], actual: Sequence[str]
 ) -> float:
     del classes
-    values = [-math.log(max(probability[truth], 1e-15)) for probability, truth in zip(probabilities, actual, strict=True)]
+    values = [
+        -math.log(max(probability[truth], 1e-15))
+        for probability, truth in zip(probabilities, actual, strict=True)
+    ]
     return sum(values) / len(values)
 
 
@@ -611,7 +630,9 @@ def _brier(
 ) -> float:
     total = 0.0
     for probability, truth in zip(probabilities, actual, strict=True):
-        total += sum((probability[label] - (1.0 if label == truth else 0.0)) ** 2 for label in classes)
+        total += sum(
+            (probability[label] - (1.0 if label == truth else 0.0)) ** 2 for label in classes
+        )
     return total / len(actual)
 
 

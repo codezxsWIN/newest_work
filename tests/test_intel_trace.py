@@ -28,9 +28,7 @@ def finding(*, cves=(), port: int | None = 80) -> Finding:
         cve_ids=cves,
         first_seen="2026-09-07T00:00:00Z",
         last_seen="2026-09-07T00:00:00Z",
-        provenance=Provenance(
-            "nmap", "tests/synthetic/synthetic_intel_trace.xml", 1, "synthetic"
-        ),
+        provenance=Provenance("nmap", "tests/synthetic/synthetic_intel_trace.xml", 1, "synthetic"),
     )
 
 
@@ -92,7 +90,10 @@ class TestIntelTrace(unittest.TestCase):
 
         self.assertEqual([item.cve_id for item in accepted], ["CVE-1999-9001"])
         self.assertTrue(
-            any(item.decision == "accepted" and item.method == "cpe_range" for item in accepted_trace)
+            any(
+                item.decision == "accepted" and item.method == "cpe_range"
+                for item in accepted_trace
+            )
         )
         self.assertEqual(rejected, [])
         self.assertTrue(any(item.decision == "rejected" for item in rejected_trace))
@@ -101,9 +102,7 @@ class TestIntelTrace(unittest.TestCase):
     def test_missing_service_and_cpe_are_not_silent(self):
         no_cve = finding()
         with TemporaryDirectory() as directory, self.store(directory) as store:
-            _, no_service = intel.match_finding_with_trace(
-                no_cve, (), store, {"nvd": "2026-09-05"}
-            )
+            _, no_service = intel.match_finding_with_trace(no_cve, (), store, {"nvd": "2026-09-05"})
             _, no_cpe = intel.match_finding_with_trace(
                 no_cve,
                 (apache("2.4.49", cpe=None),),

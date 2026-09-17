@@ -1,8 +1,13 @@
 # Real feed snapshots
 
-Empty until a human puts snapshots here. `vulnassess intel load --from-dir <dir>` exits `5` and
-names every missing path while any of the three is absent. Nothing in this project downloads a
-feed.
+This directory now holds a curated slice of REAL feed records, fetched on 2026-09-17 by the
+agent at the repository owner's explicit instruction; provenance and hashes are in
+[PROVENANCE.md](PROVENANCE.md). The subset is committed so CI can prove the loader, matcher and
+scoring path accept the official formats without downloading the full feeds. Full snapshots live
+under gitignored `data/feeds/`; fetch them with `python data/feeds/fetch_feeds.py`.
+
+`vulnassess intel load --from-dir <dir>` exits `5` and names every missing path while any of the
+three is absent. Nothing in the runtime downloads a feed.
 
 ## Expected layout
 

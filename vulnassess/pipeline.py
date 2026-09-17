@@ -188,7 +188,7 @@ def do_eval(store: Store, run_id: str, truth_path: str | Path) -> dict[str, Any]
     return evaluate.evaluate(baseline_orders(store, run_id), truth)
 
 
-def _column(values: Sequence[str], label: str) -> str:
+def _column(values: Sequence[object], label: str) -> str:
     return label.ljust(LABEL_WIDTH) + "".join(str(value).rjust(COLUMN_WIDTH) for value in values)
 
 
@@ -210,8 +210,7 @@ def two_machine_table(store: Store, run_id: str, cve: str | None = None) -> str:
         candidates = {key: value for key, value in by_cve.items() if key == cve}
     if not candidates:
         return (
-            "No CVE appears on two or more hosts in this run; "
-            "the two-machine comparison needs one."
+            "No CVE appears on two or more hosts in this run; the two-machine comparison needs one."
         )
 
     chosen = max(

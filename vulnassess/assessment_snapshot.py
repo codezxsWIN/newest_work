@@ -31,7 +31,9 @@ def _digest(payload: Any) -> str:
     return sha256(_canonical(payload).encode("utf-8")).hexdigest()
 
 
-def build_snapshot(settings, store, run_id: str, *, model_hash: str | None = None) -> dict[str, Any]:
+def build_snapshot(
+    settings, store, run_id: str, *, model_hash: str | None = None
+) -> dict[str, Any]:
     run = store.run_info(run_id)
     if run is None:
         raise ConfigError(f"MISSING: run {run_id!r}")
@@ -90,8 +92,7 @@ def build_snapshot(settings, store, run_id: str, *, model_hash: str | None = Non
         "profiles": [profile.to_json() for profile in profiles],
         "scores": [score.to_json() for score in scores],
         "rationales": {
-            finding_id: rationale.to_json()
-            for finding_id, rationale in sorted(rationales.items())
+            finding_id: rationale.to_json() for finding_id, rationale in sorted(rationales.items())
         },
         "limitations": [
             (
@@ -148,9 +149,7 @@ def save_snapshot(payload: dict[str, Any], path: str | Path) -> Path:
 
 def load_snapshot(path: str | Path) -> dict[str, Any]:
     path = Path(path)
-    payload = load_json_payload(
-        path, "assessment snapshot", max_bytes=MAX_SNAPSHOT_BYTES
-    )
+    payload = load_json_payload(path, "assessment snapshot", max_bytes=MAX_SNAPSHOT_BYTES)
     if not isinstance(payload, dict):
         raise ConfigError(f"invalid assessment snapshot {path}: expected an object")
     return validate_snapshot(payload)

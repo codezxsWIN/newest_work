@@ -8,10 +8,28 @@ from math import floor
 PREFIX = "CVSS:3.1"
 BASE_METRICS = ("AV", "AC", "PR", "UI", "S", "C", "I", "A")
 ORDER = (
-    "AV", "AC", "PR", "UI", "S", "C", "I", "A",
-    "E", "RL", "RC",
-    "CR", "IR", "AR",
-    "MAV", "MAC", "MPR", "MUI", "MS", "MC", "MI", "MA",
+    "AV",
+    "AC",
+    "PR",
+    "UI",
+    "S",
+    "C",
+    "I",
+    "A",
+    "E",
+    "RL",
+    "RC",
+    "CR",
+    "IR",
+    "AR",
+    "MAV",
+    "MAC",
+    "MPR",
+    "MUI",
+    "MS",
+    "MC",
+    "MI",
+    "MA",
 )
 
 AV_VALUES = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.20}
@@ -26,14 +44,28 @@ RL_VALUES = {"X": 1.0, "U": 1.0, "W": 0.97, "T": 0.96, "O": 0.95}
 RC_VALUES = {"X": 1.0, "C": 1.0, "R": 0.96, "U": 0.92}
 
 ALLOWED = {
-    "AV": set(AV_VALUES), "AC": set(AC_VALUES), "PR": set(PR_UNCHANGED), "UI": set(UI_VALUES),
-    "S": {"U", "C"}, "C": set(CIA_VALUES), "I": set(CIA_VALUES), "A": set(CIA_VALUES),
-    "E": set(E_VALUES), "RL": set(RL_VALUES), "RC": set(RC_VALUES),
-    "CR": set(REQUIREMENT_VALUES), "IR": set(REQUIREMENT_VALUES), "AR": set(REQUIREMENT_VALUES),
-    "MAV": set(AV_VALUES) | {"X"}, "MAC": set(AC_VALUES) | {"X"},
-    "MPR": set(PR_UNCHANGED) | {"X"}, "MUI": set(UI_VALUES) | {"X"},
-    "MS": {"U", "C", "X"}, "MC": set(CIA_VALUES) | {"X"},
-    "MI": set(CIA_VALUES) | {"X"}, "MA": set(CIA_VALUES) | {"X"},
+    "AV": set(AV_VALUES),
+    "AC": set(AC_VALUES),
+    "PR": set(PR_UNCHANGED),
+    "UI": set(UI_VALUES),
+    "S": {"U", "C"},
+    "C": set(CIA_VALUES),
+    "I": set(CIA_VALUES),
+    "A": set(CIA_VALUES),
+    "E": set(E_VALUES),
+    "RL": set(RL_VALUES),
+    "RC": set(RC_VALUES),
+    "CR": set(REQUIREMENT_VALUES),
+    "IR": set(REQUIREMENT_VALUES),
+    "AR": set(REQUIREMENT_VALUES),
+    "MAV": set(AV_VALUES) | {"X"},
+    "MAC": set(AC_VALUES) | {"X"},
+    "MPR": set(PR_UNCHANGED) | {"X"},
+    "MUI": set(UI_VALUES) | {"X"},
+    "MS": {"U", "C", "X"},
+    "MC": set(CIA_VALUES) | {"X"},
+    "MI": set(CIA_VALUES) | {"X"},
+    "MA": set(CIA_VALUES) | {"X"},
 }
 
 

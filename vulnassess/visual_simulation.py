@@ -15,8 +15,16 @@ STAGES = (
     ("intel", "Offline intel", "Local NVD, EPSS and KEV snapshots enrich matching CVEs."),
     ("model", "Role model", "The learned classifier activates scan-derived features."),
     ("context", "Context profile", "Role, exposure and controls retain confidence and evidence."),
-    ("environment", "CVSS environment", "Context modifies the Environmental vector deterministically."),
-    ("threat", "Threat overlay", "EPSS and KEV change urgency without changing technical severity."),
+    (
+        "environment",
+        "CVSS environment",
+        "Context modifies the Environmental vector deterministically.",
+    ),
+    (
+        "threat",
+        "Threat overlay",
+        "EPSS and KEV change urgency without changing technical severity.",
+    ),
     ("rank", "Prioritised queue", "The same CVE separates into two operational priorities."),
 )
 
@@ -38,18 +46,18 @@ def build_payload(
     profiles = {profile.host_ip: profile for profile in store.profiles(run_id)}
     scores = store.scores(run_id)
     enrichments = {
-      finding_id: [item.to_json() for item in store.enrichments(finding_id)]
-      for finding_id in findings
+        finding_id: [item.to_json() for item in store.enrichments(finding_id)]
+        for finding_id in findings
     }
     baseline_order = sorted(
-      scores,
-      key=lambda item: (
-        -(item.base_score if item.base_score is not None else item.risk / 10.0),
-        item.finding_id,
-      ),
+        scores,
+        key=lambda item: (
+            -(item.base_score if item.base_score is not None else item.risk / 10.0),
+            item.finding_id,
+        ),
     )
     baseline_positions = {
-      item.finding_id: position for position, item in enumerate(baseline_order, start=1)
+        item.finding_id: position for position, item in enumerate(baseline_order, start=1)
     }
     score_by_host: dict[str, list[Any]] = {}
     for score in scores:
@@ -139,8 +147,8 @@ def build_payload(
                     if enrichment is None or not enrichment.patch_references
                     else enrichment.patch_references[0]
                 ),
-                  "enrichment": None if enrichment is None else enrichment.to_json(),
-                  "enrichment_candidates": enrichments[finding.id],
+                "enrichment": None if enrichment is None else enrichment.to_json(),
+                "enrichment_candidates": enrichments[finding.id],
             }
         )
 
@@ -156,12 +164,12 @@ def build_payload(
         tool_counts[finding.tool] = tool_counts.get(finding.tool, 0) + 1
 
     feeds = {
-      name: {
-        "file_date": metadata.get("file_date"),
-        "rows": metadata.get("rows"),
-        "sha256": metadata.get("sha256"),
-      }
-      for name, metadata in store.feeds_meta().items()
+        name: {
+            "file_date": metadata.get("file_date"),
+            "rows": metadata.get("rows"),
+            "sha256": metadata.get("sha256"),
+        }
+        for name, metadata in store.feeds_meta().items()
     }
     return {
         "status": "NOT RUN",
@@ -200,15 +208,15 @@ def build_payload(
         "feeds": feeds,
         "tool_counts": tool_counts,
         "pipeline_counts": {
-          "hosts": len(hosts),
-          "canonical_findings": len(findings),
-          "enriched_findings": sum(bool(items) for items in enrichments.values()),
-          "enrichment_records": sum(len(items) for items in enrichments.values()),
-          "context_profiles": len(profiles),
-          "scored_findings": len(scores),
-          "unique_cves": len(
-            {item["cve_id"] for items in enrichments.values() for item in items}
-          ),
+            "hosts": len(hosts),
+            "canonical_findings": len(findings),
+            "enriched_findings": sum(bool(items) for items in enrichments.values()),
+            "enrichment_records": sum(len(items) for items in enrichments.values()),
+            "context_profiles": len(profiles),
+            "scored_findings": len(scores),
+            "unique_cves": len(
+                {item["cve_id"] for items in enrichments.values() for item in items}
+            ),
         },
         "findings": [findings[key].to_json() for key in sorted(findings)],
         "hosts": host_rows,
@@ -590,9 +598,7 @@ renderStatic();setStage(0,true);setTimeout(play,650);
 
 
 def render(payload: dict[str, Any]) -> str:
-  """Render the stage-driven assessment workbench with embedded local data."""
-  title = escape(str(payload.get("run_id", "simulation")))
-  head, tail = HTML_TEMPLATE.split("%%PAYLOAD%%", 1)
-  return head.replace("%%TITLE%%", title) + _safe_json(payload) + tail.replace(
-    "%%TITLE%%", title
-  )
+    """Render the stage-driven assessment workbench with embedded local data."""
+    title = escape(str(payload.get("run_id", "simulation")))
+    head, tail = HTML_TEMPLATE.split("%%PAYLOAD%%", 1)
+    return head.replace("%%TITLE%%", title) + _safe_json(payload) + tail.replace("%%TITLE%%", title)

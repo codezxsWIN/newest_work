@@ -90,9 +90,7 @@ def _ranked(
             )
         )
         profile = profiles.get(item.host_ip)
-        role = (
-            f"{profile.role.value} ({profile.role.confidence:.2f})" if profile else "unknown"
-        )
+        role = f"{profile.role.value} ({profile.role.confidence:.2f})" if profile else "unknown"
         exposure = profile.exposure.value.replace("_", "-") if profile else ""
         details.append(
             _row(
@@ -115,8 +113,17 @@ def _ranked(
     body += _table(["#", "Risk", "Band", "Host", "Finding", "Why"], rows, "ranked")
     body += "<h3>Score details and recommended fixes</h3>"
     body += _table(
-        ["#", "Host", "Role (conf.)", "Exposure", "CVSS base", "CVSS env.", "EPSS %ile", "KEV",
-         "Recommended fix"],
+        [
+            "#",
+            "Host",
+            "Role (conf.)",
+            "Exposure",
+            "CVSS base",
+            "CVSS env.",
+            "EPSS %ile",
+            "KEV",
+            "Recommended fix",
+        ],
         details,
     )
     return body
@@ -159,7 +166,9 @@ def _methodology(
 ) -> str:
     threat = weights["threat"]
     bands = weights["bands"]
-    reworded = sorted({item.model for item in rationales.values() if item.source == "llm"})
+    reworded = sorted(
+        {item.model for item in rationales.values() if item.source == "llm" and item.model}
+    )
     model_note = (
         "No language model was used: every reason is a deterministic sentence built from the "
         "facts shown above."
@@ -224,9 +233,7 @@ def _provenance(scores: Sequence[ScoreBreakdown], findings: dict[str, Finding]) 
                 ]
             )
         )
-    return "<h2>5. Provenance</h2>" + _table(
-        ["Finding", "Tool", "Raw file", "Record"], rows
-    )
+    return "<h2>5. Provenance</h2>" + _table(["Finding", "Tool", "Raw file", "Record"], rows)
 
 
 def _bounded(value: Any, limit: int = 2048) -> str:
@@ -258,9 +265,11 @@ def _audit(audit: dict[str, Any]) -> str:
     )
     limitations = audit.get("limitations", [])
     if limitations:
-        body += "<h3>Limitations</h3><ul>" + "".join(
-            f"<li>{escape(_bounded(item))}</li>" for item in limitations
-        ) + "</ul>"
+        body += (
+            "<h3>Limitations</h3><ul>"
+            + "".join(f"<li>{escape(_bounded(item))}</li>" for item in limitations)
+            + "</ul>"
+        )
 
     intelligence = audit.get("intelligence", {})
     trace_rows = [

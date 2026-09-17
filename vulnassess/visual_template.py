@@ -1,6 +1,6 @@
 """Standalone HTML template for the visual assessment workbench."""
 
-HTML_TEMPLATE = r'''<!doctype html>
+HTML_TEMPLATE = r"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -118,4 +118,4 @@ function pause(){state.playing=false;clearTimeout(state.timer);document.getEleme
 document.getElementById('runBadge').textContent=`Run ${DATA.run_id}`;document.getElementById('modelBadge').textContent=`Model ${DATA.model.hash}`;document.getElementById('footerHash').textContent=`model ${DATA.model.hash} · run ${DATA.run_id}`;document.getElementById('play').addEventListener('click',()=>state.playing?pause():play());document.getElementById('restart').addEventListener('click',()=>{pause();state.stage=0;renderAll()});document.querySelectorAll('[data-speed]').forEach(button=>button.addEventListener('click',()=>{state.speed=Number(button.dataset.speed);document.querySelectorAll('[data-speed]').forEach(item=>item.classList.toggle('active',item===button));if(state.playing){pause();play()}}));document.getElementById('findingSelect').addEventListener('change',event=>selectFinding(event.target.value));renderAll();
 </script>
 </body>
-</html>'''
+</html>"""

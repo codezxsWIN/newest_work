@@ -295,12 +295,8 @@ class TestResearchCli(unittest.TestCase):
         self.assertEqual(ablation_code, 0)
         self.assertEqual(stability_code, 0)
         self.assertEqual(ranking_result["cohort_hash"], manifest.manifest_hash)
-        self.assertEqual(
-            set(ranking_result["methods"]["ours"]["tau_b"]), {"synthetic-expert"}
-        )
-        self.assertEqual(
-            set(ablation_result["orders"]["full"]), set(finding_ids)
-        )
+        self.assertEqual(set(ranking_result["methods"]["ours"]["tau_b"]), {"synthetic-expert"})
+        self.assertEqual(set(ablation_result["orders"]["full"]), set(finding_ids))
         self.assertEqual(
             ablation_result["research_binding"]["snapshot_hash"],
             manifest.snapshot_hash,

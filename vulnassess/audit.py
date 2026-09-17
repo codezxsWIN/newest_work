@@ -183,16 +183,14 @@ def load_artifact(kind: str, path: str | Path, run_id: str) -> AuditArtifact:
     evidence_status = str(payload["evidence_status"])
     if evidence_status not in EVIDENCE_STATUSES:
         raise ConfigError(
-            f"invalid {kind} audit artifact {path}: unsupported evidence_status "
-            f"{evidence_status!r}"
+            f"invalid {kind} audit artifact {path}: unsupported evidence_status {evidence_status!r}"
         )
     claimed = payload[hash_field]
     core = {key: value for key, value in payload.items() if key != hash_field}
     computed = _digest(core)
     if claimed != computed:
         raise ConfigError(
-            f"{kind} audit artifact hash mismatch: artifact says {claimed!r}, "
-            f"computed {computed!r}"
+            f"{kind} audit artifact hash mismatch: artifact says {claimed!r}, computed {computed!r}"
         )
     try:
         summary = _summary(kind, payload)
@@ -250,9 +248,7 @@ def collect_report_audit(
         snapshot = assessment_snapshot.load_snapshot(snapshot_path)
         actual_run = str(snapshot["run"].get("run_id"))
         if actual_run != run_id:
-            raise ConfigError(
-                f"assessment snapshot belongs to run {actual_run!r}, not {run_id!r}"
-            )
+            raise ConfigError(f"assessment snapshot belongs to run {actual_run!r}, not {run_id!r}")
         assessment_status = str(snapshot.get("evidence_status"))
         if assessment_status not in EVIDENCE_STATUSES:
             raise ConfigError(
@@ -279,15 +275,11 @@ def collect_report_audit(
         )
 
     if (cohort_manifest_path is None) != (cohort_evidence_path is None):
-        raise ConfigError(
-            "report needs --cohort-manifest and --cohort-evidence together"
-        )
+        raise ConfigError("report needs --cohort-manifest and --cohort-evidence together")
     cohort_manifest = None
     if cohort_manifest_path is None:
         rows.append(
-            _missing_row(
-                "expert cohort", "report --cohort-manifest PATH --cohort-evidence PATH"
-            )
+            _missing_row("expert cohort", "report --cohort-manifest PATH --cohort-evidence PATH")
         )
     else:
         cohort_manifest = cohort.load_manifest(cohort_manifest_path)
@@ -295,6 +287,7 @@ def collect_report_audit(
             raise ConfigError(
                 f"cohort manifest belongs to run {cohort_manifest.run_id!r}, not {run_id!r}"
             )
+        assert cohort_evidence_path is not None  # the pairing check above excludes None
         cohort.load_evidence(cohort_evidence_path, cohort_manifest)
         if snapshot is not None:
             cohort.validate_snapshot_against_manifest(snapshot, cohort_manifest)
@@ -325,9 +318,7 @@ def collect_report_audit(
         if cohort_manifest is not None:
             artifact_cohort = artifact.payload.get("cohort_hash")
             if kind == "ablation":
-                artifact_cohort = artifact.payload.get("research_binding", {}).get(
-                    "cohort_hash"
-                )
+                artifact_cohort = artifact.payload.get("research_binding", {}).get("cohort_hash")
             if artifact_cohort not in (None, cohort_manifest.manifest_hash):
                 raise ConfigError(f"{kind} artifact does not match the report cohort")
         artifacts[kind] = artifact.payload
@@ -336,9 +327,10 @@ def collect_report_audit(
     unification_path = requested_artifacts.get("unification")
     if unification_path is not None:
         unification_artifact = load_artifact("unification", unification_path, run_id)
-        if snapshot is not None and unification_artifact.payload.get("snapshot_hash") != snapshot[
-            "snapshot_hash"
-        ]:
+        if (
+            snapshot is not None
+            and unification_artifact.payload.get("snapshot_hash") != snapshot["snapshot_hash"]
+        ):
             raise ConfigError("unification artifact does not match the report assessment snapshot")
         unification_payload = unification_artifact.payload
         rows.append(unification_artifact.row())
@@ -418,9 +410,7 @@ def collect_report_audit(
     return {
         "assessment_evidence_status": assessment_status,
         "snapshot_hash": None if snapshot is None else snapshot["snapshot_hash"],
-        "cohort_hash": (
-            None if cohort_manifest is None else cohort_manifest.manifest_hash
-        ),
+        "cohort_hash": (None if cohort_manifest is None else cohort_manifest.manifest_hash),
         "rows": rows,
         "intelligence": intelligence,
         "unification": unification_payload,

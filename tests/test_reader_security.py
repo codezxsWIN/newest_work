@@ -6,8 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from vulnassess.errors import AdapterError
-from vulnassess.readers import parse_nikto_json, parse_nmap_xml, parse_zap_json
-from vulnassess.readers import _input
+from vulnassess.readers import _input, parse_nikto_json, parse_nmap_xml, parse_zap_json
 
 
 class TestReaderSecurity(unittest.TestCase):
@@ -67,7 +66,10 @@ class TestReaderSecurity(unittest.TestCase):
             path.write_text('{"site": [], "site": []}', encoding="utf-8")
 
             for reader in (parse_zap_json, parse_nikto_json):
-                with self.subTest(reader=reader.__name__), self.assertRaises(AdapterError) as caught:
+                with (
+                    self.subTest(reader=reader.__name__),
+                    self.assertRaises(AdapterError) as caught,
+                ):
                     reader(path, "synthetic")
                 self.assertIn("duplicate JSON key", str(caught.exception))
 

@@ -3,14 +3,23 @@
 import json
 from html import escape
 from typing import Any
-from urllib.parse import quote
 
-from vulnassess.ui.drawings import building, door, legend
+from vulnassess.ui.drawings import building, door
 
-EVIDENCE_KEYS = frozenset({
-    "evidence", "banner", "raw_path", "base_vector", "env_vector", "cvss31_vector",
-    "cvss40_vector", "weights_hash", "sha256", "config_hash",
-})
+EVIDENCE_KEYS = frozenset(
+    {
+        "evidence",
+        "banner",
+        "raw_path",
+        "base_vector",
+        "env_vector",
+        "cvss31_vector",
+        "cvss40_vector",
+        "weights_hash",
+        "sha256",
+        "config_hash",
+    }
+)
 
 
 def evidence(text: str, source: str, block: bool = True) -> str:
@@ -19,7 +28,7 @@ def evidence(text: str, source: str, block: bool = True) -> str:
         '<div class="quotation">'
         f'<span class="source-label">{escape(source)}</span>'
         f'<{tag} class="evidence">{escape(text)}</{tag}>'
-        '</div>'
+        "</div>"
     )
 
 
@@ -36,7 +45,14 @@ def evidence_items(value: Any, source: str = "Stored run") -> list[tuple[str, st
         for child in value:
             identity = "record"
             if isinstance(child, dict):
-                identity = str(child.get("id") or child.get("host_ip") or child.get("ip") or child.get("finding_id") or child.get("feed") or "record")
+                identity = str(
+                    child.get("id")
+                    or child.get("host_ip")
+                    or child.get("ip")
+                    or child.get("finding_id")
+                    or child.get("feed")
+                    or "record"
+                )
             items.extend(evidence_items(child, f"{source} / {identity}"))
     return items
 
@@ -47,8 +63,8 @@ def _claim(feature: dict[str, Any], label: str, source: str) -> str:
         '<div class="claim">'
         f'<dt>{escape(label)} <span class="source-kind">{escape(str(feature["source"]))}</span></dt>'
         f'<dd class="inferred">{escape(value)}</dd>'
-        f'<dd>{evidence(feature["evidence"], source)}</dd>'
-        '</div>'
+        f"<dd>{evidence(feature['evidence'], source)}</dd>"
+        "</div>"
     )
 
 
@@ -59,44 +75,46 @@ def _host_rows(payload: dict[str, Any]) -> str:
     for host in payload["hosts"]:
         address = host["ip"]
         profile = profiles.get(address)
-        silhouette = '' if profile is None else building(str(profile["role"]["value"]))
-        doors = ''.join(
+        silhouette = "" if profile is None else building(str(profile["role"]["value"]))
+        doors = "".join(
             door(scores.get(finding["id"], {}).get("band"), finding["id"])
-            for finding in payload["findings"] if finding["host_ip"] == address
+            for finding in payload["findings"]
+            if finding["host_ip"] == address
         )
         claims = (
             '<p class="unavailable">No context profile recorded.</p>'
-            if profile is None else
-            '<dl class="claims">'
+            if profile is None
+            else '<dl class="claims">'
             + _claim(profile["role"], "Role", "Context / role evidence")
             + _claim(profile["exposure"], "Exposure", "Context / exposure evidence")
-            + '</dl>'
+            + "</dl>"
         )
         rows.append(
             '<article class="host-record">'
             f'<div class="host-identity"><div class="host-mark">{silhouette}'
-            f'{evidence(address, "Scanner / host address", block=False)}</div>'
+            f"{evidence(address, 'Scanner / host address', block=False)}</div>"
             f'<div class="host-doors" aria-label="Stored finding bands">{doors}</div></div>'
-            f'{claims}</article>'
+            f"{claims}</article>"
         )
-    return ''.join(rows) or '<p class="unavailable">No hosts recorded.</p>'
+    return "".join(rows) or '<p class="unavailable">No hosts recorded.</p>'
 
 
 def run_strip(payload: dict[str, Any]) -> str:
     run = payload["run"]
-    feeds = ''.join(
-        '<tr>'
+    feeds = "".join(
+        "<tr>"
         f'<th scope="row">{escape(feed["feed"].upper())}</th>'
-        f'<td>{evidence(feed["file_date"] or "Not recorded", "Feed snapshot / date", False)}</td>'
+        f"<td>{evidence(feed['file_date'] or 'Not recorded', 'Feed snapshot / date', False)}</td>"
         '<td class="unavailable">Not stored</td></tr>'
         for feed in payload["feeds_meta"]
     )
-    scanners = ''.join(
-        '<li>' + evidence(tool, "Finding provenance / scanner", False)
+    scanners = "".join(
+        "<li>"
+        + evidence(tool, "Finding provenance / scanner", False)
         + '<span class="unavailable">Version not recorded</span></li>'
         for tool in sorted({finding["tool"] for finding in payload["findings"]})
     )
-    hashes = ''.join(
+    hashes = "".join(
         evidence(value, "Stored score / weights hash", False)
         for value in payload["config_hashes"]["score_weights"]
     )
@@ -114,10 +132,10 @@ def run_strip(payload: dict[str, Any]) -> str:
         + hashes
         + '<p class="unavailable">Per-file imported-at timestamps are not stored.</p>'
         '<table class="record-table"><caption>Current store feed snapshots; not frozen per run</caption>'
-        '<thead><tr><th>Feed</th><th>Snapshot date</th><th>Age in days</th></tr></thead>'
-        f'<tbody>{feeds}</tbody></table>'
+        "<thead><tr><th>Feed</th><th>Snapshot date</th><th>Age in days</th></tr></thead>"
+        f"<tbody>{feeds}</tbody></table>"
         f'<ul class="scanner-list">{scanners}</ul>'
-        '</div></details></section>'
+        "</div></details></section>"
     )
 
 
@@ -137,21 +155,24 @@ def pipeline_map(payload: dict[str, Any]) -> str:
         status = "Records present" if records else "No stored output"
         links.append(
             f'<li><a href="#stage-{key}" data-stage-link="{key}">'
-            f'<strong>{title}</strong><span>{status}</span></a></li>'
+            f"<strong>{title}</strong><span>{status}</span></a></li>"
         )
         stored = (
             '<p class="unavailable">No output record persisted for this stage.</p>'
-            if not records else evidence(json.dumps(records, indent=2, ensure_ascii=False), f"Stored {title.lower()} records")
+            if not records
+            else evidence(
+                json.dumps(records, indent=2, ensure_ascii=False), f"Stored {title.lower()} records"
+            )
         )
-        counters = ''
+        counters = ""
         if key == "import":
-            for record in records:
+            for record in records or []:
                 counters += '<div class="import-counts">'
                 counters += evidence(record["target_ip"], "Import summary / target", False)
                 counters += (
                     '<span><span class="source-label">Import summary / hosts</span>'
                     '<span class="evidence" data-stored-count="hosts">'
-                    f'{escape(str(record["hosts"]))}</span></span>'
+                    f"{escape(str(record['hosts']))}</span></span>"
                 )
                 for tool, count in sorted(record["findings"].items()):
                     counters += (
@@ -159,10 +180,10 @@ def pipeline_map(payload: dict[str, Any]) -> str:
                         '<span class="evidence" '
                         f'data-stored-count="findings.{escape(tool)}">{escape(str(count))}</span></span>'
                     )
-                counters += '</div>'
+                counters += "</div>"
         ledgers.append(
             f'<details id="stage-{key}" class="stage-ledger"><summary>{title} records</summary>'
-            f'{counters}{stored}</details>'
+            f"{counters}{stored}</details>"
         )
     return (
         '<section id="pipeline" aria-labelledby="pipeline-heading">'
@@ -170,13 +191,15 @@ def pipeline_map(payload: dict[str, Any]) -> str:
         '<a href="#findings">Open ranked findings</a></div>'
         f'<ol class="pipeline-map">{"".join(links)}</ol>'
         '<p class="unavailable pipeline-note">Stage totals and completion events are not stored. '
-        'Import counters below are the recorded per-target values, not totals.</p>'
+        "Import counters below are the recorded per-target values, not totals.</p>"
         f'<div class="stage-ledgers">{"".join(ledgers)}</div></section>'
     )
 
 
 def render_entry(
-    template: str, payload: dict[str, Any] | None, runs: list[dict[str, Any]],
+    template: str,
+    payload: dict[str, Any] | None,
+    runs: list[dict[str, Any]],
     configuration: dict[str, Any] | None = None,
 ) -> str:
     from vulnassess.ui.presentation import render_workbench

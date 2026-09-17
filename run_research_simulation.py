@@ -35,12 +35,8 @@ def build() -> dict:
     with Store(DATABASE) as store:
         hosts = store.hosts(RUN_ID)
         model_predictions = {host.ip: model.predict(host) for host in hosts}
-        context_result = evaluate_context(
-            store.profiles(RUN_ID), context_truth, model_predictions
-        )
-        ablation_result = experiments.run_ablations(
-            settings, store, RUN_ID, truth=ranking_truth
-        )
+        context_result = evaluate_context(store.profiles(RUN_ID), context_truth, model_predictions)
+        ablation_result = experiments.run_ablations(settings, store, RUN_ID, truth=ranking_truth)
         stability_result = experiments.stability_check(settings, store, RUN_ID, 5)
         unification_result = unify_run(store, RUN_ID).to_json()
         snapshot = build_snapshot(settings, store, RUN_ID, model_hash=model.model_hash)

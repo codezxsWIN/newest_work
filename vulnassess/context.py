@@ -84,7 +84,9 @@ def infer_role(host: Host, rules: dict[str, Any]) -> Feature:
     for quote in evidence[primary]:
         if quote and quote not in unique:
             unique.append(quote)
-    return Feature(primary, round(scores[primary], 2), "rule", "; ".join(unique)[:400] or "none observed")
+    return Feature(
+        primary, round(scores[primary], 2), "rule", "; ".join(unique)[:400] or "none observed"
+    )
 
 
 def infer_exposure(host: Host, scope) -> tuple[Feature, str | None]:

@@ -29,8 +29,16 @@ Use Pydantic v2. `Finding`, `Enrichment`, and `ScoreBreakdown` must use `ConfigD
 ```python
 Tool = Literal["nmap", "nikto", "zap"]
 Role = Literal[
-    "database", "web_frontend", "app_server", "domain_controller", "mail",
-    "file_share", "iot_embedded", "workstation", "network_device", "unknown",
+    "database",
+    "web_frontend",
+    "app_server",
+    "domain_controller",
+    "mail",
+    "file_share",
+    "iot_embedded",
+    "workstation",
+    "network_device",
+    "unknown",
 ]
 Band = Literal["Critical", "High", "Medium", "Low"]
 ```
@@ -80,9 +88,11 @@ Rationale:
 ```python
 @staticmethod
 def fingerprint(host_ip, port, protocol, tool, tool_native_id, url) -> str:
-    return sha256("|".join([
-        host_ip, str(port or ""), protocol or "", tool, tool_native_id, url or ""
-    ]).encode()).hexdigest()
+    return sha256(
+        "|".join(
+            [host_ip, str(port or ""), protocol or "", tool, tool_native_id, url or ""]
+        ).encode()
+    ).hexdigest()
 ```
 
 `Finding.evidence` is a verbatim raw-record excerpt of at most 2048 characters, never a paraphrase. Nmap and Nikto must have `native_severity=None`. `Feature.confidence` is in [0, 1]; its evidence is never empty. `ContextProfile.exposure.value` is `internal` or `internet_facing`. Manual keys are `criticality` (integer 1-5) and `environment` (`prod` or `test`). Enrichment feed dates identify NVD, EPSS, and KEV snapshots using ISO dates. A provenance label of `llm` is not permission to influence scoring.
@@ -141,13 +151,25 @@ def load_feeds(feed_dir: Path, store: Store) -> dict[str, FeedMeta]: ...
 def match_finding(f: Finding, store: Store) -> list[Enrichment]: ...
 def infer_role(host: Host, rules: RoleRules, llm: LLMClient | None) -> Feature: ...
 def infer_exposure(host: Host, scope: Scope) -> tuple[Feature, str | None]: ...
-def detect_controls(host: Host, findings: list[Finding], sigs: ControlSignatures) -> dict[str, Feature]: ...
-def environmental_vector(base_vector: str, profile: ContextProfile, w: Weights) -> tuple[str, dict[str, str]]: ...
+def detect_controls(
+    host: Host, findings: list[Finding], sigs: ControlSignatures
+) -> dict[str, Feature]: ...
+def environmental_vector(
+    base_vector: str, profile: ContextProfile, w: Weights
+) -> tuple[str, dict[str, str]]: ...
 def cvss_score(vector: str) -> float: ...
-def risk(env_score: float | None, epss_percentile: float | None, kev: bool, native: str | None, w: Weights) -> tuple[float, float, str | None]: ...
+def risk(
+    env_score: float | None,
+    epss_percentile: float | None,
+    kev: bool,
+    native: str | None,
+    w: Weights,
+) -> tuple[float, float, str | None]: ...
 def band(risk_value: float, w: Weights) -> Band: ...
 def score(f: Finding, e: Enrichment | None, p: ContextProfile, w: Weights) -> ScoreBreakdown: ...
-def rationale(f: Finding, p: ContextProfile, s: ScoreBreakdown, client: LLMClient | None, cfg: ExplainConfig) -> Rationale: ...
+def rationale(
+    f: Finding, p: ContextProfile, s: ScoreBreakdown, client: LLMClient | None, cfg: ExplainConfig
+) -> Rationale: ...
 ```
 
 `run_tool` must raise `ScopeError` before any subprocess for an out-of-scope target. `load_feeds` must name every missing file in `IntelUnavailable`. Exposure inference returns `(exposure, segment)`. `cvss_score` uses the `cvss` package; do not replace it with invented arithmetic. Scoring is pure: no I/O, randomness, LLM, or clock. Only `explain/ollama_client.py` talks to Ollama. The `llm` argument to `infer_role` must not be used to bypass the rationale-only LLM boundary.

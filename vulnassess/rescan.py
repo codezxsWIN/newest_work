@@ -149,9 +149,7 @@ def build_observation_artifact(
         raise ConfigError("observation contains duplicate score finding IDs")
     unknown_score = sorted(set(score_ids) - set(finding_ids))
     if unknown_score:
-        raise ConfigError(
-            f"observation score references missing finding {unknown_score[0]!r}"
-        )
+        raise ConfigError(f"observation score references missing finding {unknown_score[0]!r}")
     missing_hosts = sorted({finding.host_ip for finding in observation.findings} - set(host_ips))
     if missing_hosts:
         raise ConfigError(f"observation finding references missing host {missing_hosts[0]!r}")
@@ -211,8 +209,7 @@ def load_observation_artifact(path: str | Path) -> ObservationArtifact:
     computed = _digest(core)
     if claimed != computed:
         raise ConfigError(
-            f"re-scan observation hash mismatch: artifact says {claimed!r}, "
-            f"computed {computed!r}"
+            f"re-scan observation hash mismatch: artifact says {claimed!r}, computed {computed!r}"
         )
     try:
         hosts = tuple(Host.from_json(item) for item in payload["hosts"])
@@ -267,9 +264,7 @@ def _origin(url: str | None) -> str | None:
     return f"{parsed.scheme}://{host}{suffix}"
 
 
-def _coverage(
-    observation: RunObservation, finding: Finding
-) -> CoverageRecord | None:
+def _coverage(observation: RunObservation, finding: Finding) -> CoverageRecord | None:
     return next(
         (
             record
@@ -308,7 +303,9 @@ def _comparable(
     return True, "successful equivalent tool and affected-instance coverage"
 
 
-def _newer_version(before: Service, after: Service) -> tuple[bool, str]:
+def _newer_version(before: Service | None, after: Service | None) -> tuple[bool, str]:
+    if before is None or after is None:
+        return False, "service is not observed in both captures"
     if not before.product or not after.product or before.product != after.product:
         return False, "service product is missing or changed"
     if not before.version or not after.version:
@@ -406,7 +403,9 @@ def compare_runs(
         finding = new_findings[finding_id]
         comparable, coverage_evidence = _comparable(before, after, finding)
         old_service = _service(before.hosts, finding)
-        outcome = "regression_candidate" if comparable and old_service is not None else "new_finding"
+        outcome = (
+            "regression_candidate" if comparable and old_service is not None else "new_finding"
+        )
         new_score = new_scores.get(finding_id)
         outcomes.append(
             RescanItem(

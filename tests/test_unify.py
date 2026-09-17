@@ -96,9 +96,7 @@ class TestUnification(unittest.TestCase):
 
     def test_different_host_or_port_never_correlates(self):
         base = finding("base", cves=("CVE-1999-9001",))
-        other_host = finding(
-            "host", host="192.0.2.11", cves=("CVE-1999-9001",)
-        )
+        other_host = finding("host", host="192.0.2.11", cves=("CVE-1999-9001",))
         other_port = finding("port", port=443, cves=("CVE-1999-9001",))
 
         result = unify_findings([base, other_host, other_port])
@@ -123,9 +121,7 @@ class TestUnification(unittest.TestCase):
 
         self.assertEqual(forward, reversed_result)
         source_ids = [
-            source
-            for group in forward["groups"]
-            for source in group["source_finding_ids"]
+            source for group in forward["groups"] for source in group["source_finding_ids"]
         ]
         self.assertEqual(sorted(source_ids), sorted(record.id for record in records))
         self.assertEqual(len(source_ids), len(set(source_ids)))

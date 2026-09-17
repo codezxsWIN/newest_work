@@ -48,9 +48,7 @@ def _digest(payload: Any) -> str:
 
 
 def _is_hex_digest(value: str, length: int) -> bool:
-    return len(value) == length and all(
-        character in "0123456789abcdef" for character in value
-    )
+    return len(value) == length and all(character in "0123456789abcdef" for character in value)
 
 
 def _is_sha256(value: str) -> bool:
@@ -151,9 +149,7 @@ class CohortManifest:
             "weights_hash": self.weights_hash,
             "feed_snapshot_hash": self.feed_snapshot_hash,
             "model_hash": self.model_hash,
-            "grouping_map": {
-                key: list(value) for key, value in sorted(self.grouping_map.items())
-            },
+            "grouping_map": {key: list(value) for key, value in sorted(self.grouping_map.items())},
             "evidence_status": self.evidence_status,
             "created_on": self.created_on,
             "reviewer": self.reviewer,

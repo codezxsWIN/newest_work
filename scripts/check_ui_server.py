@@ -60,7 +60,9 @@ def main() -> int:
         for method, target, expected in targets:
             if method == "POST" and target == "/api/model/run":
                 connection.request(
-                    method, target, json.dumps({"run_id": arguments.run}),
+                    method,
+                    target,
+                    json.dumps({"run_id": arguments.run}),
                     headers={
                         "Origin": f"http://127.0.0.1:{server.server_port}",
                         "X-Vulnassess-Action": "run-model",

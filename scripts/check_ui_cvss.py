@@ -34,9 +34,11 @@ def generate() -> None:
     from vulnassess.settings import Settings
 
     random_source = random.Random(20260913)
-    vectors = list(PINNED)
+    vectors: list[str] = list(PINNED)
     while len(vectors) < 211:
-        metrics = {key: random_source.choice(sorted(cvss31.ALLOWED[key])) for key in cvss31.BASE_METRICS}
+        metrics = {
+            key: random_source.choice(sorted(cvss31.ALLOWED[key])) for key in cvss31.BASE_METRICS
+        }
         for key in cvss31.ORDER[8:]:
             if random_source.choice((True, False)):
                 metrics[key] = random_source.choice(sorted(cvss31.ALLOWED[key]))
@@ -48,7 +50,11 @@ def generate() -> None:
         "seed": 20260913,
         "pinned": len(PINNED),
         "vectors": [
-            {"vector": vector, "base": cvss31.score_vector(vector)[0], "environmental": cvss31.score_vector(vector)[1]}
+            {
+                "vector": vector,
+                "base": cvss31.score_vector(vector)[0],
+                "environmental": cvss31.score_vector(vector)[1],
+            }
             for vector in vectors
         ],
     }
@@ -62,22 +68,47 @@ def generate() -> None:
     )
     cases = []
     for role, exposure, environment, waf, kev, percentile in product(
-        ("unknown", "web_frontend", "database"), ("internal", "internet_facing"),
-        ("test", "prod"), (False, True), (False, True), (None, 0.2, 0.9987),
+        ("unknown", "web_frontend", "database"),
+        ("internal", "internet_facing"),
+        ("test", "prod"),
+        (False, True),
+        (False, True),
+        (None, 0.2, 0.9987),
     ):
         changed = ContextProfile.from_json(profile.to_json())
         changed.role = Feature(role, 1.0, "manual", "synthetic arithmetic input")
         changed.exposure = Feature(exposure, 1.0, "manual", "synthetic arithmetic input")
         changed.controls["waf"] = Feature(waf, 1.0, "manual", "synthetic arithmetic input")
-        changed.manual["environment"] = Feature(environment, 1.0, "manual", "synthetic arithmetic input")
+        changed.manual["environment"] = Feature(
+            environment, 1.0, "manual", "synthetic arithmetic input"
+        )
         vector, _ = scoring.environmental_vector(PINNED[0], changed, weights)
         base, environmental = cvss31.score_vector(vector)
-        risk, multiplier = scoring.risk(environmental, percentile, kev, None, weights, exposure == "internet_facing")
-        cases.append({
-            "vector": PINNED[0], "profile": profile.to_json(),
-            "changes": {"role": role, "exposure": exposure, "environment": environment, "waf": waf, "kev": kev, "epss": percentile},
-            "expected": {"base": base, "environmental": environmental, "risk": risk, "band": scoring.band(risk, weights), "multiplier": multiplier, "vector": vector},
-        })
+        risk, multiplier = scoring.risk(
+            environmental, percentile, kev, None, weights, exposure == "internet_facing"
+        )
+        cases.append(
+            {
+                "vector": PINNED[0],
+                "profile": profile.to_json(),
+                "changes": {
+                    "role": role,
+                    "exposure": exposure,
+                    "environment": environment,
+                    "waf": waf,
+                    "kev": kev,
+                    "epss": percentile,
+                },
+                "expected": {
+                    "base": base,
+                    "environmental": environmental,
+                    "risk": risk,
+                    "band": scoring.band(risk, weights),
+                    "multiplier": multiplier,
+                    "vector": vector,
+                },
+            }
+        )
     document["sandbox_weights"] = weights
     document["sandbox_cases"] = cases
     FIXTURE.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8", newline="\n")
@@ -109,7 +140,9 @@ def verify_javascript() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--generate", action="store_true", help="regenerate only the synthetic arithmetic fixture")
+    parser.add_argument(
+        "--generate", action="store_true", help="regenerate only the synthetic arithmetic fixture"
+    )
     arguments = parser.parse_args()
     if arguments.generate:
         generate()

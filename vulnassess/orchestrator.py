@@ -141,8 +141,7 @@ def execute_local(command: ScannerCommand, timeout: float = 1800.0) -> Execution
     ended = datetime.now(timezone.utc).isoformat()
     detail = (completed.stderr or completed.stdout or "").strip()
     detail = "".join(
-        character if character in "\n\r\t" or ord(character) >= 32 else " "
-        for character in detail
+        character if character in "\n\r\t" or ord(character) >= 32 else " " for character in detail
     )[:MAX_EXECUTION_DETAIL]
     return Execution(
         exit_code=completed.returncode,
@@ -184,9 +183,7 @@ def check_canary_log(path: str | Path | None) -> dict[str, Any]:
     except OSError as error:
         raise ConfigError(f"cannot read canary access log {log}: {error}") from error
     if content.strip():
-        raise ScopeError(
-            f"canary access log {log} is non-empty; stop the scan and investigate"
-        )
+        raise ScopeError(f"canary access log {log} is non-empty; stop the scan and investigate")
     return {
         "status": "VERIFIED",
         "path": str(log),
@@ -244,7 +241,9 @@ def derive_endpoints(host: Host) -> list[Endpoint]:
         )
         default_port = 443 if scheme == "https" else 80
         suffix = "" if service.port == default_port else f":{service.port}"
-        evidence = service.banner or f"{service.port}/{service.protocol} {service.name or ''}".strip()
+        evidence = (
+            service.banner or f"{service.port}/{service.protocol} {service.name or ''}".strip()
+        )
         endpoints[(scheme, service.port)] = Endpoint(
             scheme=scheme,
             host=host.ip,
@@ -319,7 +318,9 @@ def _finding_count(command: ScannerCommand, run_id: str, target_ip: str) -> int:
     raise ConfigError(f"unknown scanner {command.tool!r}")
 
 
-def _execute(command: ScannerCommand, executor: Executor, run_id: str, target_ip: str) -> ToolOutcome:
+def _execute(
+    command: ScannerCommand, executor: Executor, run_id: str, target_ip: str
+) -> ToolOutcome:
     try:
         execution = executor(command)
     except Exception as error:

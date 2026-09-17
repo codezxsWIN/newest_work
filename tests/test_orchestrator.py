@@ -66,9 +66,10 @@ class TestOrchestrator(unittest.TestCase):
         with TemporaryDirectory() as directory:
             output = Path(directory) / "captures"
             stdout = io.StringIO()
-            with patch(
-                "vulnassess.orchestrator.shutil.which", return_value=None
-            ), redirect_stdout(stdout):
+            with (
+                patch("vulnassess.orchestrator.shutil.which", return_value=None),
+                redirect_stdout(stdout),
+            ):
                 code = main(
                     [
                         "--config",
@@ -103,12 +104,14 @@ class TestOrchestrator(unittest.TestCase):
             canary.write_text("", encoding="utf-8")
             executor = FakeExecutor()
             stdout = io.StringIO()
-            with patch(
-                "vulnassess.cli.orchestrator.missing_binaries", return_value=[]
-            ), patch(
-                "vulnassess.cli.orchestrator.execute_local",
-                side_effect=lambda command, timeout: executor(command),
-            ), redirect_stdout(stdout):
+            with (
+                patch("vulnassess.cli.orchestrator.missing_binaries", return_value=[]),
+                patch(
+                    "vulnassess.cli.orchestrator.execute_local",
+                    side_effect=lambda command, timeout: executor(command),
+                ),
+                redirect_stdout(stdout),
+            ):
                 code = main(
                     [
                         "--config",
@@ -137,11 +140,12 @@ class TestOrchestrator(unittest.TestCase):
 
     def test_scan_cli_refuses_execute_when_a_binary_is_missing(self):
         errors = io.StringIO()
-        with patch(
-            "vulnassess.cli.orchestrator.missing_binaries", return_value=["nmap"]
-        ), patch("vulnassess.cli.orchestrator.execute_local") as execute, redirect_stdout(
-            io.StringIO()
-        ), redirect_stderr(errors):
+        with (
+            patch("vulnassess.cli.orchestrator.missing_binaries", return_value=["nmap"]),
+            patch("vulnassess.cli.orchestrator.execute_local") as execute,
+            redirect_stdout(io.StringIO()),
+            redirect_stderr(errors),
+        ):
             code = main(
                 [
                     "--config",
@@ -283,10 +287,7 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(result["failed_tools"], 1)
         self.assertEqual(result["skipped_tools"], 2)
         self.assertTrue(
-            all(
-                "discovery failed" in item["skip_reason"]
-                for item in result["outcomes"][1:]
-            )
+            all("discovery failed" in item["skip_reason"] for item in result["outcomes"][1:])
         )
 
     def test_successful_ssh_only_discovery_skips_web_tools(self):

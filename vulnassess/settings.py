@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Set as AbstractSet
 from hashlib import sha256
 from ipaddress import ip_address, ip_network
 from pathlib import Path
@@ -133,9 +134,7 @@ class Scope:
                 f"{self.path}: key 'lab_targets[{name}].tags.environment' must be prod or test"
             )
         criticality = tags.get("criticality")
-        if criticality is not None and (
-            type(criticality) is not int or not 1 <= criticality <= 5
-        ):
+        if criticality is not None and (type(criticality) is not int or not 1 <= criticality <= 5):
             raise ConfigError(
                 f"{self.path}: key 'lab_targets[{name}].tags.criticality' must be an integer 1-5"
             )
@@ -206,7 +205,9 @@ class Settings:
         self._validate_controls()
 
     @staticmethod
-    def _unknown(path: Path, data: dict[str, Any], allowed: set[str], prefix: str = "") -> None:
+    def _unknown(
+        path: Path, data: dict[str, Any], allowed: AbstractSet[str], prefix: str = ""
+    ) -> None:
         extra = sorted(set(data) - allowed)
         if extra:
             key = f"{prefix}.{extra[0]}" if prefix else extra[0]
@@ -343,9 +344,7 @@ class Settings:
         severities = {"High", "Medium", "Low", "Informational"}
         self._unknown(path, zap, severities, "native_fallback.zap")
         for severity in severities:
-            self._number(
-                path, zap.get(severity), f"native_fallback.zap.{severity}", 0, 100
-            )
+            self._number(path, zap.get(severity), f"native_fallback.zap.{severity}", 0, 100)
 
         bands = self.weights["bands"]
         self._unknown(path, bands, {"Critical", "High", "Medium"}, "bands")
@@ -378,9 +377,7 @@ class Settings:
             raise ConfigError(f"{path}: key '{key}.{missing[0]}' is required")
         for metric, choices in allowed.items():
             if metrics[metric] not in choices:
-                raise ConfigError(
-                    f"{path}: key '{key}.{metric}' must be one of {sorted(choices)}"
-                )
+                raise ConfigError(f"{path}: key '{key}.{metric}' must be one of {sorted(choices)}")
 
     def _validate_roles(self) -> None:
         path = self.config_dir / "roles.yaml"

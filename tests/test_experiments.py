@@ -116,9 +116,7 @@ class TestExperiments(unittest.TestCase):
         self.assertEqual(result["evaluation_cohort_ids"], sorted(cohort_ids))
         self.assertEqual(set(result["orders"]["full"]), set(cohort_ids))
         self.assertEqual(len(result["orders"]["full"]), 2)
-        self.assertEqual(
-            set(result["expert_evaluation"]["methods"]), {"full", "no_kev"}
-        )
+        self.assertEqual(set(result["expert_evaluation"]["methods"]), {"full", "no_kev"})
 
     def test_unknown_scenario_and_invalid_repeat_count_fail_closed(self):
         with TemporaryDirectory() as directory:

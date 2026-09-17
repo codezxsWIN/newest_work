@@ -39,9 +39,7 @@ class TestAssessmentSnapshot(unittest.TestCase):
     def test_snapshot_contains_every_stage_and_round_trips(self):
         with TemporaryDirectory() as directory:
             with prepared_store(directory) as store:
-                snapshot = build_snapshot(
-                    SETTINGS, store, "snapshot", model_hash="synthetic-model"
-                )
+                snapshot = build_snapshot(SETTINGS, store, "snapshot", model_hash="synthetic-model")
             path = save_snapshot(snapshot, Path(directory) / "snapshot.json")
             loaded = load_snapshot(path)
 

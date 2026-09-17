@@ -6,21 +6,25 @@ file, socket or random source can reach a rank.
 
 import hashlib
 import json
+from dataclasses import replace
+from typing import Any, cast
 
 from vulnassess import cvss31
 from vulnassess.schema import ContextProfile, Enrichment, Finding, ScoreBreakdown, Service
+
+Weights = dict[str, Any]
 
 STEP_UP = {"L": "M", "M": "H", "H": "H"}
 REQUIREMENT_KEYS = ("CR", "IR", "AR")
 
 
-def weights_hash(weights: dict) -> str:
+def weights_hash(weights: Weights) -> str:
     payload = json.dumps(weights, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
 
 
 def environmental_vector(
-    base_vector: str, profile: ContextProfile, weights: dict
+    base_vector: str, profile: ContextProfile, weights: Weights
 ) -> tuple[str, dict[str, str]]:
     """Auto-fill the CVSS Environmental metrics from inferred context."""
     metrics = cvss31.parse(base_vector)
@@ -34,11 +38,7 @@ def environmental_vector(
             modifications[key] = value
 
     exposure = profile.exposure
-    if (
-        exposure.value == "internal"
-        and metrics["AV"] == "N"
-        and exposure.confidence >= minimum
-    ):
+    if exposure.value == "internal" and metrics["AV"] == "N" and exposure.confidence >= minimum:
         apply(settings.get("internal_when_av_network"))
 
     waf = profile.controls.get("waf")
@@ -75,7 +75,7 @@ def risk(
     epss_percentile: float | None,
     kev: bool,
     native_key: float | None,
-    weights: dict,
+    weights: Weights,
     internet_facing: bool,
 ) -> tuple[float, float | None]:
     """Combine environmental severity with observed threat. Missing EPSS stays unscored."""
@@ -102,7 +102,7 @@ def risk(
     return round(min(value, 100.0), 1), multiplier
 
 
-def band(value: float, weights: dict) -> str:
+def band(value: float, weights: Weights) -> str:
     bands = weights["bands"]
     if value >= float(bands["Critical"]):
         return "Critical"
@@ -174,13 +174,17 @@ def best_enrichment(enrichments: list[Enrichment]) -> Enrichment | None:
     )
 
 
-def _native_value(finding: Finding, weights: dict) -> tuple[float | None, str | None]:
-    table = weights.get("native_fallback", {}).get(finding.tool)
+def _native_value(finding: Finding, weights: Weights) -> tuple[float | None, str | None]:
+    # YAML config is dynamically shaped; the casts name the shapes this formula handles.
+    fallback = cast("dict[str, Any] | None", weights.get("native_fallback", {}))
+    if fallback is None:
+        return None, None
+    table = cast("dict[str, Any] | float | int | str | None", fallback.get(finding.tool))
     if table is None:
         return None, None
     if isinstance(table, dict):
         severity = finding.native_severity
-        value = table.get(severity)
+        value = table.get(severity or "")
         if value is None:
             value = min(table.values())
             severity = severity or "default"
@@ -193,7 +197,7 @@ def score(
     enrichment: Enrichment | None,
     profile: ContextProfile,
     host_services: tuple[Service, ...],
-    weights: dict,
+    weights: Weights,
 ) -> ScoreBreakdown:
     internet_facing = profile.exposure.value == "internet_facing"
     inputs = {
@@ -207,9 +211,7 @@ def score(
     if enrichment is not None and enrichment.cvss31_vector:
         metrics = cvss31.parse(enrichment.cvss31_vector)
         base = cvss31.base_score(metrics)
-        env_vector, modifications = environmental_vector(
-            enrichment.cvss31_vector, profile, weights
-        )
+        env_vector, modifications = environmental_vector(enrichment.cvss31_vector, profile, weights)
         env = cvss31.environmental_score(cvss31.parse(env_vector))
         value, multiplier = risk(
             env, enrichment.epss_percentile, enrichment.kev, None, weights, internet_facing
@@ -260,6 +262,4 @@ def score(
             fix=fix_text(finding, enrichment, host_services),
         )
 
-    return ScoreBreakdown(
-        **{**breakdown.to_json(), "reason": describe(breakdown, profile)}
-    )
+    return replace(breakdown, reason=describe(breakdown, profile))

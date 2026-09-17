@@ -147,7 +147,7 @@ intelligence matching precedes final unification, context, ranking, and reportin
 The appendices retain the fuller historical roadmap for traceability. Their
 orchestrator, Nikto, LLM and re-scan work is not part of the current prototype
 commitment. The five-day planning window and variable-panel design are detailed in
-[the prototype DESIGN](../project-starter-kit/docs/DESIGN.md); names and panel size
+[the prototype DESIGN](DESIGN.md); names and panel size
 must not be architectural dependencies. A missing artifact or unapproved interface
 can block an increment without justifying a placeholder or an unsupported result.
 

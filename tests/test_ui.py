@@ -14,8 +14,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from xml.etree import ElementTree
 
-from scripts.generate_ui_swatches import MATRICES, contrast, read_tokens, svg_document, validate_palette
 from scripts.check_ui_cvss import verify_javascript, verify_python
+from scripts.generate_ui_swatches import (
+    MATRICES,
+    contrast,
+    read_tokens,
+    svg_document,
+    validate_palette,
+)
 from vulnassess.cli import build_parser, main
 from vulnassess.errors import ConfigError
 from vulnassess.role_model import RoleModel, load_model
@@ -31,13 +37,37 @@ from vulnassess.ui.server import CSP, UiApplication, UiRequestHandler, UiServer
 ROOT = Path(__file__).resolve().parents[1]
 DATABASE = ROOT / "data" / "vulnassess.db"
 SYNTHETIC = ROOT / "tests" / "synthetic"
-DEMO_RUN = "verify"
+DEMO_RUN = "demo"
 
 SOCKET_GUARD = patch("socket.socket", side_effect=AssertionError("network forbidden in UI tests"))
 
 
+def _provision_demo_database() -> None:
+    """Build the demo records the UI contracts run against, exactly as run_demo.py does.
+
+    The database is gitignored, so a fresh clone (and CI) must rebuild it here rather
+    than depending on an author's leftover workspace state. The contracts also probe a
+    second run id, "verify": like the synthetic_ui_other row they create themselves, it
+    only needs its runs-table row to exist.
+    """
+    if not DATABASE.is_file():
+        from run_demo import run as run_demo_pipeline
+
+        code = run_demo_pipeline()
+        if code != 0:
+            raise RuntimeError(f"demo pipeline exited {code}; UI contracts need its records")
+    with closing(sqlite3.connect(DATABASE)) as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO runs "
+            "SELECT 'verify', started_at, config_hash, summary_json FROM runs "
+            "WHERE run_id = 'demo'"
+        )
+        connection.commit()
+
+
 def setUpModule() -> None:
     SOCKET_GUARD.start()
+    _provision_demo_database()
 
 
 def tearDownModule() -> None:
@@ -60,13 +90,15 @@ class MemoryConnection:
 
 
 def request(
-    application: UiApplication, path: str, method: str = "GET",
-    host: str = "127.0.0.1:8765", extra_headers: str = "",
+    application: UiApplication,
+    path: str,
+    method: str = "GET",
+    host: str = "127.0.0.1:8765",
+    extra_headers: str = "",
     body: bytes = b"",
 ) -> tuple[int, dict[str, str], bytes]:
     connection = MemoryConnection(
-        f"{method} {path} HTTP/1.1\r\nHost: {host}\r\n{extra_headers}\r\n".encode("ascii")
-        + body
+        f"{method} {path} HTTP/1.1\r\nHost: {host}\r\n{extra_headers}\r\n".encode("ascii") + body
     )
     server = SimpleNamespace(application=application, server_address=("127.0.0.1", 8765))
     UiRequestHandler(connection, ("127.0.0.1", 1), server)
@@ -82,10 +114,22 @@ class TestUiContract(unittest.TestCase):
         status, _, body = request(application, f"/api/run/{DEMO_RUN}")
         self.assertEqual(status, 200)
         payload = json.loads(body)
-        self.assertEqual(set(payload), {
-            "run", "hosts", "findings", "context", "scores", "enrichments", "rationales",
-            "feeds_meta", "feeds_meta_scope", "refusals", "config_hashes",
-        })
+        self.assertEqual(
+            set(payload),
+            {
+                "run",
+                "hosts",
+                "findings",
+                "context",
+                "scores",
+                "enrichments",
+                "rationales",
+                "feeds_meta",
+                "feeds_meta_scope",
+                "refusals",
+                "config_hashes",
+            },
+        )
         self.assertEqual(set(payload["run"]), {"run_id", "started_at", "config_hash", "summary"})
 
     def test_every_host_and_finding_key_is_pinned(self) -> None:
@@ -98,18 +142,52 @@ class TestUiContract(unittest.TestCase):
         for host in payload["hosts"]:
             self.assertEqual(set(host), {"ip", "hostname", "os_guess", "services"})
             for service in host["services"]:
-                self.assertEqual(set(service), {
-                    "port", "protocol", "name", "product", "version", "cpe", "banner", "tls",
-                })
+                self.assertEqual(
+                    set(service),
+                    {
+                        "port",
+                        "protocol",
+                        "name",
+                        "product",
+                        "version",
+                        "cpe",
+                        "banner",
+                        "tls",
+                    },
+                )
         for finding in payload["findings"]:
-            self.assertEqual(set(finding), {
-                "id", "host_ip", "port", "protocol", "url", "tool", "tool_native_id",
-                "title", "description", "evidence", "cve_ids", "cwe_ids", "reference_urls",
-                "native_severity", "native_confidence", "first_seen", "last_seen", "provenance",
-            })
-            self.assertEqual(set(finding["provenance"]), {
-                "tool", "raw_path", "record_index", "run_id",
-            })
+            self.assertEqual(
+                set(finding),
+                {
+                    "id",
+                    "host_ip",
+                    "port",
+                    "protocol",
+                    "url",
+                    "tool",
+                    "tool_native_id",
+                    "title",
+                    "description",
+                    "evidence",
+                    "cve_ids",
+                    "cwe_ids",
+                    "reference_urls",
+                    "native_severity",
+                    "native_confidence",
+                    "first_seen",
+                    "last_seen",
+                    "provenance",
+                },
+            )
+            self.assertEqual(
+                set(finding["provenance"]),
+                {
+                    "tool",
+                    "raw_path",
+                    "record_index",
+                    "run_id",
+                },
+            )
 
     def test_every_score_matches_sqlite(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
@@ -120,7 +198,8 @@ class TestUiContract(unittest.TestCase):
         try:
             rows = connection.execute(
                 "SELECT finding_id, json, risk, band FROM scores WHERE run_id = ? "
-                "ORDER BY risk DESC, finding_id", (DEMO_RUN,),
+                "ORDER BY risk DESC, finding_id",
+                (DEMO_RUN,),
             ).fetchall()
         finally:
             connection.close()
@@ -176,7 +255,10 @@ class TestUiContract(unittest.TestCase):
             "/api/scope": (200, {"path", "sha256", "values", "yaml"}),
             "/api/weights": (200, {"path", "sha256", "values", "yaml"}),
             "/api/eval/verify": (409, {"run_id", "status", "records", "reason"}),
-            "/api/diff/verify/synthetic_ui_other": (409, {"run_ids", "status", "records", "reason"}),
+            "/api/diff/verify/synthetic_ui_other": (
+                409,
+                {"run_ids", "status", "records", "reason"},
+            ),
         }
         for path, (expected_status, keys) in expected.items():
             with self.subTest(path=path):
@@ -198,7 +280,9 @@ class TestUiServer(unittest.TestCase):
                 status, _, body = request(self.application, path)
                 self.assertEqual(status, 200)
                 self.assertTrue(body)
-        with patch("vulnassess.ui.server.ThreadingHTTPServer.__init__", return_value=None) as constructor:
+        with patch(
+            "vulnassess.ui.server.ThreadingHTTPServer.__init__", return_value=None
+        ) as constructor:
             UiServer(self.application, port=0)
         constructor.assert_called_once_with(("127.0.0.1", 0), UiRequestHandler)
 
@@ -221,8 +305,12 @@ class TestUiServer(unittest.TestCase):
             "/static/%2e%2e/%2e%2e/config/scope.yaml",
             "/static/%252e%252e/config/scope.yaml",
             "/static/..%5c..%5cconfig%5cscope.yaml",
-            "/static/index.html::$DATA", "/static/%00index.html",
-            "/static/", "/static", "/static/.env", "/config/scope.yaml",
+            "/static/index.html::$DATA",
+            "/static/%00index.html",
+            "/static/",
+            "/static",
+            "/static/.env",
+            "/config/scope.yaml",
         ):
             with self.subTest(path=path):
                 status, _, body = request(self.application, path)
@@ -239,17 +327,29 @@ class TestUiServer(unittest.TestCase):
                 self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
 
     def test_rebinding_and_cross_origin_requests_are_refused(self) -> None:
-        self.assertEqual(request(self.application, "/api/runs", host="untrusted.invalid:8765")[0], 403)
+        self.assertEqual(
+            request(self.application, "/api/runs", host="untrusted.invalid:8765")[0], 403
+        )
         for header in (
-            "Origin: null\r\n", "Origin: https://untrusted.invalid\r\n",
-            "Sec-Fetch-Site: cross-site\r\n", "Host: untrusted.invalid\r\n",
+            "Origin: null\r\n",
+            "Origin: https://untrusted.invalid\r\n",
+            "Sec-Fetch-Site: cross-site\r\n",
+            "Host: untrusted.invalid\r\n",
         ):
             self.assertEqual(request(self.application, "/api/runs", extra_headers=header)[0], 403)
 
     def test_cli_selects_run_and_closes_on_interrupt(self) -> None:
         arguments = [
-            "ui", "--db", str(DATABASE), "--config", str(ROOT / "config"),
-            "--run", DEMO_RUN, "--port", "8765", "--json",
+            "ui",
+            "--db",
+            str(DATABASE),
+            "--config",
+            str(ROOT / "config"),
+            "--run",
+            DEMO_RUN,
+            "--port",
+            "8765",
+            "--json",
         ]
         output = io.StringIO()
         with patch("vulnassess.ui.server.UiServer") as server_class, patch("sys.stdout", output):
@@ -257,9 +357,14 @@ class TestUiServer(unittest.TestCase):
             server.server_port = 8765
             server.serve_forever.side_effect = KeyboardInterrupt
             self.assertEqual(main(arguments), 0)
-        self.assertEqual(json.loads(output.getvalue()), {
-            "url": "http://127.0.0.1:8765/", "run_id": DEMO_RUN, "read_only": True,
-        })
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {
+                "url": "http://127.0.0.1:8765/",
+                "run_id": DEMO_RUN,
+                "read_only": True,
+            },
+        )
         server_class.return_value.__exit__.assert_called_once()
         self.assertEqual(build_parser().parse_args(["ui", "--run-id", DEMO_RUN]).run_id, DEMO_RUN)
 
@@ -283,7 +388,7 @@ class TestUiServer(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(headers["Content-Type"], "text/html; charset=utf-8")
         document = body.decode("utf-8")
-        scripts = re.findall(r'<script([^>]*)>(.*?)</script>', document, re.DOTALL)
+        scripts = re.findall(r"<script([^>]*)>(.*?)</script>", document, re.DOTALL)
         self.assertTrue(scripts)
         for attributes, content in scripts:
             if 'type="application/json"' in attributes:
@@ -311,18 +416,23 @@ class TestUiModel(unittest.TestCase):
     def infer(self, payload: dict) -> tuple[int, dict[str, str], bytes]:
         body = json.dumps(payload).encode("utf-8")
         return request(
-            self.application, "/api/model/run", "POST",
+            self.application,
+            "/api/model/run",
+            "POST",
             extra_headers=(
                 "Origin: http://127.0.0.1:8765\r\n"
                 "X-Vulnassess-Action: run-model\r\nContent-Type: application/json\r\n"
                 f"Content-Length: {len(body)}\r\n"
-            ), body=body,
+            ),
+            body=body,
         )
 
     def test_model_action_is_refused_without_inference_or_record_changes(self) -> None:
         with ReadOnlyStore(DATABASE) as store:
             before = store.run(DEMO_RUN)
-        with patch.object(RoleModel, "predict", side_effect=AssertionError("UI inference forbidden")) as predictor:
+        with patch.object(
+            RoleModel, "predict", side_effect=AssertionError("UI inference forbidden")
+        ) as predictor:
             status, headers, body = self.infer({"run_id": DEMO_RUN})
         self.assertEqual(status, 405)
         self.assertEqual(headers["Allow"], "GET")
@@ -335,7 +445,9 @@ class TestUiModel(unittest.TestCase):
         with ReadOnlyStore(DATABASE) as store:
             before = store.run(DEMO_RUN)
         actual_predict = RoleModel.predict
-        with patch.object(RoleModel, "predict", autospec=True, side_effect=actual_predict) as predictor:
+        with patch.object(
+            RoleModel, "predict", autospec=True, side_effect=actual_predict
+        ) as predictor:
             result = run_model(DATABASE, ROOT / "models" / "synthetic-role-model.json", DEMO_RUN)
         self.assertEqual(predictor.call_count, len(before["hosts"]))
         self.assertEqual(result["source"], "live_local_inference")
@@ -353,24 +465,41 @@ class TestUiModel(unittest.TestCase):
 
     def test_loading_page_and_removed_model_routes_does_not_run_inference(self) -> None:
         with patch.object(RoleModel, "predict", side_effect=AssertionError("implicit inference")):
-            for path, status in (("/", 200), ("/api/model", 404), ("/api/model/run", 404), ("/api/run/verify", 200)):
+            for path, status in (
+                ("/", 200),
+                ("/api/model", 404),
+                ("/api/model/run", 404),
+                ("/api/run/verify", 200),
+            ):
                 self.assertEqual(request(self.application, path)[0], status)
 
     def test_model_request_is_refused_regardless_of_origin_and_action(self) -> None:
         self.assertEqual(request(self.application, "/api/model/run", "POST")[0], 405)
-        self.assertEqual(request(
-            self.application, "/api/model/run", "POST",
-            extra_headers="Origin: http://127.0.0.1:8765\r\n",
-        )[0], 405)
-        self.assertEqual(request(
-            self.application, "/api/model/run", "POST",
-            extra_headers="Origin: https://untrusted.invalid\r\nX-Vulnassess-Action: run-model\r\n",
-        )[0], 405)
+        self.assertEqual(
+            request(
+                self.application,
+                "/api/model/run",
+                "POST",
+                extra_headers="Origin: http://127.0.0.1:8765\r\n",
+            )[0],
+            405,
+        )
+        self.assertEqual(
+            request(
+                self.application,
+                "/api/model/run",
+                "POST",
+                extra_headers="Origin: https://untrusted.invalid\r\nX-Vulnassess-Action: run-model\r\n",
+            )[0],
+            405,
+        )
 
     def test_model_request_cannot_select_paths_or_write_scores(self) -> None:
         for payload in (
             {"run_id": DEMO_RUN, "model_path": "other.json"},
-            {"run_id": DEMO_RUN, "write_scores": True}, {"run_id": []}, {},
+            {"run_id": DEMO_RUN, "write_scores": True},
+            {"run_id": []},
+            {},
         ):
             self.assertEqual(self.infer(payload)[0], 405)
         self.assertEqual(self.infer({"run_id": "synthetic_missing_run"})[0], 405)
@@ -380,12 +509,16 @@ class TestUiModel(unittest.TestCase):
             run_model(DATABASE, ROOT / "models" / "synthetic_missing.json", DEMO_RUN)
 
     def test_viewer_does_not_load_models(self) -> None:
-        with patch("vulnassess.ui.runtime.load_model", side_effect=AssertionError("model load forbidden")):
+        with patch(
+            "vulnassess.ui.runtime.load_model", side_effect=AssertionError("model load forbidden")
+        ):
             application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
             self.assertEqual(request(application, "/")[0], 200)
             self.assertEqual(request(application, "/api/model")[0], 404)
         source = (ROOT / "vulnassess" / "ui" / "server.py").read_text(encoding="utf-8")
-        imports = [node.module for node in ast.walk(ast.parse(source)) if isinstance(node, ast.ImportFrom)]
+        imports = [
+            node.module for node in ast.walk(ast.parse(source)) if isinstance(node, ast.ImportFrom)
+        ]
         self.assertNotIn("vulnassess.ui.runtime", imports)
         self.assertNotIn("vulnassess.role_model", imports)
         self.assertFalse(hasattr(self.application, "infer"))
@@ -411,7 +544,7 @@ class EvidenceParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         if self.active is not None:
-            getattr(self, self.active).append(''.join(self.text))
+            getattr(self, self.active).append("".join(self.text))
             self.active = None
 
 
@@ -426,16 +559,26 @@ class TestUiExport(unittest.TestCase):
             path = export_html(application, Path(directory) / "synthetic_export.html")
             document = path.read_text(encoding="utf-8")
         attributes = []
+
         class AssetParser(HTMLParser):
             def handle_starttag(self, tag, attrs):
-                attributes.extend((tag, key, value) for key, value in attrs if key in {"src", "href"})
+                attributes.extend(
+                    (tag, key, value) for key, value in attrs if key in {"src", "href"}
+                )
+
         AssetParser().feed(document)
         for tag, key, value in attributes:
             self.assertFalse(value.startswith(("http://", "https://", "//")), (tag, key, value))
             self.assertFalse(tag == "script" and key == "src")
             self.assertFalse(value.startswith("/static/"))
         self.assertIn("connect-src 'none'", document)
-        bootstrap = json.loads(re.search(r'<script id="assessment-data" type="application/json">(.*?)</script>', document, re.DOTALL).group(1))
+        bootstrap = json.loads(
+            re.search(
+                r'<script id="assessment-data" type="application/json">(.*?)</script>',
+                document,
+                re.DOTALL,
+            ).group(1)
+        )
         self.assertEqual(bootstrap["assessment"], before)
         self.assertTrue(bootstrap["offline"])
         self.assertEqual(len(bootstrap["cvss_fixture"]["vectors"]), 211)
@@ -447,22 +590,39 @@ class TestUiExport(unittest.TestCase):
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
         live = request(application, "/")[2].decode("utf-8")
         with TemporaryDirectory(dir=SYNTHETIC, prefix="synthetic_ui_") as directory:
-            offline = export_html(application, Path(directory) / "synthetic_export.html").read_text(encoding="utf-8")
-        for identifier, end in (("compare-table", "</table>"), ("ranked-list", "</table>"), ("inspector", "</dialog>")):
-            self.assertEqual(live.split(f'id="{identifier}"', 1)[1].split(end, 1)[0], offline.split(f'id="{identifier}"', 1)[1].split(end, 1)[0])
+            offline = export_html(application, Path(directory) / "synthetic_export.html").read_text(
+                encoding="utf-8"
+            )
+        for identifier, end in (
+            ("compare-table", "</table>"),
+            ("ranked-list", "</table>"),
+            ("inspector", "</dialog>"),
+        ):
+            self.assertEqual(
+                live.split(f'id="{identifier}"', 1)[1].split(end, 1)[0],
+                offline.split(f'id="{identifier}"', 1)[1].split(end, 1)[0],
+            )
 
     def test_cli_export_does_not_start_server(self) -> None:
         with TemporaryDirectory(dir=SYNTHETIC, prefix="synthetic_ui_") as directory:
             path = Path(directory) / "synthetic_export.html"
             output = io.StringIO()
-            with patch("vulnassess.ui.server.UiServer", side_effect=AssertionError("export must not listen")), patch("sys.stdout", output):
+            with (
+                patch(
+                    "vulnassess.ui.server.UiServer",
+                    side_effect=AssertionError("export must not listen"),
+                ),
+                patch("sys.stdout", output),
+            ):
                 code = main(["ui", "--run", DEMO_RUN, "--export", str(path), "--json"])
             self.assertEqual(code, 0)
             self.assertTrue(path.is_file())
             self.assertTrue(json.loads(output.getvalue())["read_only"])
 
     def test_sandbox_banner_present(self) -> None:
-        document = request(UiApplication(DATABASE, ROOT / "config", DEMO_RUN), "/")[2].decode("utf-8")
+        document = request(UiApplication(DATABASE, ROOT / "config", DEMO_RUN), "/")[2].decode(
+            "utf-8"
+        )
         self.assertIn("Sandbox. Nothing stored changes.", document)
         self.assertIn("Calculated in this browser", document)
         self.assertIn('id="sandbox-form"', document)
@@ -475,9 +635,16 @@ class TestUiExport(unittest.TestCase):
             self.assertIn(f'data-stage="{stage}"', document)
         for name in ("compare-table", "ranked-list", "inspector", "tour"):
             self.assertIn(f'id="{name}"', document)
-        data = re.search(r'<script id="assessment-data" type="application/json">(.*?)</script>', document, re.DOTALL)
+        data = re.search(
+            r'<script id="assessment-data" type="application/json">(.*?)</script>',
+            document,
+            re.DOTALL,
+        )
         self.assertIsNotNone(data)
-        self.assertEqual(json.loads(data.group(1))["assessment"], json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+        self.assertEqual(
+            json.loads(data.group(1))["assessment"],
+            json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]),
+        )
 
     def test_facets_cover_all_values_in_run(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
@@ -496,8 +663,11 @@ class TestUiExport(unittest.TestCase):
         with ReadOnlyStore(DATABASE) as store:
             payload = store.run(DEMO_RUN)
         from html import escape
+
         for finding in payload["findings"]:
-            panel = document.split(f'data-inspection="{finding["id"]}"', 1)[1].split('</article>', 1)[0]
+            panel = document.split(f'data-inspection="{finding["id"]}"', 1)[1].split(
+                "</article>", 1
+            )[0]
             for key in finding:
                 self.assertIn(escape(f'"{key}"'), panel)
             self.assertIn(escape(finding["evidence"]), panel)
@@ -512,7 +682,7 @@ class TestUiExport(unittest.TestCase):
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
         payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
         document = request(application, "/")[2].decode("utf-8")
-        strip = document.split('id="run-strip"', 1)[1].split('</section>', 1)[0]
+        strip = document.split('id="run-strip"', 1)[1].split("</section>", 1)[0]
         for value in payload["config_hashes"]["score_weights"]:
             self.assertIn(value, strip)
         for feed in payload["feeds_meta"]:
@@ -528,8 +698,13 @@ class TestUiExport(unittest.TestCase):
         expected = []
         for record in payload["run"]["summary"]["imports"]:
             expected.append(("hosts", str(record["hosts"])))
-            expected.extend((f"findings.{tool}", str(count)) for tool, count in sorted(record["findings"].items()))
-        self.assertEqual(re.findall(r'data-stored-count="([^"]+)">([^<]+)</span>', document), expected)
+            expected.extend(
+                (f"findings.{tool}", str(count))
+                for tool, count in sorted(record["findings"].items())
+            )
+        self.assertEqual(
+            re.findall(r'data-stored-count="([^"]+)">([^<]+)</span>', document), expected
+        )
         self.assertIn("Stage totals and completion events are not stored", document)
         for stage in ("import", "intel", "enrich", "context", "rank", "explain", "report"):
             self.assertIn(f'href="#stage-{stage}"', document)
@@ -552,13 +727,13 @@ class TestUiExport(unittest.TestCase):
 
     def test_evidence_is_escaped_and_not_interpreted_as_markup(self) -> None:
         quote_text = '<script>alert("synthetic")</script>&<img src=x onerror=alert(1)>'
-        rendered = evidence(quote_text, '<synthetic source>')
-        self.assertNotIn('<script>', rendered)
-        self.assertNotIn('<img', rendered)
+        rendered = evidence(quote_text, "<synthetic source>")
+        self.assertNotIn("<script>", rendered)
+        self.assertNotIn("<img", rendered)
         parser = EvidenceParser()
         parser.feed(rendered)
         self.assertEqual(parser.blocks, [quote_text])
-        self.assertEqual(parser.labels, ['<synthetic source>'])
+        self.assertEqual(parser.labels, ["<synthetic source>"])
 
 
 class TestCvss31(unittest.TestCase):
@@ -582,7 +757,9 @@ class TestUiAssets(unittest.TestCase):
         for prefix in ("", "night-"):
             for foreground in ("ink", "muted", "critical", "high", "medium", "low"):
                 for background in ("paper", "surface", "wash"):
-                    self.assertGreaterEqual(contrast(tokens[prefix + foreground], tokens[prefix + background]), 4.5)
+                    self.assertGreaterEqual(
+                        contrast(tokens[prefix + foreground], tokens[prefix + background]), 4.5
+                    )
 
     def test_tour_steps_reference_existing_anchors(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
@@ -591,14 +768,26 @@ class TestUiAssets(unittest.TestCase):
         targets = re.findall(r"target: '([^']+)'", source)
         self.assertEqual(len(targets), 6)
         identifiers = set(re.findall(r'\bid="([^"]+)"', document))
-        classes = {name for names in re.findall(r'\bclass="([^"]+)"', document) for name in names.split()}
+        classes = {
+            name for names in re.findall(r'\bclass="([^"]+)"', document) for name in names.split()
+        }
         for target in targets:
             self.assertIn(target[1:], identifiers if target.startswith("#") else classes)
-        bootstrap = json.loads(re.search(r'<script id="assessment-data" type="application/json">(.*?)</script>', document, re.DOTALL).group(1))
-        followed = next(score for score in bootstrap["assessment"]["scores"] if score["finding_id"] == bootstrap["tour_finding"])
+        bootstrap = json.loads(
+            re.search(
+                r'<script id="assessment-data" type="application/json">(.*?)</script>',
+                document,
+                re.DOTALL,
+            ).group(1)
+        )
+        followed = next(
+            score
+            for score in bootstrap["assessment"]["scores"]
+            if score["finding_id"] == bootstrap["tour_finding"]
+        )
         self.assertEqual(followed["host_ip"], "172.28.0.10")
-        self.assertIn(f'host-{followed["host_ip"]}', identifiers)
-        self.assertIn(f'context-{followed["host_ip"]}', identifiers)
+        self.assertIn(f"host-{followed['host_ip']}", identifiers)
+        self.assertIn(f"context-{followed['host_ip']}", identifiers)
         self.assertIn(f'data-inspect="{followed["finding_id"]}"', document)
 
     def test_every_role_has_a_building(self) -> None:
@@ -615,9 +804,16 @@ class TestUiAssets(unittest.TestCase):
             self.assertTrue(document.attrib["aria-label"])
 
     def test_buildings_and_doors_have_small_and_large_dimensions(self) -> None:
-        stylesheet = (ROOT / "vulnassess" / "ui" / "static" / "entry.css").read_text(encoding="utf-8")
-        self.assertRegex(stylesheet, r"\.building-drawing,\s*\.door-drawing\s*\{[^}]*width:\s*48px;[^}]*height:\s*48px;")
-        self.assertRegex(stylesheet, r"\.drawing-sample \.building-drawing\s*\{[^}]*width:\s*240px;")
+        stylesheet = (ROOT / "vulnassess" / "ui" / "static" / "entry.css").read_text(
+            encoding="utf-8"
+        )
+        self.assertRegex(
+            stylesheet,
+            r"\.building-drawing,\s*\.door-drawing\s*\{[^}]*width:\s*48px;[^}]*height:\s*48px;",
+        )
+        self.assertRegex(
+            stylesheet, r"\.drawing-sample \.building-drawing\s*\{[^}]*width:\s*240px;"
+        )
         document = ElementTree.parse(DRAWINGS / "door.svg").getroot()
         self.assertEqual(document.attrib["viewBox"], "0 0 48 48")
         self.assertIn('class="door-badge"', door("Critical"))
@@ -648,7 +844,9 @@ class TestUiAssets(unittest.TestCase):
         for path in static.rglob("*"):
             if path.suffix not in {".css", ".js"} or path == tokens:
                 continue
-            self.assertIsNone(re.search(r"#[0-9a-fA-F]{3,8}\b", path.read_text(encoding="utf-8")), path)
+            self.assertIsNone(
+                re.search(r"#[0-9a-fA-F]{3,8}\b", path.read_text(encoding="utf-8")), path
+            )
 
     def test_severity_colours_survive_simulations_and_text_contrast(self) -> None:
         results = validate_palette(read_tokens())
@@ -668,9 +866,19 @@ class TestUiAssets(unittest.TestCase):
 class TestWalls(unittest.TestCase):
     def test_ui_imports_no_network_or_subprocess(self) -> None:
         forbidden = {
-            "subprocess", "urllib.request", "urllib.error", "httpx", "requests", "socket",
-            "vulnassess.explain", "vulnassess.pipeline", "vulnassess.scoring",
-            "vulnassess.context", "vulnassess.intel", "vulnassess.evaluate", "vulnassess.diff",
+            "subprocess",
+            "urllib.request",
+            "urllib.error",
+            "httpx",
+            "requests",
+            "socket",
+            "vulnassess.explain",
+            "vulnassess.pipeline",
+            "vulnassess.scoring",
+            "vulnassess.context",
+            "vulnassess.intel",
+            "vulnassess.evaluate",
+            "vulnassess.diff",
         }
         for path in (ROOT / "vulnassess" / "ui").rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -684,7 +892,10 @@ class TestWalls(unittest.TestCase):
                 else:
                     continue
                 for name in names:
-                    self.assertFalse(any(name == item or name.startswith(item + ".") for item in forbidden), (path, name))
+                    self.assertFalse(
+                        any(name == item or name.startswith(item + ".") for item in forbidden),
+                        (path, name),
+                    )
 
 
 if __name__ == "__main__":

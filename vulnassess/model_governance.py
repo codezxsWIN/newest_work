@@ -272,8 +272,7 @@ def recommend_hybrid_role(
         raise ConfigError("role prediction model hash does not match the promoted artifact")
     rule_label = str(rule_role.value)
     strong_rule = (
-        rule_label != "unknown"
-        and rule_role.confidence > MAX_RULE_CONFIDENCE_FOR_MODEL_CANDIDATE
+        rule_label != "unknown" and rule_role.confidence > MAX_RULE_CONFIDENCE_FOR_MODEL_CANDIDATE
     )
     confidence = manifest.thresholds["prediction_confidence"]
     margin = manifest.thresholds["prediction_margin"]

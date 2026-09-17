@@ -39,15 +39,20 @@ class Response:
 
 
 def json_response(status: int, payload: Any) -> Response:
-    return Response(
-        status, json.dumps(payload, sort_keys=True, allow_nan=False).encode("utf-8")
-    )
+    return Response(status, json.dumps(payload, sort_keys=True, allow_nan=False).encode("utf-8"))
 
 
 def error_response(status: int, message: str) -> Response:
-    return json_response(status, {
-        "error": {"type": "ConfigError", "message": message, "exit_code": ConfigError.exit_code},
-    })
+    return json_response(
+        status,
+        {
+            "error": {
+                "type": "ConfigError",
+                "message": message,
+                "exit_code": ConfigError.exit_code,
+            },
+        },
+    )
 
 
 class UiApplication:
@@ -74,8 +79,10 @@ class UiApplication:
             if values != settings.raw[path.name]:
                 raise ConfigError(f"configuration file changed during validation: {path}")
             self.configurations[name] = {
-                "path": str(path), "sha256": sha256(content).hexdigest(),
-                "values": values, "yaml": document,
+                "path": str(path),
+                "sha256": sha256(content).hexdigest(),
+                "values": values,
+                "yaml": document,
             }
         with ReadOnlyStore(self.database) as store:
             if run_id is None:
@@ -105,13 +112,20 @@ class UiApplication:
                 run_id = self.run_id if requested_run is None else requested_run
                 payload = None if run_id is None else store.run(run_id)
                 runs = store.runs() if payload is None else []
-            document = render_entry(template.body.decode("utf-8"), payload, runs, self.configurations)
+            document = render_entry(
+                template.body.decode("utf-8"), payload, runs, self.configurations
+            )
         except ConfigError as error:
             return error_response(409, str(error))
         return Response(200, document.encode("utf-8"), "text/html; charset=utf-8")
 
     def cvss_fixture(self) -> dict[str, Any]:
-        path = Path(__file__).resolve().parents[2] / "tests" / "synthetic" / "synthetic_cvss31_vectors.json"
+        path = (
+            Path(__file__).resolve().parents[2]
+            / "tests"
+            / "synthetic"
+            / "synthetic_cvss31_vectors.json"
+        )
         if not path.is_file():
             raise ConfigError(f"MISSING: CVSS arithmetic fixture {path}")
         try:
@@ -126,7 +140,10 @@ class UiApplication:
         except (ValueError, UnicodeError):
             return error_response(404, "UI path not found")
         if (
-            parsed.scheme or parsed.netloc or parsed.fragment or not decoded.startswith("/")
+            parsed.scheme
+            or parsed.netloc
+            or parsed.fragment
+            or not decoded.startswith("/")
             or any(ord(character) < 32 or ord(character) == 127 for character in decoded)
             or any(character in decoded for character in ("\\", ":", "%"))
         ):
@@ -134,7 +151,11 @@ class UiApplication:
         if decoded == "/":
             parameters = parse_qs(parsed.query, keep_blank_values=True)
             if parameters:
-                if set(parameters) != {"run"} or len(parameters["run"]) != 1 or not parameters["run"][0]:
+                if (
+                    set(parameters) != {"run"}
+                    or len(parameters["run"]) != 1
+                    or not parameters["run"][0]
+                ):
                     return error_response(400, "Entry query accepts exactly one non-empty run")
                 return self._entry(parameters["run"][0])
             return self._entry()
@@ -162,16 +183,23 @@ class UiApplication:
                     return json_response(200, store.run(parts[2]))
                 if len(parts) == 3 and parts[1] == "eval":
                     store.run_info(parts[2])
-                    return json_response(409, {
-                        "run_id": parts[2], **store.unavailable("evaluation result", parts[2]),
-                    })
+                    return json_response(
+                        409,
+                        {
+                            "run_id": parts[2],
+                            **store.unavailable("evaluation result", parts[2]),
+                        },
+                    )
                 if len(parts) == 4 and parts[1] == "diff":
                     store.run_info(parts[2])
                     store.run_info(parts[3])
-                    return json_response(409, {
-                        "run_ids": parts[2:],
-                        **store.unavailable("diff result", f"{parts[2]} / {parts[3]}"),
-                    })
+                    return json_response(
+                        409,
+                        {
+                            "run_ids": parts[2:],
+                            **store.unavailable("diff result", f"{parts[2]} / {parts[3]}"),
+                        },
+                    )
         except ConfigError as error:
             return error_response(409, str(error))
         return error_response(404, "UI route not found")
@@ -200,9 +228,7 @@ class UiRequestHandler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(response.body)
 
-    def send_error(
-        self, code: int, message: str | None = None, explain: str | None = None
-    ) -> None:
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
         self._reply(error_response(code, message or "Invalid UI request"))
 
     def parse_request(self) -> bool:

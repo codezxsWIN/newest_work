@@ -135,6 +135,7 @@ The marker never permits skipping ordinary logic, gate or missing-package failur
 ```python
 needs_fixture = pytest.mark.needs_fixture
 
+
 @needs_fixture(
     "tests/fixtures/nmap/metasploitable2.xml",
     "tests/fixtures/nmap/README.md",

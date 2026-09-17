@@ -223,9 +223,7 @@ def unify_findings(
     for members in grouped.values():
         members.sort(key=lambda finding: finding.id)
         source_ids = tuple(finding.id for finding in members)
-        cves = sorted(
-            {cve for finding in members for cve in _cves(finding, enrichment_map)}
-        )
+        cves = sorted({cve for finding in members for cve in _cves(finding, enrichment_map)})
         tools = sorted({finding.tool for finding in members})
         evidence: list[str] = []
         for finding in members:
@@ -263,9 +261,7 @@ def unify_findings(
         )
 
     groups.sort(key=lambda group: group.id)
-    candidates.sort(
-        key=lambda item: (item.left_finding_id, item.right_finding_id, item.method)
-    )
+    candidates.sort(key=lambda item: (item.left_finding_id, item.right_finding_id, item.method))
     covered = sorted(source for group in groups for source in group.source_finding_ids)
     if covered != sorted(by_id):
         raise ConfigError("unification did not preserve every source finding exactly once")

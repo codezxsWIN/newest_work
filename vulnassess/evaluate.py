@@ -5,6 +5,7 @@ sharing one rank.
 """
 
 from collections import Counter
+from collections.abc import Mapping
 from math import log2, sqrt
 from pathlib import Path
 from typing import Any, Iterable, Sequence
@@ -157,7 +158,7 @@ def load_truth(path: str | Path) -> dict[str, Any]:
     return payload
 
 
-def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[str, Any]:
+def evaluate(methods: Mapping[str, Sequence[Any]], truth: dict[str, Any]) -> dict[str, Any]:
     experts = truth["experts"]
     default_critical = truth.get("expert_critical", [])
     critical_by_expert = {
@@ -169,11 +170,7 @@ def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[s
     )
     result: dict[str, Any] = {
         "experts": [expert["name"] for expert in experts],
-        "evidence_status": (
-            "NOT RUN"
-            if synthetic
-            else ("VERIFIED" if verified else "NOT RUN")
-        ),
+        "evidence_status": ("NOT RUN" if synthetic else ("VERIFIED" if verified else "NOT RUN")),
         "data_kind": "synthetic" if synthetic else "human",
         "critical_sets": critical_by_expert,
     }
@@ -181,9 +178,7 @@ def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[s
     concordance = kendall_w([expert["ranking"] for expert in experts])
     result["kendall_w"] = concordance
     if concordance is None:
-        result["limitation"] = (
-            "single-annotator study: inter-rater agreement not available"
-        )
+        result["limitation"] = "single-annotator study: inter-rater agreement not available"
 
     result["methods"] = {}
     for name, order in methods.items():
@@ -192,13 +187,9 @@ def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[s
             expert["name"]: kendall_tau_b(our_positions, positions(expert["ranking"]))
             for expert in experts
         }
-        ndcgs = {
-            expert["name"]: ndcg_at_k(order, expert["ranking"], 10) for expert in experts
-        }
+        ndcgs = {expert["name"]: ndcg_at_k(order, expert["ranking"], 10) for expert in experts}
         queues = {
-            expert["name"]: critical_queue_at_full_recall(
-                order, critical_by_expert[expert["name"]]
-            )
+            expert["name"]: critical_queue_at_full_recall(order, critical_by_expert[expert["name"]])
             for expert in experts
         }
         defined_taus = [value for value in taus.values() if value is not None]
@@ -212,9 +203,7 @@ def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[s
             "ndcg_at_10_mean": round(sum(ndcgs.values()) / len(ndcgs), 4),
             "critical_queue_by_expert": queues,
             "critical_queue": (
-                round(sum(defined_queues) / len(defined_queues), 4)
-                if defined_queues
-                else None
+                round(sum(defined_queues) / len(defined_queues), 4) if defined_queues else None
             ),
             "critical_queue_defined_experts": len(defined_queues),
         }
@@ -230,9 +219,7 @@ def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[s
     if primary is not None:
         primary_tau = result["methods"][primary]["tau_b_mean"]
         for baseline, target in (("cvss_only", 0.20), ("cvss_epss", 0.10)):
-            baseline_tau = (
-                result["methods"].get(baseline, {}).get("tau_b_mean")
-            )
+            baseline_tau = result["methods"].get(baseline, {}).get("tau_b_mean")
             delta = (
                 None
                 if primary_tau is None or baseline_tau is None
@@ -258,9 +245,7 @@ def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[s
             )
     defined_reductions = [value for value in h3_reductions.values() if value is not None]
     h3_mean = (
-        round(sum(defined_reductions) / len(defined_reductions), 4)
-        if defined_reductions
-        else None
+        round(sum(defined_reductions) / len(defined_reductions), 4) if defined_reductions else None
     )
     result["h3"] = {
         "eligible": verified and bool(h3_reductions),
@@ -268,11 +253,7 @@ def evaluate(methods: dict[str, Sequence[Any]], truth: dict[str, Any]) -> dict[s
         "reductions_percent": h3_reductions,
         "mean_reduction_percent": h3_mean,
         "defined_experts": len(defined_reductions),
-        "pass": (
-            h3_mean >= 40.0
-            if verified and h3_mean is not None
-            else None
-        ),
+        "pass": (h3_mean >= 40.0 if verified and h3_mean is not None else None),
     }
     return result
 
@@ -289,7 +270,5 @@ def markdown_table(result: dict[str, Any]) -> str:
     for name, scores in result.get("methods", {}).items():
         queue = "n/a" if scores["critical_queue"] is None else scores["critical_queue"]
         tau = "undefined" if scores["tau_b_mean"] is None else scores["tau_b_mean"]
-        lines.append(
-            f"| {name} | {tau} | {scores['ndcg_at_10_mean']} | {queue} |"
-        )
+        lines.append(f"| {name} | {tau} | {scores['ndcg_at_10_mean']} | {queue} |")
     return "\n".join(lines)

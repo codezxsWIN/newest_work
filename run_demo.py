@@ -19,15 +19,23 @@ ZAP = SYNTHETIC / "synthetic_zap_dvwa.json"
 def run() -> int:
     return main(
         [
-            "--config", str(ROOT / "config"),
-            "--db", str(ROOT / "data" / "vulnassess.db"),
+            "--config",
+            str(ROOT / "config"),
+            "--db",
+            str(ROOT / "data" / "vulnassess.db"),
             "demo",
-            "--target", f"172.28.0.10:{NMAP}",
-            "--target", f"172.28.0.12:{NMAP}",
-            "--target", f"172.28.0.11:{NMAP}:{ZAP}",
-            "--feeds", str(SYNTHETIC / "feeds"),
-            "--truth", str(SYNTHETIC / "synthetic_groundtruth.yaml"),
-            "--out", str(ROOT / "reports" / "demo.html"),
+            "--target",
+            f"172.28.0.10:{NMAP}",
+            "--target",
+            f"172.28.0.12:{NMAP}",
+            "--target",
+            f"172.28.0.11:{NMAP}:{ZAP}",
+            "--feeds",
+            str(SYNTHETIC / "feeds"),
+            "--truth",
+            str(SYNTHETIC / "synthetic_groundtruth.yaml"),
+            "--out",
+            str(ROOT / "reports" / "demo.html"),
         ]
     )
 

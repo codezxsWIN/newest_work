@@ -90,7 +90,9 @@ def facts_for(
     return {
         "verdict": sanitise(breakdown.band, 32),
         "asset role": sanitise(str(profile.role.value).replace("_", " "), 64),
-        "exposure": "internet-facing" if profile.exposure.value == "internet_facing" else "internal",
+        "exposure": "internet-facing"
+        if profile.exposure.value == "internet_facing"
+        else "internal",
         "environment": sanitise(str(environment.value), 32) if environment else "not stated",
         "exploitation": threat,
         "compensating control": (

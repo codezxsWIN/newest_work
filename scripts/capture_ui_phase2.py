@@ -35,7 +35,11 @@ def edge_path() -> Path | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workbench", action="store_true", help="capture the current four-stage interface and its key states")
+    parser.add_argument(
+        "--workbench",
+        action="store_true",
+        help="capture the current four-stage interface and its key states",
+    )
     arguments = parser.parse_args()
     executable = edge_path()
     if executable is None:
@@ -58,7 +62,12 @@ def main() -> int:
             (f"workbench-{stage}.png", 1280, 900, f"#stage-{stage}?theme=light")
             for stage in ("evidence", "context", "risk", "priorities")
         ] + [
-            ("workbench-inspector.png", 1280, 900, f"#stage-priorities?theme=light&finding={finding_id}"),
+            (
+                "workbench-inspector.png",
+                1280,
+                900,
+                f"#stage-priorities?theme=light&finding={finding_id}",
+            ),
             ("workbench-tour.png", 1280, 900, "#stage-evidence?theme=light&tour=1"),
             ("workbench-dark.png", 1280, 900, "#stage-risk?theme=dark"),
             ("workbench-mobile.png", 500, 844, "#stage-evidence?theme=light"),
@@ -72,15 +81,25 @@ def main() -> int:
             with TemporaryDirectory(prefix="doors-edge-", ignore_cleanup_errors=True) as profile:
                 temporary = Path(profile) / filename
                 command = [
-                    str(executable), "--headless", "--disable-gpu", "--no-first-run",
-                    "--no-default-browser-check", "--disable-background-networking",
-                    "--disable-component-update", "--disable-domain-reliability",
-                    "--disable-sync", "--disable-extensions", "--metrics-recording-only",
+                    str(executable),
+                    "--headless",
+                    "--disable-gpu",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--disable-background-networking",
+                    "--disable-component-update",
+                    "--disable-domain-reliability",
+                    "--disable-sync",
+                    "--disable-extensions",
+                    "--metrics-recording-only",
                     "--run-all-compositor-stages-before-draw",
                     "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
-                    "--force-device-scale-factor=1", "--virtual-time-budget=1000",
-                    f"--user-data-dir={profile}", f"--screenshot={temporary}",
-                    f"--window-size={width},{height}", f"http://127.0.0.1:{server.server_port}/{fragment}",
+                    "--force-device-scale-factor=1",
+                    "--virtual-time-budget=1000",
+                    f"--user-data-dir={profile}",
+                    f"--screenshot={temporary}",
+                    f"--window-size={width},{height}",
+                    f"http://127.0.0.1:{server.server_port}/{fragment}",
                 ]
                 try:
                     result = subprocess.run(command, capture_output=True, check=False, timeout=45)
@@ -98,7 +117,9 @@ def main() -> int:
                     raise ValueError(f"unexpected screenshot dimensions: {dimensions}")
                 target = OUTPUT / filename
                 shutil.copyfile(temporary, target)
-                print(f"CAPTURED: {target.relative_to(ROOT).as_posix()} ({width}x{height}; {len(image)} bytes)")
+                print(
+                    f"CAPTURED: {target.relative_to(ROOT).as_posix()} ({width}x{height}; {len(image)} bytes)"
+                )
     finally:
         server.shutdown()
         worker.join(timeout=5)
