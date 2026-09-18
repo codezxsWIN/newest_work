@@ -246,6 +246,200 @@ def _flatten(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
     ]
 
 
+def _threat_strip(payload: dict[str, Any]) -> str:
+    """Stored counts over this run's findings; the numbers animate up via app.js."""
+    scores = payload["scores"]
+    kev = sum(1 for score in scores if score.get("kev"))
+    exposed = sum(
+        1
+        for score in scores
+        if score.get("inputs", {}).get("exposure", {}).get("value") == "internet_facing"
+    )
+    percentiles = [
+        score["epss_percentile"] for score in scores if score.get("epss_percentile") is not None
+    ]
+    cells = [
+        ("Findings scored", len(scores)),
+        ("Distinct CVEs", len({score["cve_id"] for score in scores if score.get("cve_id")})),
+        ("KEV-listed", kev),
+        ("Internet-facing", exposed),
+    ]
+    if percentiles:
+        cells.append(("Top EPSS percentile", round(max(percentiles) * 100)))
+    rendered = "".join(
+        f'<div class="threat-cell"><span class="threat-value" data-count="{value}">{value}</span>'
+        f'<span class="threat-label">{escape(label)}</span></div>'
+        for label, value in cells
+    )
+    return (
+        '<div class="threat-strip" data-reveal data-reveal-group="threat">'
+        + rendered
+        + '<p class="threat-note">Counts over stored findings in this run.</p></div>'
+    )
+
+
+def _quadrant(payload: dict[str, Any]) -> str:
+    """Stored CVSS base vs EPSS percentile, one point per scored finding.
+
+    Positions come straight from the store; nothing is rescored here. Findings
+    without an EPSS row sit in an explicit lane below the axis instead of
+    pretending to a percentile.
+    """
+    scored = [score for score in payload["scores"] if score.get("base_score") is not None]
+    if not scored:
+        return (
+            '<div class="state-message" data-reveal><span class="stamp">NO QUADRANT</span>'
+            "<p>No scored findings in this run, so there is nothing to place on the map.</p></div>"
+        )
+    width, height = 620, 340
+    left, right, top = 52, 24, 26
+    lane_top = height - 40
+    plot_w, plot_h = width - left - right, lane_top - top
+
+    def x_of(base: float) -> float:
+        return left + (min(max(base, 0.0), 10.0) / 10.0) * plot_w
+
+    def y_of(percentile: float) -> float:
+        return top + (1.0 - min(max(percentile, 0.0), 1.0)) * plot_h
+
+    marks: list[str] = []
+    for index, score in enumerate(scored):
+        base = float(score["base_score"])
+        percentile = score.get("epss_percentile")
+        jitter = (index % 3 - 1) * 5
+        if percentile is None:
+            cx = x_of(base) + jitter
+            cy = lane_top + 16 + (index % 2) * 10
+            lane_note = "no EPSS row"
+        else:
+            cx = x_of(base) + jitter
+            cy = y_of(float(percentile))
+            lane_note = f"EPSS {round(float(percentile) * 100)}%"
+        hollow = score.get("inputs", {}).get("exposure", {}).get("value") != "internet_facing"
+        band_class = BAND_CLASSES.get(score.get("band") or "", "band-unscored")
+        ring = (
+            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="11" class="quad-ring" aria-hidden="true"/>'
+            if score.get("kev")
+            else ""
+        )
+        marks.append(
+            f'<g class="quad-point {band_class}{" quad-hollow" if hollow else ""}" '
+            f'data-inspect="{escape(score["finding_id"])}" tabindex="0" role="button" '
+            f'aria-label="Inspect {escape(score.get("cve_id") or score.get("finding_id", ""))} '
+            f'on {escape(score["host_ip"])}: stored risk {score["risk"]}, {escape(score.get("band") or "unscored")}, {lane_note}">'
+            f"<title>{escape(str(score.get('cve_id') or ''))} on {escape(score['host_ip'])} "
+            f"— base {base}, {lane_note}, stored risk {score['risk']}</title>"
+            f'{ring}<circle cx="{cx:.1f}" cy="{cy:.1f}" r="7"/></g>'
+        )
+
+    guides = (
+        f'<line x1="{x_of(9.0):.1f}" y1="{top}" x2="{x_of(9.0):.1f}" y2="{lane_top}" class="quad-guide"/>'
+        f'<line x1="{left}" y1="{y_of(0.5):.1f}" x2="{width - right}" y2="{y_of(0.5):.1f}" class="quad-guide"/>'
+    )
+    labels = (
+        f'<text x="{left + plot_w - 8}" y="{top + 16}" class="quad-label" text-anchor="end">high severity · high exploitation</text>'
+        f'<text x="{left + 8}" y="{top + 16}" class="quad-label">exploitation leads severity</text>'
+        f'<text x="{left + plot_w - 8}" y="{lane_top - 8}" class="quad-label" text-anchor="end">high severity · thin exploitation</text>'
+        f'<text x="{left + 8}" y="{lane_top - 8}" class="quad-label">monitor</text>'
+    )
+    axis = "".join(
+        f'<text x="{x_of(tick):.1f}" y="{lane_top + (16 if tick else 0) + (0 if tick else -6)}" '
+        f'class="quad-tick" text-anchor="middle">{tick}</text>'
+        for tick in (0, 2.5, 5, 7.5, 10)
+    ) + "".join(
+        f'<text x="{left - 8}" y="{y_of(tick) + 4:.1f}" class="quad-tick" text-anchor="end">{int(tick * 100)}</text>'
+        for tick in (0.0, 0.5, 1.0)
+    )
+    return (
+        '<figure class="quadrant-figure" data-reveal>'
+        + _section_header(
+            "Severity meets exploitation", "Stored CVSS base against stored EPSS percentile"
+        )
+        + f'<svg id="quadrant-map" viewBox="0 0 {width} {height}" role="img" '
+        + 'aria-label="Scatter map of findings by CVSS base score and EPSS percentile">'
+        + f'<line x1="{left}" y1="{top}" x2="{left}" y2="{lane_top}" class="quad-axis"/>'
+        + f'<line x1="{left}" y1="{lane_top}" x2="{width - right}" y2="{lane_top}" class="quad-axis"/>'
+        + f'<line x1="{left}" y1="{lane_top + 30}" x2="{width - right}" y2="{lane_top + 30}" '
+        + 'class="quad-axis quad-axis-dashed"/>'
+        + guides
+        + axis
+        + labels
+        + "".join(marks)
+        + f'<text x="{width - right}" y="{height - 6}" class="quad-tick" text-anchor="end">'
+        + "no EPSS row — ranked on environmental score alone</text>"
+        + "</svg>"
+        + '<figcaption class="quad-caption">Select a point to inspect its stored inputs. '
+        + "Ringed points are in CISA KEV; hollow points are not internet-facing. "
+        + "The queued priorities always come from the stored risk, never from this map.</figcaption>"
+        + "</figure>"
+    )
+
+
+def _waterfall(payload: dict[str, Any], weights: dict[str, Any]) -> str:
+    """How the stored risk formed, segment by segment, from stored numbers only."""
+    scored = [score for score in payload["scores"] if score.get("base_vector")]
+    if not scored:
+        return ""
+    top = max(scored, key=lambda score: (score["risk"], score["finding_id"]))
+    threat = weights.get("values", {}).get("threat", {})
+    env = top.get("env_score")
+    multiplier = (
+        None
+        if top.get("epss_percentile") is None
+        else float(threat.get("base_multiplier", 0.5))
+        + float(threat.get("epss_weight", 0.5)) * float(top["epss_percentile"])
+    )
+    if top.get("kev"):
+        multiplier = max(multiplier or 0.0, float(threat.get("kev_multiplier", 1.0)))
+    segments: list[tuple[str, float, str]] = []
+    if env is not None:
+        base_contribution = float(env) * 10.0
+        segments.append(
+            ("Context-adjusted severity (environmental × 10)", base_contribution, "wf-base")
+        )
+        if multiplier is not None and multiplier != 1.0:
+            segments.append(
+                (
+                    f"× exploitation multiplier {multiplier:.2f}",
+                    base_contribution * (multiplier - 1.0),
+                    "wf-threat",
+                )
+            )
+        if top.get("kev"):
+            segments.append(
+                (
+                    f"KEV boost +{threat.get('kev_boost', 10)}",
+                    float(threat.get("kev_boost", 10)),
+                    "wf-kev",
+                )
+            )
+        uncapped = sum(value for _, value, _ in segments)
+        if uncapped > 100:
+            segments.append(("Capped at 100", -(uncapped - 100.0), "wf-cap"))
+    else:
+        segments.append(("Native fallback (no CVE match)", float(top["risk"]), "wf-base"))
+    widest = max((abs(value) for _, value, _ in segments), default=1.0) or 1.0
+    bars = "".join(
+        f'<div class="wf-row"><span class="wf-label">{escape(label)}</span>'
+        f'<span class="wf-track"><span class="wf-seg {css}" style="flex-grow: {max(abs(value), 0.6) / widest * 100:.1f}">'
+        f"{value:+.1f}</span></span></div>"
+        for label, value, css in segments
+    )
+    return (
+        '<figure class="waterfall-figure" data-reveal>'
+        + _section_header(
+            "How the top risk formed", "Stored arithmetic for the highest-risk finding"
+        )
+        + f'<div class="waterfall" id="risk-waterfall" data-inspect="{escape(top["finding_id"])}">{bars}</div>'
+        + f'<figcaption class="wf-caption">Stored risk <strong>{top["risk"]}</strong> '
+        + f"({_band(top.get('band'))}) for {escape(str(top.get('cve_id') or top.get('finding_id')))} "
+        + f"on {escape(top['host_ip'])}. threat = {threat.get('base_multiplier', 0.5)} + "
+        + f"{threat.get('epss_weight', 0.5)} × EPSS percentile; the formula and its hash live in "
+        + "config/weights.yaml. Select the bar to inspect the stored inputs.</figcaption>"
+        + "</figure>"
+    )
+
+
 def _risk_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
     weights = config.get("weights", {})
     rows = "".join(
@@ -259,7 +453,10 @@ def _risk_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
             "Same weakness.<br><em>Different urgency.</em>",
             "Context changes the priority. The original severity stays visible.",
         )
+        + _threat_strip(payload)
         + _comparison(payload)
+        + _quadrant(payload)
+        + _waterfall(payload, weights.get("values", {}))
         + _sandbox(payload, config)
         + '<details class="archive" id="weights-view"><summary>The weights, in the open</summary>'
         + evidence(weights.get("sha256", "Not attached"), "Current weights file / SHA-256")

@@ -744,6 +744,72 @@ class TestCvss31(unittest.TestCase):
         verify_javascript()
 
 
+class TestUiUpgrades(unittest.TestCase):
+    """Additive analytics visuals: quadrant map, risk waterfall, threat strip, motion."""
+
+    def test_risk_stage_places_every_scored_finding_on_the_quadrant(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn('id="quadrant-map"', document)
+        with ReadOnlyStore(DATABASE) as store:
+            scored = [
+                score for score in store.run(DEMO_RUN)["scores"] if score["base_score"] is not None
+            ]
+        self.assertEqual(document.count('class="quad-point'), len(scored))
+        for score in scored:
+            self.assertIn(f'data-inspect="{score["finding_id"]}"', document)
+
+    def test_quadrant_labels_exploitation_and_honest_unscored_lane(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn("high severity", document)
+        self.assertIn("no EPSS row", document)
+        self.assertIn("never from this map", document)
+
+    def test_waterfall_reconstructs_formation_from_stored_values(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn('id="risk-waterfall"', document)
+        self.assertIn("Context-adjusted severity", document)
+        with ReadOnlyStore(DATABASE) as store:
+            scored = [score for score in store.run(DEMO_RUN)["scores"] if score["base_vector"]]
+        if not scored:
+            return
+        top = max(scored, key=lambda score: score["risk"])
+        self.assertIn(str(top["risk"]), document)
+        if top["kev"]:
+            self.assertIn("KEV boost", document)
+
+    def test_threat_strip_counts_match_the_store(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        document = request(application, "/")[2].decode("utf-8")
+        with ReadOnlyStore(DATABASE) as store:
+            scores = store.run(DEMO_RUN)["scores"]
+        kev = sum(1 for score in scores if score["kev"])
+        self.assertIn(f'data-count="{kev}"', document)
+        self.assertIn('data-count="' + str(len(scores)) + '"', document)
+
+    def test_motion_layer_guards_reduced_motion(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        javascript = (static / "app.js").read_text(encoding="utf-8")
+        stylesheet = (static / "workbench.css").read_text(encoding="utf-8")
+        self.assertIn("prefers-reduced-motion", javascript)
+        self.assertIn("IntersectionObserver", javascript)
+        self.assertIn("prefers-reduced-motion", stylesheet)
+        self.assertIn("[data-reveal]", stylesheet)
+
+    def test_new_visuals_survive_the_offline_export(self) -> None:
+        from vulnassess.ui.export import export_html
+
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        with TemporaryDirectory(dir=SYNTHETIC, prefix="synthetic_ui_") as directory:
+            path = export_html(application, Path(directory) / "upgrade_export.html")
+            document = path.read_text(encoding="utf-8")
+        self.assertIn('id="quadrant-map"', document)
+        self.assertIn('id="risk-waterfall"', document)
+        self.assertIn("data-reveal", document)
+
+
 class TestUiAssets(unittest.TestCase):
     def test_active_styles_use_serif_inference_and_dark_tokens(self) -> None:
         static = ROOT / "vulnassess" / "ui" / "static"

@@ -245,3 +245,46 @@ if (state().parameters.get('tour') === '1' && bootstrap.tour_finding) {
   tourStep = 0;
   showTour();
 }
+
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const revealables = [...document.querySelectorAll('[data-reveal]')];
+if (revealables.length && 'IntersectionObserver' in window && !reduceMotion) {
+  const revealer = new IntersectionObserver(entries => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      entry.target.classList.add('revealed');
+      revealer.unobserve(entry.target);
+    }
+  }, {threshold: 0.15});
+  for (const group of new Set(revealables.map(item => item.dataset.revealGroup || ''))) {
+    revealables.filter(item => (item.dataset.revealGroup || '') === group)
+      .forEach((item, index) => { item.style.setProperty('--reveal-i', String(index)); revealer.observe(item); });
+  }
+} else {
+  for (const item of revealables) item.classList.add('revealed');
+}
+
+function countUp(element) {
+  const target = Number(element.dataset.count);
+  if (!Number.isFinite(target) || reduceMotion || target === 0) { element.textContent = String(target); return; }
+  const started = performance.now();
+  const duration = 700;
+  function tick(now) {
+    const share = Math.min((now - started) / duration, 1);
+    element.textContent = String(Math.round(target * (1 - Math.pow(1 - share, 3))));
+    if (share < 1) requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+}
+for (const value of document.querySelectorAll('[data-count]')) {
+  if ('IntersectionObserver' in window && !reduceMotion) {
+    const counter = new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        countUp(entry.target);
+        counter.unobserve(entry.target);
+      }
+    }, {threshold: 0.5});
+    counter.observe(value);
+  } else countUp(value);
+}

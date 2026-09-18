@@ -291,3 +291,98 @@ select { padding: 9px 24px 9px 9px; border: 1px solid var(--line); border-radius
   .stage-panel { break-before: page; }
   .asset, .feature-row, .compare-table { break-inside: avoid; }
 }
+/* ---- threat strip ------------------------------------------------------ */
+.threat-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: baseline;
+  border-block: var(--rule) solid var(--line);
+  padding: var(--space-4) 0;
+  margin-block-end: var(--space-6);
+}
+.threat-cell { display: flex; flex-direction: column; gap: 2px; min-width: 7ch; }
+.threat-value {
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  line-height: var(--leading-tight);
+  font-variant-numeric: tabular-nums;
+}
+.threat-label { font-size: var(--text-small); color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+.threat-note { margin-inline-start: auto; font-size: var(--text-small); color: var(--muted); }
+
+/* ---- quadrant map ------------------------------------------------------ */
+.quadrant-figure { margin-block: var(--space-7); }
+.quadrant-figure svg { width: 100%; height: auto; display: block; background: var(--surface); border: var(--rule) solid var(--line); border-radius: var(--radius-panel); }
+.quad-axis { stroke: var(--line-strong); stroke-width: 1; }
+.quad-axis-dashed { stroke-dasharray: 4 4; stroke: var(--line); }
+.quad-guide { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 5; }
+.quad-tick { fill: var(--muted); font-size: 10px; font-family: var(--font-evidence); }
+.quad-label { fill: var(--muted); font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; }
+.quad-caption { font-size: var(--text-small); color: var(--muted); margin-block-start: var(--space-2); }
+.quad-point { cursor: pointer; }
+.quad-point circle { fill: var(--ink); stroke: var(--surface); stroke-width: 1.5; transition: transform 0.18s ease, stroke-width 0.18s ease; }
+.quad-point.band-critical circle { fill: var(--critical); }
+.quad-point.band-high circle { fill: var(--high); }
+.quad-point.band-medium circle { fill: var(--medium); }
+.quad-point.band-low circle { fill: var(--low); }
+.quad-point.quad-hollow circle { fill: var(--surface); stroke-width: 2; }
+.quad-point.quad-hollow.band-critical circle, .quad-point.quad-hollow.band-high circle,
+.quad-point.quad-hollow.band-medium circle, .quad-point.quad-hollow.band-low circle { stroke: currentColor; }
+.quad-point.band-critical { color: var(--critical); }
+.quad-point.band-high { color: var(--high); }
+.quad-point.band-medium { color: var(--medium); }
+.quad-point.band-low { color: var(--low); }
+.quad-point:hover circle, .quad-point:focus circle { stroke-width: 3; transform: scale(1.25); transform-origin: center; transform-box: fill-box; }
+.quad-point:focus { outline: none; }
+.quad-ring { fill: none; stroke: var(--critical); stroke-width: 1.5; opacity: 0.7; animation: quad-pulse 2.6s ease-in-out infinite; }
+@keyframes quad-pulse { 0%, 100% { opacity: 0.7; r: 11; } 50% { opacity: 0.25; r: 13; } }
+
+/* ---- risk waterfall ---------------------------------------------------- */
+.waterfall-figure { margin-block: var(--space-7); }
+.waterfall { display: flex; flex-direction: column; gap: var(--space-2); border: var(--rule) solid var(--line); border-radius: var(--radius-panel); background: var(--surface); padding: var(--space-4); }
+.wf-row { display: grid; grid-template-columns: minmax(14ch, 34%) 1fr; gap: var(--space-3); align-items: center; }
+.wf-label { font-size: var(--text-small); color: var(--muted); }
+.wf-track { display: flex; justify-content: flex-start; background: var(--wash); border-radius: var(--radius-small); min-height: 1.6rem; }
+.wf-seg {
+  display: inline-flex; align-items: center; padding-inline: var(--space-2);
+  font-family: var(--font-evidence); font-size: var(--text-small);
+  color: var(--surface); border-radius: var(--radius-small);
+  min-width: 4ch; font-variant-numeric: tabular-nums;
+  transform: scaleX(0); transform-origin: left center;
+}
+.revealed .wf-seg { transform: scaleX(1); transition: transform 0.6s cubic-bezier(0.2, 0.7, 0.2, 1); }
+.revealed .wf-row:nth-child(2) .wf-seg { transition-delay: 0.15s; }
+.revealed .wf-row:nth-child(3) .wf-seg { transition-delay: 0.3s; }
+.revealed .wf-row:nth-child(4) .wf-seg { transition-delay: 0.45s; }
+.revealed .wf-row:nth-child(5) .wf-seg { transition-delay: 0.6s; }
+.wf-base { background: var(--line-strong); color: var(--paper); }
+.wf-threat { background: var(--medium); }
+.wf-kev { background: var(--critical); }
+.wf-cap { background: var(--wash); color: var(--muted); }
+.wf-caption { font-size: var(--text-small); color: var(--muted); margin-block-start: var(--space-2); }
+.wf-caption .band { vertical-align: baseline; }
+
+/* ---- staged reveals ---------------------------------------------------- */
+[data-reveal] { opacity: 0; transform: translateY(12px); }
+[data-reveal].revealed {
+  opacity: 1; transform: none;
+  transition: opacity 0.5s ease, transform 0.5s ease;
+  transition-delay: calc(var(--reveal-i, 0) * 80ms);
+}
+.finding-door { transition: transform 0.18s ease, filter 0.18s ease; }
+.finding-door:hover { transform: translateY(-2px); filter: drop-shadow(0 2px 4px var(--overlay)); }
+.stage-link::after {
+  content: ""; display: block; height: 2px; margin-block-start: var(--space-2);
+  background: var(--ink); transform: scaleX(0); transform-origin: left; transition: transform 0.35s ease;
+}
+.stage-link.active::after { transform: scaleX(1); }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal], [data-reveal].revealed { opacity: 1; transform: none; transition: none; }
+  .revealed .wf-seg { transform: scaleX(1); transition: none; }
+  .quad-ring { animation: none; }
+  .finding-door, .finding-door:hover { transition: none; transform: none; }
+  .stage-link::after, .stage-link.active::after { transition: none; }
+  .quad-point:hover circle, .quad-point:focus circle { transform: none; }
+}
