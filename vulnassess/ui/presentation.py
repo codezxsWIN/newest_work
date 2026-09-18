@@ -2,6 +2,7 @@
 
 import json
 from html import escape
+from math import cos, radians, sin
 from typing import Any
 
 from vulnassess.ui.drawings import BAND_CLASSES, building, door, legend
@@ -247,7 +248,7 @@ def _flatten(value: Any, prefix: str = "") -> list[tuple[str, Any]]:
 
 
 def _threat_strip(payload: dict[str, Any]) -> str:
-    """Stored counts over this run's findings; the numbers animate up via app.js."""
+    """Run hero: stored counts (animated up by app.js) plus a band-composition meter."""
     scores = payload["scores"]
     kev = sum(1 for score in scores if score.get("kev"))
     exposed = sum(
@@ -271,9 +272,26 @@ def _threat_strip(payload: dict[str, Any]) -> str:
         f'<span class="threat-label">{escape(label)}</span></div>'
         for label, value in cells
     )
+    bands = ["Critical", "High", "Medium", "Low"]
+    counts = {band: sum(1 for score in scores if score.get("band") == band) for band in bands}
+    meter = "".join(
+        f'<span class="meter-seg meter-{band.lower()}" '
+        f'style="flex-grow: {counts[band] or 0.0001}" title="{band}: {counts[band]}">'
+        f"{'<b></b>' if counts[band] else ''}</span>"
+        for band in bands
+    )
+    legend = "".join(
+        f'<span class="meter-key meter-{band.lower()}">{band} {counts[band]}</span>'
+        for band in bands
+        if counts[band]
+    )
     return (
         '<div class="threat-strip" data-reveal data-reveal-group="threat">'
-        + rendered
+        + f'<div class="threat-cells">{rendered}</div>'
+        + '<div class="threat-meter-wrap">'
+        + '<div class="threat-meter" role="img" aria-label="Findings by band: '
+        + ", ".join(f"{band} {counts[band]}" for band in bands if counts[band])
+        + f'">{meter}</div><div class="meter-legend">{legend}</div></div>'
         + '<p class="threat-note">Counts over stored findings in this run.</p></div>'
     )
 
@@ -291,9 +309,9 @@ def _quadrant(payload: dict[str, Any]) -> str:
             '<div class="state-message" data-reveal><span class="stamp">NO QUADRANT</span>'
             "<p>No scored findings in this run, so there is nothing to place on the map.</p></div>"
         )
-    width, height = 620, 340
-    left, right, top = 52, 24, 26
-    lane_top = height - 40
+    width, height = 720, 430
+    left, right, top = 56, 28, 34
+    lane_top = height - 52
     plot_w, plot_h = width - left - right, lane_top - top
 
     def x_of(base: float) -> float:
@@ -309,7 +327,7 @@ def _quadrant(payload: dict[str, Any]) -> str:
         jitter = (index % 3 - 1) * 5
         if percentile is None:
             cx = x_of(base) + jitter
-            cy = lane_top + 16 + (index % 2) * 10
+            cy = lane_top + 18 + (index % 2) * 10
             lane_note = "no EPSS row"
         else:
             cx = x_of(base) + jitter
@@ -318,37 +336,59 @@ def _quadrant(payload: dict[str, Any]) -> str:
         hollow = score.get("inputs", {}).get("exposure", {}).get("value") != "internet_facing"
         band_class = BAND_CLASSES.get(score.get("band") or "", "band-unscored")
         ring = (
-            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="11" class="quad-ring" aria-hidden="true"/>'
+            f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="14" class="quad-ring" aria-hidden="true"/>'
             if score.get("kev")
             else ""
         )
+        cross = (
+            f'<line x1="{left}" y1="{cy:.1f}" x2="{cx:.1f}" y2="{cy:.1f}" class="quad-cross"/>'
+            f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{cx:.1f}" y2="{lane_top}" class="quad-cross"/>'
+        )
         marks.append(
-            f'<g class="quad-point {band_class}{" quad-hollow" if hollow else ""}" '
+            f'<g class="quad-point quad-enter {band_class}{" quad-hollow" if hollow else ""}" '
+            f'style="animation-delay: {index * 110}ms" '
             f'data-inspect="{escape(score["finding_id"])}" tabindex="0" role="button" '
             f'aria-label="Inspect {escape(score.get("cve_id") or score.get("finding_id", ""))} '
-            f'on {escape(score["host_ip"])}: stored risk {score["risk"]}, {escape(score.get("band") or "unscored")}, {lane_note}">'
+            f"on {escape(score['host_ip'])}: stored risk {score['risk']}, "
+            f'{escape(score.get("band") or "unscored")}, {lane_note}">'
             f"<title>{escape(str(score.get('cve_id') or ''))} on {escape(score['host_ip'])} "
             f"— base {base}, {lane_note}, stored risk {score['risk']}</title>"
-            f'{ring}<circle cx="{cx:.1f}" cy="{cy:.1f}" r="7"/></g>'
+            f'{cross}{ring}<circle cx="{cx:.1f}" cy="{cy:.1f}" r="8.5"/></g>'
         )
 
     guides = (
         f'<line x1="{x_of(9.0):.1f}" y1="{top}" x2="{x_of(9.0):.1f}" y2="{lane_top}" class="quad-guide"/>'
         f'<line x1="{left}" y1="{y_of(0.5):.1f}" x2="{width - right}" y2="{y_of(0.5):.1f}" class="quad-guide"/>'
     )
+    zones = (
+        f'<rect x="{x_of(7.0):.1f}" y="{top}" width="{width - right - x_of(7.0):.1f}" '
+        f'height="{y_of(0.5) - top:.1f}" class="quad-zone quad-zone-danger"/>'
+        f'<rect x="{left}" y="{top}" width="{x_of(7.0) - left:.1f}" '
+        f'height="{y_of(0.5) - top:.1f}" class="quad-zone quad-zone-watch"/>'
+    )
     labels = (
-        f'<text x="{left + plot_w - 8}" y="{top + 16}" class="quad-label" text-anchor="end">high severity · high exploitation</text>'
-        f'<text x="{left + 8}" y="{top + 16}" class="quad-label">exploitation leads severity</text>'
-        f'<text x="{left + plot_w - 8}" y="{lane_top - 8}" class="quad-label" text-anchor="end">high severity · thin exploitation</text>'
-        f'<text x="{left + 8}" y="{lane_top - 8}" class="quad-label">monitor</text>'
+        f'<text x="{left + plot_w - 10}" y="{top + 18}" class="quad-label quad-label-strong" text-anchor="end">high severity · high exploitation</text>'
+        f'<text x="{left + 10}" y="{top + 18}" class="quad-label">exploitation leads severity</text>'
+        f'<text x="{left + plot_w - 10}" y="{lane_top - 10}" class="quad-label" text-anchor="end">high severity · thin exploitation</text>'
+        f'<text x="{left + 10}" y="{lane_top - 10}" class="quad-label">monitor</text>'
     )
     axis = "".join(
-        f'<text x="{x_of(tick):.1f}" y="{lane_top + (16 if tick else 0) + (0 if tick else -6)}" '
+        f'<text x="{x_of(tick):.1f}" y="{lane_top + 18}" '
         f'class="quad-tick" text-anchor="middle">{tick}</text>'
         for tick in (0, 2.5, 5, 7.5, 10)
     ) + "".join(
-        f'<text x="{left - 8}" y="{y_of(tick) + 4:.1f}" class="quad-tick" text-anchor="end">{int(tick * 100)}</text>'
+        f'<text x="{left - 10}" y="{y_of(tick) + 4:.1f}" class="quad-tick" text-anchor="end">{int(tick * 100)}</text>'
         for tick in (0.0, 0.5, 1.0)
+    )
+    defs = (
+        "<defs>"
+        '<linearGradient id="quad-danger-fill" x1="0" y1="0" x2="1" y2="1">'
+        '<stop offset="0" stop-color="var(--critical)" stop-opacity="0.02"/>'
+        '<stop offset="1" stop-color="var(--critical)" stop-opacity="0.16"/></linearGradient>'
+        '<linearGradient id="quad-watch-fill" x1="1" y1="0" x2="0" y2="1">'
+        '<stop offset="0" stop-color="var(--medium)" stop-opacity="0.02"/>'
+        '<stop offset="1" stop-color="var(--medium)" stop-opacity="0.09"/></linearGradient>'
+        "</defs>"
     )
     return (
         '<figure class="quadrant-figure" data-reveal>'
@@ -357,20 +397,147 @@ def _quadrant(payload: dict[str, Any]) -> str:
         )
         + f'<svg id="quadrant-map" viewBox="0 0 {width} {height}" role="img" '
         + 'aria-label="Scatter map of findings by CVSS base score and EPSS percentile">'
+        + defs
+        + zones
         + f'<line x1="{left}" y1="{top}" x2="{left}" y2="{lane_top}" class="quad-axis"/>'
         + f'<line x1="{left}" y1="{lane_top}" x2="{width - right}" y2="{lane_top}" class="quad-axis"/>'
-        + f'<line x1="{left}" y1="{lane_top + 30}" x2="{width - right}" y2="{lane_top + 30}" '
+        + f'<line x1="{left}" y1="{lane_top + 36}" x2="{width - right}" y2="{lane_top + 36}" '
         + 'class="quad-axis quad-axis-dashed"/>'
         + guides
         + axis
         + labels
         + "".join(marks)
-        + f'<text x="{width - right}" y="{height - 6}" class="quad-tick" text-anchor="end">'
+        + f'<text x="{width - right}" y="{height - 8}" class="quad-tick" text-anchor="end">'
         + "no EPSS row — ranked on environmental score alone</text>"
         + "</svg>"
         + '<figcaption class="quad-caption">Select a point to inspect its stored inputs. '
         + "Ringed points are in CISA KEV; hollow points are not internet-facing. "
         + "The queued priorities always come from the stored risk, never from this map.</figcaption>"
+        + "</figure>"
+    )
+
+
+def _dial(top: dict[str, Any]) -> str:
+    """Gauge for the stored risk of the top finding. Arc geometry is static; the
+    fill animates from 0 via a CSS variable app.js drives (reduced-motion safe)."""
+    cx, cy, radius = 130.0, 112.0, 92.0
+    risk = min(max(float(top["risk"]), 0.0), 100.0)
+    start = (cx - radius * 0.866, cy + radius * 0.5)
+    end = (cx + radius * 0.866, cy + radius * 0.5)
+    arc = f"M {start[0]:.1f} {start[1]:.1f} A {radius} {radius} 0 1 1 {end[0]:.1f} {end[1]:.1f}"
+    band_class = BAND_CLASSES.get(top.get("band") or "", "band-unscored")
+    ticks = "".join(
+        f'<line x1="{cx + (radius - 6) * x:.1f}" y1="{cy - (radius - 6) * y:.1f}" '
+        f'x2="{cx + radius * x:.1f}" y2="{cy - radius * y:.1f}" class="dial-tick" '
+        f'opacity="{1.0 if value <= risk else 0.35}"/>'
+        for value, x, y in (
+            (v, _cos_deg(210 - 2.4 * v), _sin_deg(210 - 2.4 * v)) for v in (0, 25, 50, 75, 100)
+        )
+    )
+    return (
+        '<div class="dial" data-reveal>'
+        + f'<svg viewBox="0 0 260 168" role="img" data-dial="{risk:.0f}" '
+        + f'aria-label="Stored risk {top["risk"]} of 100, band {top.get("band")}">'
+        + f'<path d="{arc}" class="dial-track" pathLength="100"/>'
+        + f'<path d="{arc}" class="dial-value {band_class}" pathLength="100" '
+        + 'style="--dial-fill: 0"/>'
+        + ticks
+        + f'<text x="{cx}" y="{cy - 6}" class="dial-number" text-anchor="middle">'
+        + f'<tspan data-count="{risk:.0f}">{risk:.0f}</tspan></text>'
+        + f'<text x="{cx}" y="{cy + 14}" class="dial-band" text-anchor="middle">{escape(str(top.get("band") or ""))}</text>'
+        + f'<text x="{start[0]:.1f}" y="{start[1] + 14:.1f}" class="quad-tick" text-anchor="middle">0</text>'
+        + f'<text x="{end[0]:.1f}" y="{end[1] + 14:.1f}" class="quad-tick" text-anchor="middle">100</text>'
+        + "</svg></div>"
+    )
+
+
+def _cos_deg(angle: float) -> float:
+    return cos(radians(angle))
+
+
+def _sin_deg(angle: float) -> float:
+    return sin(radians(angle))
+
+
+def _beams(top: dict[str, Any], weights: dict[str, Any]) -> str:
+    """The four stations of the formula, joined by animated flow paths.
+
+    Every value is stored: base, environmental, the threat factor terms, the
+    final risk. The moving dashes are presentation only.
+    """
+    threat = weights.get("threat", {})
+    epss = top.get("epss_percentile")
+    multiplier = (
+        None
+        if epss is None
+        else float(threat.get("base_multiplier", 0.5))
+        + float(threat.get("epss_weight", 0.5)) * float(epss)
+    )
+    if top.get("kev"):
+        multiplier = max(multiplier or 0.0, float(threat.get("kev_multiplier", 1.0)))
+    threat_text = "unscored" if multiplier is None else f"×{multiplier:.2f}"
+    threat_sub = (
+        "no EPSS row"
+        if epss is None
+        else f"{threat.get('base_multiplier', 0.5)} + {threat.get('epss_weight', 0.5)} × EPSS"
+        + (" · KEV" if top.get("kev") else "")
+    )
+    stations = [
+        ("Base", f"{top.get('base_score')}", "beam-base", "scanner + NVD vector"),
+        ("Context", f"{top.get('env_score')}", "beam-env", "environmental auto-fill"),
+        ("Threat", threat_text, "beam-threat", threat_sub),
+        ("Risk", f"{top['risk']}", "beam-final", str(top.get("band") or "")),
+    ]
+    cy, radius = 54, 17
+    xs = [72, 254, 436, 618]
+    nodes = []
+    for index, ((name, value, css, sub), x) in enumerate(zip(stations, xs)):
+        nodes.append(
+            f'<g class="beam-node beam-enter" style="animation-delay: {index * 160}ms">'
+            f'<circle cx="{x}" cy="{cy}" r="{radius}" class="{css}"/>'
+            f'<text x="{x}" y="{cy + 4}" class="beam-node-value" text-anchor="middle">{escape(value)}</text>'
+            f'<text x="{x}" y="{cy - radius - 10}" class="beam-node-name" text-anchor="middle">{escape(name)}</text>'
+            f'<text x="{x}" y="{cy + radius + 16}" class="beam-node-sub" text-anchor="middle">{escape(sub)}</text>'
+            "</g>"
+        )
+    links = []
+    for index in range(len(xs) - 1):
+        x1, x2 = xs[index] + radius + 6, xs[index + 1] - radius - 6
+        y = cy
+        links.append(
+            f'<path d="M {x1} {y} C {x1 + 40} {y}, {x2 - 40} {y}, {x2} {y}" class="beam-base"/>'
+            f'<path d="M {x1} {y} C {x1 + 40} {y}, {x2 - 40} {y}, {x2} {y}" class="beam-dash" '
+            f'style="animation-delay: {index * 0.3:.1f}s"/>'
+        )
+    return (
+        '<div class="beams" data-reveal>'
+        + '<svg viewBox="0 0 690 110" role="img" aria-label="Risk formation: base severity, '
+        + 'context, threat factor, final risk">'
+        + "".join(links)
+        + "".join(nodes)
+        + "</svg></div>"
+    )
+
+
+def _formation(payload: dict[str, Any], weights: dict[str, Any]) -> str:
+    """Dial + beams: the engine view of how the top stored risk formed."""
+    scored = [score for score in payload["scores"] if score.get("base_vector")]
+    if not scored:
+        return ""
+    top = max(scored, key=lambda score: (score["risk"], score["finding_id"]))
+    return (
+        '<figure class="formation-figure" data-reveal>'
+        + _section_header(
+            "The formation engine",
+            "How one finding became the top priority - stored values, animated presentation",
+        )
+        + '<div class="formation-grid">'
+        + _dial(top)
+        + _beams(top, weights)
+        + "</div>"
+        + '<figcaption class="quad-caption">The dial and beams replay the recorded arithmetic; '
+        + "they cannot invent a new score. Change the assumptions yourself in the sandbox below "
+        + "to see what the model would have said.</figcaption>"
         + "</figure>"
     )
 
@@ -421,16 +588,26 @@ def _waterfall(payload: dict[str, Any], weights: dict[str, Any]) -> str:
     widest = max((abs(value) for _, value, _ in segments), default=1.0) or 1.0
     bars = "".join(
         f'<div class="wf-row"><span class="wf-label">{escape(label)}</span>'
-        f'<span class="wf-track"><span class="wf-seg {css}" style="flex-grow: {max(abs(value), 0.6) / widest * 100:.1f}">'
-        f"{value:+.1f}</span></span></div>"
+        f'<span class="wf-track"><span class="wf-seg {css}" '
+        f'style="flex-grow: {max(abs(value), 0.6) / widest * 100:.1f}">'
+        f"<i>{value:+.1f}</i></span></span></div>"
         for label, value, css in segments
+    )
+    band_class = BAND_CLASSES.get(top.get("band") or "", "band-unscored")
+    total_row = (
+        f'<div class="wf-row wf-total"><span class="wf-label">Stored risk</span>'
+        f'<span class="wf-track"><span class="wf-seg wf-result {band_class}" '
+        f'style="flex-grow: 100">{top["risk"]} · {escape(str(top.get("band") or ""))}</span></span></div>'
     )
     return (
         '<figure class="waterfall-figure" data-reveal>'
         + _section_header(
             "How the top risk formed", "Stored arithmetic for the highest-risk finding"
         )
-        + f'<div class="waterfall" id="risk-waterfall" data-inspect="{escape(top["finding_id"])}">{bars}</div>'
+        + f'<div class="waterfall" id="risk-waterfall" data-inspect="{escape(top["finding_id"])}">'
+        + bars
+        + total_row
+        + "</div>"
         + f'<figcaption class="wf-caption">Stored risk <strong>{top["risk"]}</strong> '
         + f"({_band(top.get('band'))}) for {escape(str(top.get('cve_id') or top.get('finding_id')))} "
         + f"on {escape(top['host_ip'])}. threat = {threat.get('base_multiplier', 0.5)} + "
@@ -456,6 +633,7 @@ def _risk_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         + _threat_strip(payload)
         + _comparison(payload)
         + _quadrant(payload)
+        + _formation(payload, weights.get("values", {}))
         + _waterfall(payload, weights.get("values", {}))
         + _sandbox(payload, config)
         + '<details class="archive" id="weights-view"><summary>The weights, in the open</summary>'

@@ -247,12 +247,18 @@ if (state().parameters.get('tour') === '1' && bootstrap.tour_finding) {
 }
 
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+function fillDials(scope) {
+  for (const dial of scope.querySelectorAll('[data-dial]')) {
+    dial.querySelector('.dial-value')?.style.setProperty('--dial-fill', dial.dataset.dial);
+  }
+}
 const revealables = [...document.querySelectorAll('[data-reveal]')];
 if (revealables.length && 'IntersectionObserver' in window && !reduceMotion) {
   const revealer = new IntersectionObserver(entries => {
     for (const entry of entries) {
       if (!entry.isIntersecting) continue;
       entry.target.classList.add('revealed');
+      fillDials(entry.target);
       revealer.unobserve(entry.target);
     }
   }, {threshold: 0.15});
@@ -261,7 +267,10 @@ if (revealables.length && 'IntersectionObserver' in window && !reduceMotion) {
       .forEach((item, index) => { item.style.setProperty('--reveal-i', String(index)); revealer.observe(item); });
   }
 } else {
-  for (const item of revealables) item.classList.add('revealed');
+  for (const item of revealables) {
+    item.classList.add('revealed');
+    fillDials(item);
+  }
 }
 
 function countUp(element) {
