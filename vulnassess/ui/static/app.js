@@ -119,7 +119,7 @@ setTheme(theme === 'dark' ? 'dark' : 'light');
 document.getElementById('theme').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
 
 const tourSteps = [
-  {stage: 'evidence', target: '.asset-grid', title: 'Begin with the scanner.', copy: 'These are the hosts in this recorded assessment. Open a door to see the finding and its original evidence.'},
+  {stage: 'evidence', target: '.asset-grid', title: 'Begin with the scanner.', copy: 'These are the hosts in this recorded assessment. Select a finding to see its original evidence and recorded score.'},
   {stage: 'evidence', target: '.feed-grid', title: 'Intelligence has a date.', copy: 'The vulnerability, EPSS and KEV facts came from local snapshots. Their dates and digests stay visible.'},
   {stage: 'context', target: '.context-grid', title: 'A role needs a clue.', copy: 'Compare the role with its quoted evidence. A MySQL banner supports the database role; the confidence is a separate question.'},
   {stage: 'risk', target: '#comparison', title: 'One weakness, two priorities.', copy: 'The base severity is shared. The recorded environment and context differ. The highlighted rows show where.'},
@@ -145,7 +145,7 @@ function showTour() {
   const step = tourSteps[tourStep];
   setState(step.stage);
   restoreView();
-  document.getElementById('tour-position').textContent = `FOLLOW ONE DOOR / ${tourStep + 1} OF ${tourSteps.length}`;
+  document.getElementById('tour-position').textContent = `TRACE ONE FINDING / ${tourStep + 1} OF ${tourSteps.length}`;
   document.getElementById('tour-title').textContent = step.title;
   document.getElementById('tour-copy').textContent = step.copy;
   document.getElementById('tour-back').disabled = tourStep === 0;
@@ -160,6 +160,7 @@ document.getElementById('tour-back').addEventListener('click', () => { tourStep 
 document.getElementById('tour-close').addEventListener('click', () => { tourStep = -1; showTour(); });
 document.addEventListener('keydown', event => {
   if (event.key !== 'Escape') return;
+  if (document.getElementById('palette')?.open) return;
   if (dialog?.open) {
     event.preventDefault();
     dialog.close();
@@ -249,7 +250,7 @@ if (state().parameters.get('tour') === '1' && bootstrap.tour_finding) {
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 function fillDials(scope) {
   for (const dial of scope.querySelectorAll('[data-dial]')) {
-    dial.querySelector('.dial-value')?.style.setProperty('--dial-fill', dial.dataset.dial);
+    dial.querySelector('.dial-value')?.setAttribute('stroke-dasharray', `${dial.dataset.dial} 100`);
   }
 }
 const revealables = [...document.querySelectorAll('[data-reveal]')];
@@ -262,10 +263,7 @@ if (revealables.length && 'IntersectionObserver' in window && !reduceMotion) {
       revealer.unobserve(entry.target);
     }
   }, {threshold: 0.15});
-  for (const group of new Set(revealables.map(item => item.dataset.revealGroup || ''))) {
-    revealables.filter(item => (item.dataset.revealGroup || '') === group)
-      .forEach((item, index) => { item.style.setProperty('--reveal-i', String(index)); revealer.observe(item); });
-  }
+  for (const item of revealables) revealer.observe(item);
 } else {
   for (const item of revealables) {
     item.classList.add('revealed');
@@ -296,4 +294,130 @@ for (const value of document.querySelectorAll('[data-count]')) {
     }, {threshold: 0.5});
     counter.observe(value);
   } else countUp(value);
+}
+
+const palette = document.getElementById('palette');
+const paletteInput = document.getElementById('palette-input');
+const paletteResults = document.getElementById('palette-results');
+const paletteCount = document.getElementById('palette-count');
+const paletteEntries = [];
+let paletteMatches = [];
+let paletteActive = 0;
+
+function buildPalette() {
+  const stageDetail = {
+    evidence: 'What the scanners observed',
+    context: 'What the clues imply',
+    risk: 'Why urgency changes',
+    priorities: 'What to examine first'
+  };
+  for (const stage of stageNames) {
+    paletteEntries.push({kind: 'Stage', label: stage[0].toUpperCase() + stage.slice(1), detail: stageDetail[stage], stage});
+  }
+  const assessment = bootstrap.assessment;
+  if (!assessment) return;
+  const scored = new Map(assessment.scores.map(score => [score.finding_id, score]));
+  for (const host of assessment.hosts) {
+    paletteEntries.push({
+      kind: 'Host',
+      label: host.ip,
+      detail: `${host.services.length} stored services`,
+      stage: 'evidence',
+      anchor: `host-${host.ip}`
+    });
+  }
+  for (const finding of assessment.findings) {
+    const score = scored.get(finding.id) || {};
+    const identity = score.cve_id || finding.cve_ids.join(' ') || finding.tool_native_id;
+    paletteEntries.push({
+      kind: 'Finding',
+      label: finding.title,
+      detail: `${score.band || 'Unscored'} \u00b7 ${finding.host_ip} \u00b7 ${identity}`,
+      terms: `${finding.tool} ${identity} ${finding.host_ip} ${score.risk ?? ''}`,
+      finding: finding.id
+    });
+  }
+}
+
+function choosePalette(entry) {
+  palette.close();
+  const current = state();
+  if (entry.finding) {
+    const parameters = current.parameters;
+    parameters.set('finding', entry.finding);
+    setState(current.stage, parameters);
+    restoreView();
+    openInspector(entry.finding);
+    return;
+  }
+  setState(entry.stage);
+  restoreView();
+  if (entry.anchor) document.getElementById(entry.anchor)?.scrollIntoView({block: 'start'});
+}
+
+function renderPalette() {
+  const terms = paletteInput.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  paletteMatches = paletteEntries.filter(entry => {
+    const haystack = `${entry.kind} ${entry.label} ${entry.detail} ${entry.terms || ''}`.toLowerCase();
+    return terms.every(term => haystack.includes(term));
+  }).slice(0, 40);
+  if (paletteActive >= paletteMatches.length) paletteActive = 0;
+  paletteResults.replaceChildren();
+  paletteMatches.forEach((entry, index) => {
+    const item = document.createElement('li');
+    item.className = index === paletteActive ? 'palette-item active' : 'palette-item';
+    item.id = `palette-option-${index}`;
+    item.setAttribute('role', 'option');
+    item.setAttribute('aria-selected', String(index === paletteActive));
+    for (const [className, text] of [['palette-kind', entry.kind], ['palette-label', entry.label], ['palette-detail', entry.detail]]) {
+      const part = document.createElement('span');
+      part.className = className;
+      part.textContent = text;
+      item.append(part);
+    }
+    item.addEventListener('click', () => choosePalette(entry));
+    paletteResults.append(item);
+  });
+  if (!paletteMatches.length) {
+    const empty = document.createElement('li');
+    empty.className = 'palette-empty';
+    empty.textContent = 'Nothing stored matches that search.';
+    paletteResults.append(empty);
+  }
+  paletteCount.textContent = `${paletteMatches.length} of ${paletteEntries.length}`;
+  paletteInput.setAttribute('aria-activedescendant', paletteMatches.length ? `palette-option-${paletteActive}` : '');
+}
+
+function openPalette() {
+  if (!palette || palette.open) return;
+  paletteInput.value = '';
+  paletteActive = 0;
+  renderPalette();
+  palette.showModal();
+  paletteInput.focus();
+}
+
+if (palette) {
+  buildPalette();
+  document.getElementById('open-palette').addEventListener('click', openPalette);
+  paletteInput.addEventListener('input', () => { paletteActive = 0; renderPalette(); });
+  paletteInput.addEventListener('keydown', event => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      if (!paletteMatches.length) return;
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      paletteActive = (paletteActive + step + paletteMatches.length) % paletteMatches.length;
+      renderPalette();
+      document.getElementById(`palette-option-${paletteActive}`)?.scrollIntoView({block: 'nearest'});
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      if (paletteMatches[paletteActive]) choosePalette(paletteMatches[paletteActive]);
+    }
+  });
+  document.addEventListener('keydown', event => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+      event.preventDefault();
+      openPalette();
+    }
+  });
 }

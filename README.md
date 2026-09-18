@@ -130,6 +130,21 @@ Model, research, snapshot, unify, rescan and visualize subcommands: see
 `vulnassess --help` and `docs/`. Every command takes `--json`. Exit codes: `2` config,
 `3` scope, `4` scanner file, `5` missing feed snapshot, `6` model unavailable.
 
+## One interactive interface
+
+The four-stage workbench is the only interactive UI:
+
+```text
+vulnassess ui --run R --port 8765                 # loopback, read-only
+vulnassess ui --run R --export reports/R-ui.html  # one offline HTML file
+python run_visual_simulation.py                    # same UI, synthetic demo data
+```
+
+`vulnassess visualize` remains a compatibility alias for the same offline workbench
+export. It no longer renders the historical eight-stage replay. `vulnassess report`
+is the printable assessment artifact, not a competing application. Live and exported
+views share the same renderer, controls, evidence inspector and Risk analytics.
+
 ## Layout
 
 ```text

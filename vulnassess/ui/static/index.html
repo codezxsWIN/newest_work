@@ -12,9 +12,10 @@
   <a class="skip-link" href="#stage-evidence">Skip to assessment</a>
   <header class="app-header">
     <a class="brand" href="#stage-evidence" aria-label="VulnAssess home"><span class="brand-mark" aria-hidden="true">v/a</span><span>VulnAssess<small>Context Is Not Free</small></span></a>
-    <div class="header-note">THE ASSESSMENT NOTEBOOK</div>
+    <div class="header-note">LOCAL EVIDENCE WORKBENCH</div>
     <div class="header-actions">
-      <button id="start-tour" class="tour-button" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>Follow one door</button>
+      <button id="open-palette" class="palette-button" type="button" aria-haspopup="dialog" aria-controls="palette" title="Search the assessment"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg><span>Search</span><kbd>Ctrl K</kbd></button>
+      <button id="start-tour" class="tour-button" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>Trace one finding</button>
       <button id="refresh" class="icon-button" type="button" title="Refresh stored records" aria-label="Refresh stored records"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6"/></svg></button>
       <button id="theme" class="icon-button" type="button" title="Toggle dark theme" aria-label="Toggle dark theme" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 15A8 8 0 0 1 9 4 8 8 0 1 0 20 15Z"/></svg></button>
     </div>
@@ -38,6 +39,15 @@
     <h2 id="tour-title"></h2><p id="tour-copy"></p>
     <div class="tour-actions"><button id="tour-back" type="button" class="text-button">Back</button><button id="tour-next" type="button" class="primary-button">Next</button></div>
   </aside>
+  <dialog id="palette" class="palette" aria-label="Search the assessment">
+    <div class="palette-field">
+      <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
+      <input id="palette-input" type="search" autocomplete="off" spellcheck="false" placeholder="Findings, hosts, CVEs, stages" aria-label="Search findings, hosts, CVEs and stages" role="combobox" aria-expanded="true" aria-controls="palette-results" aria-autocomplete="list">
+      <span id="palette-count" class="palette-count" aria-live="polite"></span>
+    </div>
+    <ul id="palette-results" class="palette-results" role="listbox" aria-label="Search results"></ul>
+    <p class="palette-hint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> move<span>&middot;</span><kbd>Enter</kbd> open<span>&middot;</span><kbd>Esc</kbd> close<span>&middot;</span>reads stored records only</p>
+  </dialog>
   <p id="app-status" role="status" class="sr-only"></p>
 </body>
 </html>

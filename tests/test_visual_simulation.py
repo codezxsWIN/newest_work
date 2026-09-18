@@ -1,6 +1,5 @@
-"""Regression tests for the self-contained visual pipeline replay."""
+"""Regression tests proving simulations use the canonical assessment workbench."""
 
-import hashlib
 import io
 import json
 import unittest
@@ -10,16 +9,15 @@ from tempfile import TemporaryDirectory
 
 from run_visual_simulation import build
 from vulnassess.cli import main
-from vulnassess.visual_simulation import render
 
 ROOT = Path(__file__).resolve().parents[1]
+DATABASE = ROOT / "data" / "visual-simulation.db"
 
 
-def embedded_data(html: str) -> dict:
-    prefix = "<script>const DATA="
-    suffix = ";\nconst state="
+def embedded_bootstrap(html: str) -> dict:
+    prefix = '<script id="assessment-data" type="application/json">'
     start = html.index(prefix) + len(prefix)
-    end = html.index(suffix, start)
+    end = html.index("</script>", start)
     return json.loads(html[start:end])
 
 
@@ -28,110 +26,115 @@ class TestVisualSimulation(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.path = build()
         cls.html = cls.path.read_text(encoding="utf-8")
-        cls.data = embedded_data(cls.html)
+        cls.bootstrap = embedded_bootstrap(cls.html)
+        cls.assessment = cls.bootstrap["assessment"]
 
-    def test_build_replays_actual_store_and_model_data(self):
-        self.assertEqual(self.data["run_id"], "visual-sim")
-        self.assertEqual(len(self.data["hosts"]), 3)
-        self.assertEqual(len(self.data["ranked"]), 6)
-        self.assertEqual(len(self.data["comparison"]), 2)
-        self.assertEqual(len(self.data["model"]["classes"]), 9)
-        self.assertEqual(self.data["model"]["features"], 134)
-        self.assertEqual(self.data["pipeline_counts"]["canonical_findings"], 6)
-        self.assertEqual(self.data["pipeline_counts"]["context_profiles"], 3)
-        self.assertTrue(all("provenance" in item for item in self.data["ranked"]))
-        self.assertTrue(all("baseline_position" in item for item in self.data["ranked"]))
-        self.assertTrue(all("enrichment_candidates" in item for item in self.data["ranked"]))
-        self.assertEqual(
-            {item["ip"]: item["prediction"]["label"] for item in self.data["hosts"]},
-            {
-                "172.28.0.10": "web_frontend",
-                "172.28.0.11": "unknown",
-                "172.28.0.12": "database",
-            },
-        )
+    def test_build_exports_actual_synthetic_assessment(self):
+        self.assertEqual(self.assessment["run"]["run_id"], "visual-sim")
+        self.assertEqual(len(self.assessment["hosts"]), 3)
+        self.assertEqual(len(self.assessment["findings"]), 6)
+        self.assertEqual(len(self.assessment["context"]), 3)
+        self.assertEqual(len(self.assessment["scores"]), 6)
+        self.assertTrue(all("provenance" in item for item in self.assessment["findings"]))
+        self.assertTrue(all("weights_hash" in item for item in self.assessment["scores"]))
 
-    def test_all_eight_stages_and_visual_surfaces_are_present(self):
-        self.assertEqual(len(self.data["stages"]), 8)
+    def test_simulation_uses_the_four_stage_workbench(self):
         for text in (
-            "Decision path",
-            "Evidence inspector",
-            "Canonical record",
-            "Selected finding trace",
-            "Class probability distribution",
-            "Deterministic score reconstruction",
-            "Same CVE. Same base. Different operational risk.",
-            "Remediation queue",
+            "01 / EVIDENCE",
+            "02 / CONTEXT",
+            "03 / RISK",
+            "04 / PRIORITIES",
+            "EVIDENCE INSPECTOR",
+            "The formation engine",
+            "Severity meets exploitation",
+            "What deserves attention first?",
         ):
             self.assertIn(text, self.html)
-        self.assertIn("const stageRenderers=", self.html)
-        self.assertNotIn('class="topology"', self.html)
-        for control in (
+        self.assertEqual(self.html.count('class="stage-panel"'), 4)
+
+    def test_historical_replay_is_not_rendered(self):
+        for obsolete in (
+            "VulnAssess Pipeline Replay",
             'id="play"',
             'id="restart"',
-            'id="findingSelect"',
             'id="stageRail"',
-            'data-speed="460"',
+            "const stageRenderers=",
+            "Selected finding trace",
         ):
-            self.assertIn(control, self.html)
+            self.assertNotIn(obsolete, self.html)
+        self.assertNotIn("role model:", self.html.lower())
 
-    def test_visual_replay_is_self_contained_and_offline(self):
-        self.assertNotIn("<script src=", self.html)
-        self.assertNotIn("<link", self.html)
-        self.assertNotIn("href=", self.html)
-        self.assertNotIn("fetch(", self.html)
-        self.assertNotIn("WebSocket", self.html)
-        self.assertIn("No external assets, scripts, feeds or model calls", self.html)
+    def test_export_is_self_contained_and_offline(self):
+        self.assertTrue(self.bootstrap["offline"])
+        self.assertIn("connect-src 'none'", self.html)
+        self.assertNotIn('<link rel="stylesheet"', self.html)
+        self.assertNotIn('src="/static/', self.html)
+        self.assertNotIn(" style=", self.html)
+        self.assertIn("Sandbox. Nothing stored changes.", self.html)
+        self.assertIn("No persisted expert-evaluation result is attached", self.html)
 
-    def test_embedded_untrusted_text_cannot_close_the_data_script(self):
-        attack = "</script><script>alert(1)</script>"
-        html = render({"run_id": attack})
-        self.assertNotIn(attack, html)
-        self.assertIn("&lt;/script&gt;&lt;script&gt;alert(1)&lt;/script&gt;", html)
-        self.assertIn("\\u003c/script\\u003e", html)
+    def test_same_cve_comparison_keeps_the_golden_divergence(self):
+        scores = {
+            score["host_ip"]: score
+            for score in self.assessment["scores"]
+            if score["cve_id"] == "CVE-1999-9001"
+        }
+        self.assertEqual(scores["172.28.0.12"]["base_score"], 9.8)
+        self.assertEqual(scores["172.28.0.10"]["base_score"], 9.8)
+        self.assertEqual(scores["172.28.0.12"]["risk"], 100.0)
+        self.assertEqual(scores["172.28.0.12"]["band"], "Critical")
+        self.assertEqual(scores["172.28.0.10"]["risk"], 79.0)
+        self.assertEqual(scores["172.28.0.10"]["band"], "High")
 
-    def test_same_cve_comparison_contains_the_golden_divergence(self):
-        comparison = {item["host_ip"]: item for item in self.data["comparison"]}
-        self.assertEqual(comparison["172.28.0.12"]["base_score"], 9.8)
-        self.assertEqual(comparison["172.28.0.10"]["base_score"], 9.8)
-        self.assertEqual(comparison["172.28.0.12"]["risk"], 100.0)
-        self.assertEqual(comparison["172.28.0.12"]["band"], "Critical")
-        self.assertEqual(comparison["172.28.0.10"]["risk"], 79.0)
-        self.assertEqual(comparison["172.28.0.10"]["band"], "High")
-
-    def test_repeated_visual_builds_are_byte_identical(self):
-        first = hashlib.sha256(self.path.read_bytes()).hexdigest()
-        second_path = build()
-        second = hashlib.sha256(second_path.read_bytes()).hexdigest()
-        self.assertEqual(first, second)
-
-    def test_mobile_layout_rules_are_shipped(self):
-        self.assertIn("@media(max-width:760px)", self.html)
-        self.assertIn(".layout{display:block}", self.html)
-        self.assertIn(".trace-path{display:flex;overflow:auto}", self.html)
-        self.assertIn("prefers-reduced-motion:reduce", self.html)
-
-    def test_visualize_command_renders_an_existing_run(self):
+    def test_visualize_command_exports_the_same_interface(self):
         with TemporaryDirectory() as directory:
-            output = Path(directory) / "replay.html"
+            output = Path(directory) / "workbench.html"
             with redirect_stdout(io.StringIO()):
                 code = main(
                     [
                         "--db",
-                        str(ROOT / "data" / "visual-simulation.db"),
+                        str(DATABASE),
+                        "--config",
+                        str(ROOT / "config"),
                         "visualize",
                         "--run-id",
                         "visual-sim",
-                        "--model",
-                        str(ROOT / "models" / "synthetic-role-model.json"),
-                        "--model-report",
-                        str(ROOT / "reports" / "model-simulation.json"),
                         "--out",
                         str(output),
                     ]
                 )
+            document = output.read_text(encoding="utf-8")
             self.assertEqual(code, 0)
-            self.assertEqual(embedded_data(output.read_text())["run_id"], "visual-sim")
+            self.assertEqual(embedded_bootstrap(document)["assessment"], self.assessment)
+            self.assertIn("The formation engine", document)
+            self.assertNotIn("VulnAssess Pipeline Replay", document)
+
+    def test_ui_export_and_simulation_share_the_renderer(self):
+        with TemporaryDirectory() as directory:
+            output = Path(directory) / "ui.html"
+            with redirect_stdout(io.StringIO()):
+                code = main(
+                    [
+                        "--db",
+                        str(DATABASE),
+                        "--config",
+                        str(ROOT / "config"),
+                        "ui",
+                        "--run",
+                        "visual-sim",
+                        "--export",
+                        str(output),
+                    ]
+                )
+            document = output.read_text(encoding="utf-8")
+            self.assertEqual(code, 0)
+            self.assertEqual(embedded_bootstrap(document)["assessment"], self.assessment)
+            for marker in ("stage-evidence", "stage-context", "stage-risk", "stage-priorities"):
+                self.assertEqual(marker in document, marker in self.html)
+
+    def test_responsive_and_reduced_motion_rules_are_embedded(self):
+        self.assertIn("@media (max-width: 760px)", self.html)
+        self.assertIn("prefers-reduced-motion: reduce", self.html)
 
 
 if __name__ == "__main__":

@@ -117,7 +117,7 @@ PDF renderer (reports are self-contained printable HTML).
 8. WHAT DOES NOT NEED A DOWNLOAD
 ================================
 The scoring engine, role-model implementation, parsers, evaluation arithmetic,
-ablation/stability engine, visual replay, SQLite, and HTML templates - all
+ablation/stability engine, canonical workbench, SQLite, and HTML templates - all
 present and tested. The synthetic demo data proves only code paths.
 
 9. POST-PROVISIONING CHECKLIST

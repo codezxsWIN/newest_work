@@ -1,5 +1,24 @@
 # VulnAssess UI
 
+## One-interface consolidation - 2026-09-19
+
+The four-stage workbench is the sole active interactive interface. The synthetic
+simulation now builds a labelled assessment and exports this same renderer; the
+`visualize` command is a compatibility alias for the same export path. The historical
+eight-stage replay remains unreferenced source history, not a second product. The
+printable assessment report remains a report, not a second UI.
+
+The active Evidence stage uses explicit finding cards (scanner, stored band, title,
+CVE/native identity and endpoint) rather than the rejected door metaphor. The guided
+action is "Trace one finding." Offline analytics use no inline style attributes or
+JavaScript style mutation, so the hash-pinned CSP remains strict and animations work
+without `unsafe-inline`.
+
+The Risk stage uses a proof-first hierarchy inspired by TypeSafe AI's sequencing, not
+its branding: a large thesis, oversized stored metrics, sparse technical framing and
+one mechanism at a time. VulnAssess retains its own palette, typography, evidence
+density and analyst navigation; no external visual assets or marketing copy are used.
+
 ## Resume checkpoint - 2026-09-13
 
 The user requested a commit/push checkpoint and a pause. This is a work-in-progress
@@ -7,14 +26,14 @@ four-stage interface, not an accepted reference-parity release. Ownership remain
 PROJECT.md Stage 7 (Report), supporting evidence auditability for context and risk.
 The old [phase 1](ui-phase-1.md) and [phase 2](ui-phase-2.md) reports are historical.
 
-The current UI is in the same `vulnassess/ui/` package. Do not confuse it with
-`reports/visual-simulation.html`, which is the older saved pipeline replay.
+The current UI is in the `vulnassess/ui/` package. `reports/visual-simulation.html`
+is now a synthetic export of that same workbench.
 
 ## Run and export
 
 ```text
-python -m vulnassess ui --run verify --port 8765
-python -m vulnassess ui --run verify --export reports/ui-verify.html
+python -m vulnassess ui --run demo --port 8765
+python -m vulnassess ui --run demo --export reports/ui-demo.html
 ```
 
 The live address is `http://127.0.0.1:8765/`; Ctrl-C stops it. Use an unused port
@@ -22,8 +41,8 @@ if occupied. `--run-id` aliases `--run`. `--db` and `--config` accept existing
 local inputs. With no selected run, the page provides a stored-run selector.
 The single-file HTML opens directly from disk and has no external assets.
 
-The local `verify` database was rebuilt from the existing labelled synthetic demo
-fixtures after its deletion; it is not recovered historical timing or real lab
+The local `demo` run is rebuilt from the existing labelled synthetic demo
+fixtures when absent or stale; it is not recovered historical timing or real lab
 evidence. The local database and generated assessment reports remain ignored and
 are not included in the source checkpoint. A clean checkout needs its actual
 local input artifacts; the UI never creates substitute records.
@@ -32,7 +51,7 @@ local input artifacts; the UI never creates substitute records.
 
 | Surface | What it teaches | Current behavior |
 | --- | --- | --- |
-| Evidence | Facts start with observations | Stored hosts, finding doors, scanner quotes, scope configuration and feed provenance |
+| Evidence | Facts start with observations | Stored hosts, explicit finding cards, scanner quotes, scope configuration and feed provenance |
 | Context | Every inference needs a clue | Role, exposure, controls, confidence, source, manual tags and evidence |
 | Risk | Same weakness can have different urgency | Shared-CVE comparison using stored scores, differing inputs, weights and a labelled browser-only sandbox |
 | Priorities | Each priority can be inspected | Stored risk order, facets and an inspector retaining source identity |

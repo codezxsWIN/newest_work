@@ -25,7 +25,6 @@ from vulnassess import (
     rescan,
     role_model,
     unify,
-    visual_simulation,
 )
 from vulnassess.errors import AdapterError, ConfigError, VulnAssessError
 from vulnassess.settings import Settings
@@ -771,35 +770,20 @@ def cmd_model_inspect(args: argparse.Namespace) -> int:
 
 
 def cmd_visualize(args: argparse.Namespace) -> int:
-    settings = _settings(args)
-    model = role_model.load_model(args.model_artifact)
-    report_path = Path(args.model_report)
-    if not report_path.is_file():
-        raise ConfigError(f"MISSING: model evaluation report {report_path}")
-    try:
-        model_report = json.loads(report_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ConfigError(f"invalid model evaluation report {report_path}: {error}") from error
-    with _store(args) as store:
-        if store.run_info(args.run_id) is None:
-            raise ConfigError(f"MISSING: run {args.run_id!r} in the store")
-        payload = visual_simulation.build_payload(
-            store, args.run_id, model, model_report, settings.weights
-        )
-    output = Path(args.out)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(visual_simulation.render(payload), encoding="utf-8")
+    from vulnassess.ui.export import export_html
+    from vulnassess.ui.server import UiApplication
+
+    application = UiApplication(args.db, args.config, args.run_id)
+    output = export_html(application, args.out)
     result = {
         "run_id": args.run_id,
-        "model_hash": model.model_hash,
-        "hosts": len(payload["hosts"]),
-        "findings": len(payload["ranked"]),
         "output": str(output),
+        "read_only": True,
+        "interface": "canonical_workbench",
     }
     _emit(
         result,
-        f"visual replay for {args.run_id}: {result['hosts']} hosts, "
-        f"{result['findings']} findings -> {output}",
+        f"canonical workbench export for {args.run_id} -> {output}",
         args.json,
     )
     return 0
@@ -1288,10 +1272,10 @@ def build_parser() -> argparse.ArgumentParser:
     hybrid.set_defaults(handler=cmd_model_hybrid_preview)
 
     visualizer = add(
-        "visualize", cmd_visualize, help="render an interactive visual replay of an existing run"
+        "visualize", cmd_visualize, help="export the canonical read-only workbench for a run"
     )
-    visualizer.add_argument("--model", dest="model_artifact", required=True)
-    visualizer.add_argument("--model-report", required=True)
+    visualizer.add_argument("--model", dest="model_artifact", help=argparse.SUPPRESS)
+    visualizer.add_argument("--model-report", help=argparse.SUPPRESS)
     visualizer.add_argument("--out", required=True)
 
     demo = subparsers.add_parser("demo", help="run the whole pipeline on supplied files")

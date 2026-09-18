@@ -1,1 +1,1 @@
-"""Doors: a read-only view of stored vulnerability assessments."""
+"""Read-only workbench for stored vulnerability assessments."""

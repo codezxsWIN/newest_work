@@ -5,7 +5,7 @@ from html import escape
 from math import cos, radians, sin
 from typing import Any
 
-from vulnassess.ui.drawings import BAND_CLASSES, building, door, legend
+from vulnassess.ui.drawings import BAND_CLASSES, building
 from vulnassess.ui.entry import evidence, evidence_items, pipeline_map, run_strip
 
 
@@ -20,6 +20,194 @@ def _text(value: Any) -> str:
 def _band(value: str | None) -> str:
     name = value if value in BAND_CLASSES else None
     return f'<span class="band {BAND_CLASSES.get(name or "", "band-unscored")}">{escape(name or "Unscored")}</span>'
+
+
+VECTOR_LABELS = {
+    "AV": "Attack vector",
+    "AC": "Attack complexity",
+    "PR": "Privileges required",
+    "UI": "User interaction",
+    "S": "Scope",
+    "C": "Confidentiality impact",
+    "I": "Integrity impact",
+    "A": "Availability impact",
+    "CR": "Confidentiality requirement",
+    "IR": "Integrity requirement",
+    "AR": "Availability requirement",
+}
+VECTOR_VALUES = {
+    "AV": {"N": "Network", "A": "Adjacent", "L": "Local", "P": "Physical"},
+    "AC": {"L": "Low", "H": "High"},
+    "PR": {"N": "None", "L": "Low", "H": "High"},
+    "UI": {"N": "None", "R": "Required"},
+    "S": {"U": "Unchanged", "C": "Changed"},
+    "C": {"H": "High", "L": "Low", "N": "None"},
+    "I": {"H": "High", "L": "Low", "N": "None"},
+    "A": {"H": "High", "L": "Low", "N": "None"},
+    "CR": {"H": "High", "M": "Medium", "L": "Low", "X": "Not defined"},
+}
+# Each weights rule names the metrics it may rewrite and the context feature that triggers it.
+CONTEXT_RULES = (
+    ("internal_when_av_network", "Internal exposure narrows the attack vector", ("exposure",)),
+    ("waf_present", "Observed WAF raises attack complexity", ("controls", "waf")),
+    (
+        "auth_required_when_pr_none",
+        "Observed authentication raises privileges required",
+        ("controls", "auth_required"),
+    ),
+)
+REQUIREMENT_METRICS = ("CR", "IR", "AR")
+
+
+def _vector_metrics(vector: str | None) -> dict[str, str]:
+    """Split a stored CVSS vector into its tokens. Nothing is scored here."""
+    tokens = str(vector or "").split("/")[1:]
+    return dict(token.split(":", 1) for token in tokens if ":" in token)  # type: ignore[misc]
+
+
+def _metric_name(metric: str) -> str:
+    base = metric[1:] if metric.startswith("M") and metric[1:] in VECTOR_LABELS else metric
+    label = VECTOR_LABELS.get(base, metric)
+    return f"Modified {label.lower()}" if base != metric else label
+
+
+def _metric_value(metric: str, value: str | None) -> str:
+    if value is None:
+        return "Not defined"
+    base = metric[1:] if metric.startswith("M") else metric
+    return VECTOR_VALUES.get("CR" if base in ("IR", "AR") else base, {}).get(value, value)
+
+
+def _ledger_rows(score: dict[str, Any], environmental: dict[str, Any]) -> list[dict[str, Any]]:
+    """Attribute every stored Environmental modification to the rule and evidence behind it."""
+    published = _vector_metrics(score.get("base_vector"))
+    inputs = score.get("inputs", {}) or {}
+    manual = inputs.get("manual", {}) or {}
+    rows: list[dict[str, Any]] = []
+    for metric, adjusted in (score.get("env_modifications") or {}).items():
+        rule = "Recorded modification"
+        driver: Any = {}
+        for name, description, path in CONTEXT_RULES:
+            if metric in (environmental.get(name) or {}):
+                rule, driver = description, inputs
+                for part in path:
+                    driver = driver.get(part, {}) if isinstance(driver, dict) else {}
+                break
+        else:
+            if metric in REQUIREMENT_METRICS:
+                environment = manual.get("environment", {}) or {}
+                if str(environment.get("value")) == "test":
+                    rule, driver = "Test environment overrides the role requirement", environment
+                else:
+                    rule, driver = "Asset role sets the security requirement", inputs.get("role", {})
+        rows.append(
+            {
+                "metric": metric,
+                "published": published.get(metric[1:] if metric.startswith("M") else metric),
+                "adjusted": adjusted,
+                "rule": rule,
+                "driver": driver if isinstance(driver, dict) else {},
+            }
+        )
+    return rows
+
+
+def _vector_strip(label: str, metrics: dict[str, str], changed: set[str]) -> str:
+    empty = '<span class="quiet">No vector stored</span>'
+    tokens = "".join(
+        f'<span class="vector-token{" vector-token-changed" if key in changed else ""}">'
+        f'<span class="vector-key">{escape(key)}</span>'
+        f'<span class="vector-value">{escape(value)}</span></span>'
+        for key, value in metrics.items()
+    )
+    return (
+        f'<div class="vector-strip"><span class="vector-strip-label">{escape(label)}</span>'
+        f'<div class="vector-tokens">{tokens or empty}</div></div>'
+    )
+
+
+def _driver_cell(driver: dict[str, Any]) -> str:
+    if not driver:
+        return '<span class="quiet">Not recorded</span>'
+    return (
+        '<div class="ledger-driver">'
+        f'<span class="inferred">{escape(_text(driver.get("value")).replace("_", " "))}</span>'
+        f'<span class="quiet">{escape(str(driver.get("source", "rule")))} · confidence '
+        f'{escape(_text(driver.get("confidence")))}</span>'
+        + evidence(driver.get("evidence") or "none observed", "Context / verbatim evidence")
+        + "</div>"
+    )
+
+
+def _delta(score: dict[str, Any]) -> str:
+    base, env = score.get("base_score"), score.get("env_score")
+    if base is None or env is None:
+        return "Not comparable"
+    return f"{env - base:+.1f}"
+
+
+def _context_ledger(payload: dict[str, Any], config: dict[str, Any]) -> str:
+    """The research thesis, per metric: what context changed and which evidence changed it."""
+    environmental = config.get("weights", {}).get("values", {}).get("environmental", {}) or {}
+    scored = [
+        score
+        for score in payload["scores"]
+        if score.get("base_vector") and score.get("env_modifications")
+    ]
+    if not scored:
+        return (
+            '<div class="state-message" id="context-ledger"><span class="stamp">NO REWRITE</span>'
+            "<p>No stored finding in this run carries both a published vector and a recorded "
+            "context modification, so there is no rewrite to show.</p></div>"
+        )
+    top = max(scored, key=lambda score: (score["risk"], score["finding_id"]))
+    changed = set(top.get("env_modifications") or {})
+    body = "".join(
+        "<tr>"
+        f'<td class="ledger-metric"><code>{escape(row["metric"])}</code>'
+        f'<span class="quiet">{escape(_metric_name(row["metric"]))}</span></td>'
+        f'<td class="ledger-was">{escape(_metric_value(row["metric"], row["published"]))}</td>'
+        '<td class="ledger-arrow" aria-hidden="true">&rarr;</td>'
+        f'<td class="ledger-now">{escape(_metric_value(row["metric"], row["adjusted"]))}</td>'
+        f'<td class="ledger-rule">{escape(row["rule"])}</td>'
+        f'<td>{_driver_cell(row["driver"])}</td></tr>'
+        for row in _ledger_rows(top, environmental)
+    )
+    rollup = "".join(
+        "<tr>"
+        f'<td>{evidence(str(score.get("cve_id") or score["finding_id"]), "Stored score / identity", False)}</td>'
+        f'<td>{evidence(score["host_ip"], "Stored score / host", False)}</td>'
+        f'<td>{_text(score.get("base_score"))}</td>'
+        f'<td>{_text(score.get("env_score"))}</td>'
+        f'<td class="ledger-delta">{_delta(score)}</td>'
+        f'<td>{len(score.get("env_modifications") or {})}</td>'
+        f"<td>{_band(score.get('band'))}</td></tr>"
+        for score in scored
+    )
+    return (
+        '<figure class="ledger-figure" id="context-ledger" data-reveal>'
+        + _section_header(
+            "Context is not free — here is the bill",
+            "Every Environmental rewrite, its rule, and the evidence that triggered it",
+        )
+        + '<figcaption class="ledger-lead">CVSS publishes one severity for everyone. These are the '
+        + "metric changes this deployment earned, for "
+        + f'<strong>{escape(str(top.get("cve_id") or top["finding_id"]))}</strong> on '
+        + f'<strong>{escape(top["host_ip"])}</strong>.</figcaption>'
+        + '<div class="vector-diff">'
+        + _vector_strip("Published", _vector_metrics(top["base_vector"]), set())
+        + _vector_strip("Context-adjusted", _vector_metrics(top.get("env_vector")), changed)
+        + "</div>"
+        + '<table class="ledger-table"><caption class="sr-only">Environmental modifications with '
+        + "their rule and evidence</caption><thead><tr><th>Metric</th><th>Published</th><th></th>"
+        + "<th>Adjusted</th><th>Rule that applied</th><th>Driving evidence</th></tr></thead>"
+        + f"<tbody>{body}</tbody></table>"
+        + '<details class="archive"><summary>Every scored finding in this run</summary>'
+        + '<table class="record-table ledger-rollup"><thead><tr><th>Identity</th><th>Host</th>'
+        + "<th>Published</th><th>Environmental</th><th>Delta</th><th>Rewrites</th><th>Band</th>"
+        + f"</tr></thead><tbody>{rollup}</tbody></table></details>"
+        + "</figure>"
+    )
 
 
 def _heading(section: str, title: str, sentence: str) -> str:
@@ -45,6 +233,25 @@ def _inspection_button(finding: dict[str, Any], content: str, css: str = "inspec
     )
 
 
+def _finding_marker(finding: dict[str, Any], score: dict[str, Any]) -> str:
+    band = score.get("band")
+    identity = score.get("cve_id") or next(iter(finding["cve_ids"]), finding["tool_native_id"])
+    endpoint = (
+        f'{finding["port"]}/{finding["protocol"]}'
+        if finding.get("port") is not None and finding.get("protocol")
+        else "host-level"
+    )
+    return (
+        '<span class="finding-marker">'
+        '<span class="finding-marker-head">'
+        f'<span class="finding-marker-source">{escape(finding["tool"].upper())}</span>'
+        f'{_band(band)}</span>'
+        f'<strong>{escape(finding["title"])}</strong>'
+        f'<span class="finding-marker-meta">{escape(str(identity))} · {escape(endpoint)}</span>'
+        "</span>"
+    )
+
+
 def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
     profiles = {profile["host_ip"]: profile for profile in payload["context"]}
     scores = {score["finding_id"]: score for score in payload["scores"]}
@@ -53,11 +260,11 @@ def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         profile = profiles.get(host["ip"])
         role = profile["role"]["value"] if profile else "unknown"
         findings = [finding for finding in payload["findings"] if finding["host_ip"] == host["ip"]]
-        openings = "".join(
+        finding_markers = "".join(
             _inspection_button(
                 finding,
-                door(scores.get(finding["id"], {}).get("band"), finding["id"]),
-                "door-button",
+                _finding_marker(finding, scores.get(finding["id"], {})),
+                "finding-marker-button",
             )
             for finding in findings
         )
@@ -72,7 +279,7 @@ def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
             + f'<div class="asset-illustration">{building(role)}</div>'
             + f'<h3 class="inferred">{escape(role.replace("_", " "))}</h3>'
             + f'<p class="asset-exposure">{escape(str(profile["exposure"]["value"]).replace("_", " ") if profile else "No context recorded")}</p>'
-            + f'<div class="asset-doors">{openings or "No findings recorded"}</div>'
+            + f'<div class="asset-findings">{finding_markers or "No findings recorded"}</div>'
             + f'<details class="asset-evidence"><summary>Scanner evidence</summary>{banners or "No banner recorded"}</details>'
             + "</article>"
         )
@@ -113,7 +320,7 @@ def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
             '<span id="evidence-title">Start with what was seen.</span>',
             "The scanner's words. Preserved, not paraphrased.",
         )
-        + '<div class="section-head"><h2>Observed assets</h2><span>Each door opens a finding</span></div>'
+        + '<div class="section-head"><h2>Observed assets</h2><span>Select a finding to inspect its evidence and score</span></div>'
         + f'<div class="asset-grid">{"".join(hosts)}</div>'
         + fence
         + _section_header("Intelligence has a date.", "Current store metadata; not frozen per run")
@@ -121,9 +328,7 @@ def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         + '<details class="archive"><summary>Recorded pipeline details</summary>'
         + pipeline_map(payload)
         + "</details>"
-        + '<details class="archive"><summary>The drawing key</summary>'
-        + legend()
-        + "</details></section>"
+        + "</section>"
     )
 
 
@@ -275,10 +480,9 @@ def _threat_strip(payload: dict[str, Any]) -> str:
     bands = ["Critical", "High", "Medium", "Low"]
     counts = {band: sum(1 for score in scores if score.get("band") == band) for band in bands}
     meter = "".join(
-        f'<span class="meter-seg meter-{band.lower()}" '
-        f'style="flex-grow: {counts[band] or 0.0001}" title="{band}: {counts[band]}">'
-        f"{'<b></b>' if counts[band] else ''}</span>"
+        f'<span class="meter-seg meter-{band.lower()}" title="{band}: {counts[band]}"></span>'
         for band in bands
+        for _ in range(counts[band])
     )
     legend = "".join(
         f'<span class="meter-key meter-{band.lower()}">{band} {counts[band]}</span>'
@@ -346,7 +550,6 @@ def _quadrant(payload: dict[str, Any]) -> str:
         )
         marks.append(
             f'<g class="quad-point quad-enter {band_class}{" quad-hollow" if hollow else ""}" '
-            f'style="animation-delay: {index * 110}ms" '
             f'data-inspect="{escape(score["finding_id"])}" tabindex="0" role="button" '
             f'aria-label="Inspect {escape(score.get("cve_id") or score.get("finding_id", ""))} '
             f"on {escape(score['host_ip'])}: stored risk {score['risk']}, "
@@ -440,7 +643,7 @@ def _dial(top: dict[str, Any]) -> str:
         + f'aria-label="Stored risk {top["risk"]} of 100, band {top.get("band")}">'
         + f'<path d="{arc}" class="dial-track" pathLength="100"/>'
         + f'<path d="{arc}" class="dial-value {band_class}" pathLength="100" '
-        + 'style="--dial-fill: 0"/>'
+        + 'stroke-dasharray="0 100"/>'
         + ticks
         + f'<text x="{cx}" y="{cy - 6}" class="dial-number" text-anchor="middle">'
         + f'<tspan data-count="{risk:.0f}">{risk:.0f}</tspan></text>'
@@ -491,9 +694,9 @@ def _beams(top: dict[str, Any], weights: dict[str, Any]) -> str:
     cy, radius = 54, 17
     xs = [72, 254, 436, 618]
     nodes = []
-    for index, ((name, value, css, sub), x) in enumerate(zip(stations, xs)):
+    for (name, value, css, sub), x in zip(stations, xs, strict=True):
         nodes.append(
-            f'<g class="beam-node beam-enter" style="animation-delay: {index * 160}ms">'
+            '<g class="beam-node beam-enter">'
             f'<circle cx="{x}" cy="{cy}" r="{radius}" class="{css}"/>'
             f'<text x="{x}" y="{cy + 4}" class="beam-node-value" text-anchor="middle">{escape(value)}</text>'
             f'<text x="{x}" y="{cy - radius - 10}" class="beam-node-name" text-anchor="middle">{escape(name)}</text>'
@@ -507,7 +710,7 @@ def _beams(top: dict[str, Any], weights: dict[str, Any]) -> str:
         links.append(
             f'<path d="M {x1} {y} C {x1 + 40} {y}, {x2 - 40} {y}, {x2} {y}" class="beam-base"/>'
             f'<path d="M {x1} {y} C {x1 + 40} {y}, {x2 - 40} {y}, {x2} {y}" class="beam-dash" '
-            f'style="animation-delay: {index * 0.3:.1f}s"/>'
+            f'data-sequence="{index}"/>'
         )
     return (
         '<div class="beams" data-reveal>'
@@ -562,14 +765,14 @@ def _waterfall(payload: dict[str, Any], weights: dict[str, Any]) -> str:
     if env is not None:
         base_contribution = float(env) * 10.0
         segments.append(
-            ("Context-adjusted severity (environmental × 10)", base_contribution, "wf-base")
+            ("Context-adjusted severity (environmental × 10)", base_contribution, "wf-fill-base")
         )
         if multiplier is not None and multiplier != 1.0:
             segments.append(
                 (
                     f"× exploitation multiplier {multiplier:.2f}",
                     base_contribution * (multiplier - 1.0),
-                    "wf-threat",
+                    "wf-fill-threat",
                 )
             )
         if top.get("kev"):
@@ -577,27 +780,31 @@ def _waterfall(payload: dict[str, Any], weights: dict[str, Any]) -> str:
                 (
                     f"KEV boost +{threat.get('kev_boost', 10)}",
                     float(threat.get("kev_boost", 10)),
-                    "wf-kev",
+                    "wf-fill-kev",
                 )
             )
         uncapped = sum(value for _, value, _ in segments)
         if uncapped > 100:
-            segments.append(("Capped at 100", -(uncapped - 100.0), "wf-cap"))
+            segments.append(("Capped at 100", -(uncapped - 100.0), "wf-fill-cap"))
     else:
-        segments.append(("Native fallback (no CVE match)", float(top["risk"]), "wf-base"))
+        segments.append(("Native fallback (no CVE match)", float(top["risk"]), "wf-fill-base"))
     widest = max((abs(value) for _, value, _ in segments), default=1.0) or 1.0
     bars = "".join(
         f'<div class="wf-row"><span class="wf-label">{escape(label)}</span>'
-        f'<span class="wf-track"><span class="wf-seg {css}" '
-        f'style="flex-grow: {max(abs(value), 0.6) / widest * 100:.1f}">'
-        f"<i>{value:+.1f}</i></span></span></div>"
+        '<span class="wf-track"><svg viewBox="0 0 100 10" preserveAspectRatio="none" '
+        f'aria-hidden="true"><rect class="wf-fill {css}" x="0" y="0" '
+        f'width="{max(abs(value), 0.6) / widest * 100:.1f}" height="10"/></svg>'
+        f'<i class="wf-number">{value:+.1f}</i></span></div>'
         for label, value, css in segments
     )
     band_class = BAND_CLASSES.get(top.get("band") or "", "band-unscored")
     total_row = (
         f'<div class="wf-row wf-total"><span class="wf-label">Stored risk</span>'
-        f'<span class="wf-track"><span class="wf-seg wf-result {band_class}" '
-        f'style="flex-grow: 100">{top["risk"]} · {escape(str(top.get("band") or ""))}</span></span></div>'
+        '<span class="wf-track"><svg viewBox="0 0 100 10" preserveAspectRatio="none" '
+        f'aria-hidden="true"><rect class="wf-fill wf-fill-result {band_class}" x="0" y="0" '
+        f'width="{min(max(float(top["risk"]), 0.0), 100.0):.1f}" height="10"/></svg>'
+        f'<i class="wf-number wf-result">{top["risk"]} · {escape(str(top.get("band") or ""))}</i>'
+        "</span></div>"
     )
     return (
         '<figure class="waterfall-figure" data-reveal>'
@@ -632,6 +839,7 @@ def _risk_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         )
         + _threat_strip(payload)
         + _comparison(payload)
+        + _context_ledger(payload, config)
         + _quadrant(payload)
         + _formation(payload, weights.get("values", {}))
         + _waterfall(payload, weights.get("values", {}))
@@ -809,6 +1017,64 @@ def _anatomy(score: dict[str, Any]) -> str:
     )
 
 
+def _chain(
+    finding: dict[str, Any],
+    score: dict[str, Any],
+    enrichments: list[dict[str, Any]],
+    context_used: dict[str, Any],
+) -> str:
+    """Raw record to rank, one stored value per hop."""
+    provenance = finding.get("provenance", {}) or {}
+    match = enrichments[0] if enrichments else {}
+    role = context_used.get("role", {}) or {}
+    exposure = context_used.get("exposure", {}) or {}
+    steps = (
+        (
+            "Captured",
+            f"{finding['tool']} record {_text(provenance.get('record_index'))}",
+            _text(provenance.get("raw_path")),
+        ),
+        (
+            "Normalised",
+            finding["id"],
+            f"{finding['host_ip']}:{_text(finding.get('port'))}/{_text(finding.get('protocol'))}",
+        ),
+        (
+            "Matched",
+            _text(match.get("cve_id")) if match else "No CVE match recorded",
+            f"{_text(match.get('match_method'))} · confidence {_text(match.get('match_confidence'))}"
+            if match
+            else "Ranked through the native severity path",
+        ),
+        (
+            "Contextualised",
+            f"{_text(role.get('value')).replace('_', ' ')} · "
+            f"{_text(exposure.get('value')).replace('_', ' ')}",
+            f"role {_text(role.get('confidence'))} ({_text(role.get('source'))}) · "
+            f"exposure {_text(exposure.get('confidence'))} ({_text(exposure.get('source'))})",
+        ),
+        (
+            "Rescored",
+            f"{_text(score.get('base_score'))} → {_text(score.get('env_score'))}",
+            f"{len(score.get('env_modifications') or {})} Environmental metrics rewritten",
+        ),
+        (
+            "Ranked",
+            f"{_text(score.get('risk'))} · {_text(score.get('band'))}",
+            f"threat multiplier {_text(score.get('threat_multiplier'))} · "
+            f"weights {_text(score.get('weights_hash'))}",
+        ),
+    )
+    items = "".join(
+        f'<li class="chain-step"><span class="chain-index">{index:02d}</span>'
+        f'<span class="chain-label">{escape(label)}</span>'
+        f'<span class="chain-value">{escape(str(value))}</span>'
+        f'<span class="chain-detail">{escape(str(detail))}</span></li>'
+        for index, (label, value, detail) in enumerate(steps, start=1)
+    )
+    return f'<ol class="chain">{items}</ol>'
+
+
 def _inspector(payload: dict[str, Any]) -> str:
     scores = {score["finding_id"]: score for score in payload["scores"]}
     profiles = {profile["host_ip"]: profile for profile in payload["context"]}
@@ -869,6 +1135,8 @@ def _inspector(payload: dict[str, Any]) -> str:
             + f'<span class="eyebrow">FINDING / {escape(finding["tool"].upper())}</span>'
             + f"<h2>{escape(finding['title'])}</h2>{_band(score.get('band'))}"
             + f'<p class="inspector-reason">{escape(score.get("reason", "No reason recorded"))}</p>'
+            + "<h3>Chain of custody</h3>"
+            + _chain(finding, score, enrichments, context_used)
             + "<h3>How this score was recorded</h3>"
             + _anatomy(score)
             + "<h3>Evidence</h3>"

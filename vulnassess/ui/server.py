@@ -206,7 +206,7 @@ class UiApplication:
 
 
 class UiRequestHandler(BaseHTTPRequestHandler):
-    server_version = "Doors"
+    server_version = "VulnAssess"
     sys_version = ""
     timeout = 5.0
 

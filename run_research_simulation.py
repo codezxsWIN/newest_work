@@ -7,6 +7,7 @@ genuine captures, independent context truth, and expert rankings remain required
 import json
 from pathlib import Path
 
+from run_model_simulation import main as run_role_model
 from run_visual_simulation import build as build_simulation
 from vulnassess import evaluate, experiments
 from vulnassess.assessment_snapshot import build_snapshot, save_snapshot
@@ -26,6 +27,8 @@ RUN_ID = "visual-sim"
 
 
 def build() -> dict:
+    if run_role_model() != 0:
+        raise RuntimeError("role-model simulation failed before research evaluation")
     build_simulation()
     settings = Settings(ROOT / "config")
     model = load_model(MODEL)

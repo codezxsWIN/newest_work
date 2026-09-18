@@ -71,7 +71,6 @@ def _provision_demo_database() -> None:
         for stale in (DATABASE, Path(str(DATABASE) + "-wal"), Path(str(DATABASE) + "-shm")):
             stale.unlink(missing_ok=True)
         from run_demo import run as run_demo_pipeline
-
         code = run_demo_pipeline()
         if code != 0:
             raise RuntimeError(f"demo pipeline exited {code}; UI contracts need its records")
@@ -903,14 +902,19 @@ class TestUiAssets(unittest.TestCase):
         self.assertEqual(document.attrib["viewBox"], "0 0 48 48")
         self.assertIn('class="door-badge"', door("Critical"))
 
-    def test_every_finding_door_uses_its_stored_band(self) -> None:
+    def test_every_finding_marker_uses_its_stored_band(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
         document = request(application, "/")[2].decode("utf-8")
         payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
         for score in payload["scores"]:
-            self.assertIn(door(score["band"], score["finding_id"]), document)
-        self.assertEqual(document.count('data-finding-id="'), len(payload["findings"]))
-        self.assertEqual(document.count('id="legend-heading"'), 1)
+            start = document.index(
+                f'class="finding-marker-button" data-inspect="{score["finding_id"]}"'
+            )
+            marker = document[start : document.index("</button>", start)]
+            self.assertIn(f">{score['band']}</span>", marker)
+        self.assertEqual(document.count('class="finding-marker-button"'), len(payload["findings"]))
+        self.assertNotIn('class="door-button"', document)
+        self.assertNotIn('id="legend-heading"', document)
 
     def test_evidence_and_inference_have_distinct_typefaces(self) -> None:
         static = ROOT / "vulnassess" / "ui" / "static"

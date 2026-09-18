@@ -7,7 +7,7 @@ This directory contains both **real Nmap XML captures** (for validation) and **s
 Add one row per file before committing. A capture without a row is not usable as evidence.
 
 | File | Capture Date | Command | Target(s) | Tool Version | Captured By | Authorization | Lab Network | Canary Status |
-|------|--------------|---------|-----------|--------------|-------------|----------------|-------------|----------------|
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `real-lab-172.28.0.12-juiceshop.xml` | 2026-09-17 | `nmap -sV -O --script vulners -oX data/captures/172.28.0.12-nmap.xml 172.28.0.12` via `vulnassess scan --execute` | 172.28.0.12 (Windows loopback alias; OWASP Juice Shop 20.2.0, port 3000) | Nmap 7.80 | repository owner's agent, at the owner's explicit instruction | owner's own machine, loopback-only lab | loopback pseudo-interface (no network egress) | canary log supplied and empty (`data/lab/canary.log`) |
 | `real-lab-172.28.0.10-windows.xml` | 2026-09-17 | `nmap -sV -O --script vulners -oX data/captures/172.28.0.10-nmap.xml 172.28.0.10` via `vulnassess scan --execute` | 172.28.0.10 (Windows loopback alias; SMB/RPC + Python 3.12.10 SimpleHTTP on 8000) | Nmap 7.80 | repository owner's agent, at the owner's explicit instruction | owner's own machine, loopback-only lab | loopback pseudo-interface (no network egress) | canary log supplied and empty (`data/lab/canary.log`) |
 | `real-lab-172.28.0.11-nginx.xml` | 2026-09-19 | `nmap -sT -sV --script vulners -oX data/captures/172.28.0.11-nmap.xml 172.28.0.11` (manual, -sT: Nmap 7.99.1 SYN requires an Npcap driver reload pending reboot) | 172.28.0.11 (Windows loopback alias; nginx 1.20.0, port 80) | Nmap 7.99.1 | repository owner's agent, at the owner's explicit instruction | owner's own machine, loopback-only lab | loopback pseudo-interface (no network egress) | canary log supplied and empty (`data/lab/canary.log`) |
@@ -17,7 +17,7 @@ Add one row per file before committing. A capture without a row is not usable as
 These are **never produced by Nmap** and never evidence. Use only for unit/integration testing:
 
 | File | Purpose | Hosts | Services | CVE Count |
-|------|---------|-------|----------|-----------|
+| --- | --- | --- | --- | --- |
 | `EXAMPLE-synthetic-lab-two-machines.xml` | Demonstrate Nmap XML structure with vulners script output | 2 (172.28.0.10, 172.28.0.12) | SSH, HTTP, MySQL | 1 (CVE-1999-9001) |
 
 ## ✅ How to Capture Real Data

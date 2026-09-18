@@ -20,7 +20,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=root / "data" / "vulnassess.db")
     parser.add_argument("--config", type=Path, default=root / "config")
-    parser.add_argument("--run", default="verify")
+    parser.add_argument("--run", default="demo")
     arguments = parser.parse_args()
     sys.path.insert(0, str(root))
     from vulnassess.errors import ConfigError
