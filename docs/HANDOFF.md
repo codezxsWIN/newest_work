@@ -55,6 +55,14 @@ arithmetic embedded + Python-parity vectors). Demo DB is built by
 
 ## 3. Machine state this ran on (not in any repo)
 
+**Scope note:** this section describes the operator machine where the session ran
+(`C:\Users\aksha\Downloads\fragmented`). A fresh clone of the repository contains
+**no `data/` directory** (gitignored: feeds, captures, lab, demo database) and no
+machine tools — re-provision with `python scripts/fetch_feeds.py` plus the gate
+tooling, which CI installs for itself from the pinned versions. Do not assume
+another machine's inventory matches this one: this machine has Nmap but no
+Java/Docker; other environments reported the exact reverse.
+
 - Windows 11, Python 3.12.10 at `%LOCALAPPDATA%\Programs\Python\Python312`.
 - Gate tools installed: ruff 0.16.6, pyright 1.1.411, pytest 9.1.1,
   pytest-cov 7.1.0, streamlit 1.61. CI pins these exact versions.

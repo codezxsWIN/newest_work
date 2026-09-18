@@ -46,11 +46,30 @@ def _provision_demo_database() -> None:
     """Build the demo records the UI contracts run against, exactly as run_demo.py does.
 
     The database is gitignored, so a fresh clone (and CI) must rebuild it here rather
-    than depending on an author's leftover workspace state. The contracts also probe a
-    second run id, "verify": like the synthetic_ui_other row they create themselves, it
-    only needs its runs-table row to exist.
+    than depending on an author's leftover workspace state. A database that exists but
+    lacks the demo run - stale, partial, or foreign - is rebuilt from scratch, because
+    the contracts cannot run against an empty store. The contracts also probe a second
+    run id, "verify": like the synthetic_ui_other row they create themselves, it only
+    needs its runs-table row to exist.
     """
-    if not DATABASE.is_file():
+    needs_build = True
+    if DATABASE.is_file():
+        with closing(sqlite3.connect(DATABASE)) as connection:
+            has_runs_table = (
+                connection.execute(
+                    "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='runs'"
+                ).fetchone()[0]
+                > 0
+            )
+            has_demo_run = (
+                connection.execute("SELECT count(*) FROM runs WHERE run_id = 'demo'").fetchone()[0]
+                if has_runs_table
+                else 0
+            )
+        needs_build = not has_demo_run
+    if needs_build:
+        for stale in (DATABASE, Path(str(DATABASE) + "-wal"), Path(str(DATABASE) + "-shm")):
+            stale.unlink(missing_ok=True)
         from run_demo import run as run_demo_pipeline
 
         code = run_demo_pipeline()

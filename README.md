@@ -91,6 +91,7 @@ is deterministic and the report says so.
 | --- | --- |
 | Scoring, parsers, CVSS v3.1 engine, matching traces | tested, ~237 tests |
 | NVD / EPSS / KEV snapshots | **real**, fetched from official publishers 2026-09-17 |
+| Scan captures | **two real loopback captures committed**; zero explicit CVEs (keyless vulners) |
 | Demo scanner inputs | synthetic, labelled as such |
 | Ollama rationale rewording | works without a model; optional |
 | Role model | trained on synthetic labels, **shadow mode only** — predictions are printed, never scored |
@@ -141,8 +142,11 @@ docs/         design, decisions, contracts, fixture guides, feed provenance
 
 ## Limits, stated plainly
 
-This is a research prototype with real feeds and no real scan evidence yet. No claim
-about expert agreement, queue reduction, or role accuracy has been tested against
-independent human judgment — the machinery for those evaluations exists and reports
-`NOT RUN` until the data does. `DOWNLOADS_REQUIRED.txt` tracks everything still
-missing and who must provide it.
+This is a research prototype with real feeds and **two real loopback scan
+captures** (committed under `tests/fixtures/nmap/` with provenance) whose
+findings contain **zero explicit CVE evidence** — keyless vulners named nothing
+vulnerable on the lab hosts. No claim about expert agreement, queue reduction,
+or role accuracy has been tested against independent human judgment — the
+machinery for those evaluations exists and reports `NOT RUN` until the data
+does. `DOWNLOADS_REQUIRED.txt` tracks everything still missing and who must
+provide it.
