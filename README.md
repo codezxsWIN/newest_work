@@ -91,7 +91,8 @@ is deterministic and the report says so.
 | --- | --- |
 | Scoring, parsers, CVSS v3.1 engine, matching traces | tested, ~237 tests |
 | NVD / EPSS / KEV snapshots | **real**, fetched from official publishers 2026-09-17 |
-| Scan captures | **two real loopback captures committed**; zero explicit CVEs (keyless vulners) |
+| Scan captures | **real loopback captures committed** (Nmap + ZAP); nginx host carries **3 real CVE findings** with real EPSS enrichment; two older captures are zero-CVE |
+| LLM rationale | **real Ollama run stored** (llama3.2:3b reworded wording only; scores untouched) |
 | Demo scanner inputs | synthetic, labelled as such |
 | Ollama rationale rewording | works without a model; optional |
 | Role model | trained on synthetic labels, **shadow mode only** — predictions are printed, never scored |

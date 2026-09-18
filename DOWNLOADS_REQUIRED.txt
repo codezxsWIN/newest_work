@@ -21,6 +21,11 @@ human must supply: scanner captures, independent truth, expert rankings.
 
 STILL MISSING - HUMAN INPUT ONLY
 ================================
+[PROVISIONED 2026-09-19] Real CVE-bearing findings exist: nginx 1.20.0 on the
+    lab produced three explicit CVE findings (real EPSS enrichment) - see
+    tests/fixtures/nmap/real-lab-172.28.0.11-nginx.xml. ZAP 2.16.1 + Java 21
+    installed; a real ZAP passive-scan capture (278 findings) is committed under
+    tests/fixtures/zap/. Ollama + llama3.2:3b installed; LLM rationales stored.
 [PROVISIONED 2026-09-17] First real Nmap captures exist: two committed fixtures
     under tests/fixtures/nmap/ (with provenance rows) from loopback lab scans
     of this machine via `vulnassess scan --execute`. They contain no explicit

@@ -11,10 +11,23 @@ and the pipeline must treat that honestly rather than invent findings.
 import unittest
 from pathlib import Path
 
-from vulnassess.readers import parse_nmap_xml
+from vulnassess.readers import parse_nmap_xml, parse_zap_json
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures" / "nmap"
+
+
+class TestRealZapCapture(unittest.TestCase):
+    def test_real_zap_report_parses_with_native_severities(self) -> None:
+        findings = parse_zap_json(
+            FIXTURES.parent / "zap" / "real-lab-172.28.0.12-juiceshop-zap.json",
+            "real",
+            host_ip="172.28.0.12",
+        )
+        self.assertGreater(len(findings), 200)
+        self.assertTrue(all(finding.tool == "zap" for finding in findings))
+        self.assertTrue(all(finding.native_severity for finding in findings))
+        self.assertTrue(all(not finding.cve_ids for finding in findings))
 
 
 class TestRealCaptures(unittest.TestCase):
