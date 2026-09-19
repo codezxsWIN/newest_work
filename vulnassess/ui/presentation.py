@@ -99,7 +99,10 @@ def _ledger_rows(score: dict[str, Any], environmental: dict[str, Any]) -> list[d
                 if str(environment.get("value")) == "test":
                     rule, driver = "Test environment overrides the role requirement", environment
                 else:
-                    rule, driver = "Asset role sets the security requirement", inputs.get("role", {})
+                    rule, driver = (
+                        "Asset role sets the security requirement",
+                        inputs.get("role", {}),
+                    )
         rows.append(
             {
                 "metric": metric,
@@ -133,7 +136,7 @@ def _driver_cell(driver: dict[str, Any]) -> str:
         '<div class="ledger-driver">'
         f'<span class="inferred">{escape(_text(driver.get("value")).replace("_", " "))}</span>'
         f'<span class="quiet">{escape(str(driver.get("source", "rule")))} · confidence '
-        f'{escape(_text(driver.get("confidence")))}</span>'
+        f"{escape(_text(driver.get('confidence')))}</span>"
         + evidence(driver.get("evidence") or "none observed", "Context / verbatim evidence")
         + "</div>"
     )
@@ -170,17 +173,17 @@ def _context_ledger(payload: dict[str, Any], config: dict[str, Any]) -> str:
         '<td class="ledger-arrow" aria-hidden="true">&rarr;</td>'
         f'<td class="ledger-now">{escape(_metric_value(row["metric"], row["adjusted"]))}</td>'
         f'<td class="ledger-rule">{escape(row["rule"])}</td>'
-        f'<td>{_driver_cell(row["driver"])}</td></tr>'
+        f"<td>{_driver_cell(row['driver'])}</td></tr>"
         for row in _ledger_rows(top, environmental)
     )
     rollup = "".join(
         "<tr>"
-        f'<td>{evidence(str(score.get("cve_id") or score["finding_id"]), "Stored score / identity", False)}</td>'
-        f'<td>{evidence(score["host_ip"], "Stored score / host", False)}</td>'
-        f'<td>{_text(score.get("base_score"))}</td>'
-        f'<td>{_text(score.get("env_score"))}</td>'
+        f"<td>{evidence(str(score.get('cve_id') or score['finding_id']), 'Stored score / identity', False)}</td>"
+        f"<td>{evidence(score['host_ip'], 'Stored score / host', False)}</td>"
+        f"<td>{_text(score.get('base_score'))}</td>"
+        f"<td>{_text(score.get('env_score'))}</td>"
         f'<td class="ledger-delta">{_delta(score)}</td>'
-        f'<td>{len(score.get("env_modifications") or {})}</td>'
+        f"<td>{len(score.get('env_modifications') or {})}</td>"
         f"<td>{_band(score.get('band'))}</td></tr>"
         for score in scored
     )
@@ -192,8 +195,8 @@ def _context_ledger(payload: dict[str, Any], config: dict[str, Any]) -> str:
         )
         + '<figcaption class="ledger-lead">CVSS publishes one severity for everyone. These are the '
         + "metric changes this deployment earned, for "
-        + f'<strong>{escape(str(top.get("cve_id") or top["finding_id"]))}</strong> on '
-        + f'<strong>{escape(top["host_ip"])}</strong>.</figcaption>'
+        + f"<strong>{escape(str(top.get('cve_id') or top['finding_id']))}</strong> on "
+        + f"<strong>{escape(top['host_ip'])}</strong>.</figcaption>"
         + '<div class="vector-diff">'
         + _vector_strip("Published", _vector_metrics(top["base_vector"]), set())
         + _vector_strip("Context-adjusted", _vector_metrics(top.get("env_vector")), changed)
@@ -237,7 +240,7 @@ def _finding_marker(finding: dict[str, Any], score: dict[str, Any]) -> str:
     band = score.get("band")
     identity = score.get("cve_id") or next(iter(finding["cve_ids"]), finding["tool_native_id"])
     endpoint = (
-        f'{finding["port"]}/{finding["protocol"]}'
+        f"{finding['port']}/{finding['protocol']}"
         if finding.get("port") is not None and finding.get("protocol")
         else "host-level"
     )
@@ -245,8 +248,8 @@ def _finding_marker(finding: dict[str, Any], score: dict[str, Any]) -> str:
         '<span class="finding-marker">'
         '<span class="finding-marker-head">'
         f'<span class="finding-marker-source">{escape(finding["tool"].upper())}</span>'
-        f'{_band(band)}</span>'
-        f'<strong>{escape(finding["title"])}</strong>'
+        f"{_band(band)}</span>"
+        f"<strong>{escape(finding['title'])}</strong>"
         f'<span class="finding-marker-meta">{escape(str(identity))} · {escape(endpoint)}</span>'
         "</span>"
     )

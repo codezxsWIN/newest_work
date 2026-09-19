@@ -71,6 +71,7 @@ def _provision_demo_database() -> None:
         for stale in (DATABASE, Path(str(DATABASE) + "-wal"), Path(str(DATABASE) + "-shm")):
             stale.unlink(missing_ok=True)
         from run_demo import run as run_demo_pipeline
+
         code = run_demo_pipeline()
         if code != 0:
             raise RuntimeError(f"demo pipeline exited {code}; UI contracts need its records")
