@@ -330,7 +330,7 @@ def analyze_target(
     model: str = DEFAULT_MODEL,
     ollama_host: str = DEFAULT_HOST,
 ) -> dict[str, Any]:
-    active_client = client or OllamaClient(ollama_host, model, timeout=300.0)
+    active_client = client or OllamaClient(ollama_host, model, timeout=2100.0)
     active_client.available()
     case, evidence, alias_map = build_case(payload, host_ip)
     prompt = build_prompt(case, evidence, len(alias_map))
