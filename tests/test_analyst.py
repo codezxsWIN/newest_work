@@ -28,6 +28,11 @@ class FakeClient:
 
 
 def demo_payload():
+    # The store is gitignored, so CI must rebuild it (same self-heal as the UI contracts,
+    # which pytest would otherwise reach only after this module).
+    from tests.test_ui import _provision_demo_database
+
+    _provision_demo_database()
     with ReadOnlyStore(DATABASE) as store:
         return store.run("demo")
 
