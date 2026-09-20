@@ -132,9 +132,10 @@ Model, research, snapshot, unify, rescan and visualize subcommands: see
 `vulnassess --help` and `docs/`. Every command takes `--json`. Exit codes: `2` config,
 `3` scope, `4` scanner file, `5` missing feed snapshot, `6` model unavailable.
 
-## One interactive interface
+## Interactive views
 
-The four-stage workbench is the only interactive UI:
+The four-stage workbench presents the stored assessment. A separate Make-style
+workflow canvas shows the project's data dependencies and inspects the same records:
 
 ```text
 vulnassess ui --run R --port 8765                 # loopback, read-only
@@ -147,6 +148,22 @@ python run_visual_simulation.py                    # same UI, synthetic demo dat
 export. It no longer renders the historical eight-stage replay. `vulnassess report`
 is the printable assessment artifact, not a competing application. Live and exported
 views share the same renderer, controls, evidence inspector and Risk analytics.
+
+Open `/workflow?run=R` on the local viewer for the workflow canvas. It is a live-only
+view, separate from the workbench and its single-file export.
+
+### Workflow screenshots
+
+The images below show the labelled synthetic `demo` assessment. They illustrate
+stored evidence and dependency relationships, not a running scanner pipeline.
+NOT RUN: live scanner or local-model execution during these captures. Capture
+commands, output and verification limits are recorded in [the UI guide](docs/ui.md).
+
+![Make-style workflow overview with connected project stages](docs/ui/screenshots/workflow-overview.png)
+
+| Stored risk inputs | Local analyst (not run) | Narrow-screen context |
+| --- | --- | --- |
+| ![Stored risk inspector](docs/ui/screenshots/workflow-inspector.png) | ![Analyst inspector before a model request](docs/ui/screenshots/workflow-analyst.png) | ![Narrow-screen context inspector](docs/ui/screenshots/workflow-narrow.png) |
 
 ## Layout
 
