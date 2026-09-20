@@ -10,6 +10,7 @@ This is the only module permitted to import a network client.
 
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from ipaddress import ip_address
@@ -202,14 +203,16 @@ class OllamaClient:
         prompt: str,
         schema: dict[str, object],
         *,
-        num_predict: int = 900,
+        num_predict: int = 600,
         num_ctx: int = 2048,
     ) -> dict:
-        """Generate JSON in JSON mode over /api/chat, whose reply carries no context echo.
+        """Generate JSON in JSON mode over a streamed /api/chat exchange.
 
         /api/generate echoes the full prompt-token context array in every response, so a
         large real-target case would exceed the response guard no matter how small the
-        model's answer is; /api/chat returns only the message.
+        model's answer is. Streaming /api/chat additionally means an abandoned request is
+        detected at the next token instead of after a full silent generation, so a
+        timed-out analyst call cannot leave a zombie generation blocking every later one.
         """
         if not 1 <= num_predict <= 2048:
             raise ConfigError("structured generation num_predict must be in 1..2048")
@@ -218,7 +221,7 @@ class OllamaClient:
         payload = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "stream": False,
+            "stream": True,
             "format": "json",
             "options": {
                 "temperature": 0,
@@ -227,10 +230,33 @@ class OllamaClient:
                 "num_predict": num_predict,
             },
         }
-        response = self._request("/api/chat", payload)
-        message = response.get("message") or {}
+        request = urllib.request.Request(
+            f"{self.host}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+        )
+        deadline = time.monotonic() + self.timeout
+        parts: list[str] = []
         try:
-            result = json.loads(str(message.get("content", "")))
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                for line in response:
+                    if time.monotonic() > deadline:
+                        raise LLMUnavailable(
+                            f"Ollama generation exceeded {self.timeout:g}s at {self.host}"
+                        )
+                    event = json.loads(line)
+                    if event.get("error"):
+                        raise LLMUnavailable(f"Ollama error at {self.host}: {event['error']}")
+                    parts.append(str(event.get("message", {}).get("content", "")))
+                    if event.get("done"):
+                        break
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as error:
+            raise LLMUnavailable(
+                f"Ollama did not answer at {self.host}/api/chat: {type(error).__name__}. "
+                f"A human must run: ollama serve   and   ollama pull {self.model}"
+            ) from error
+        try:
+            result = json.loads("".join(parts))
         except (json.JSONDecodeError, TypeError, ValueError) as error:
             raise LLMUnavailable("Ollama returned invalid structured analyst output") from error
         if not isinstance(result, dict):
