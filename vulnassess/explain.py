@@ -198,26 +198,39 @@ class OllamaClient:
         return str(self._request("/api/generate", payload).get("response", ""))
 
     def generate_structured(
-        self, prompt: str, schema: dict[str, object], *, num_predict: int = 900
+        self,
+        prompt: str,
+        schema: dict[str, object],
+        *,
+        num_predict: int = 900,
+        num_ctx: int = 2048,
     ) -> dict:
-        """Generate JSON constrained by an Ollama structured-output schema."""
+        """Generate JSON in JSON mode over /api/chat, whose reply carries no context echo.
+
+        /api/generate echoes the full prompt-token context array in every response, so a
+        large real-target case would exceed the response guard no matter how small the
+        model's answer is; /api/chat returns only the message.
+        """
         if not 1 <= num_predict <= 2048:
             raise ConfigError("structured generation num_predict must be in 1..2048")
+        if not 512 <= num_ctx <= 131072:
+            raise ConfigError("structured generation num_ctx must be in 512..131072")
         payload = {
             "model": self.model,
-            "prompt": prompt,
+            "messages": [{"role": "user", "content": prompt}],
             "stream": False,
             "format": "json",
             "options": {
                 "temperature": 0,
                 "seed": 0,
-                "num_ctx": 2048,
+                "num_ctx": num_ctx,
                 "num_predict": num_predict,
             },
         }
-        response = self._request("/api/generate", payload)
+        response = self._request("/api/chat", payload)
+        message = response.get("message") or {}
         try:
-            result = json.loads(str(response.get("response", "")))
+            result = json.loads(str(message.get("content", "")))
         except (json.JSONDecodeError, TypeError, ValueError) as error:
             raise LLMUnavailable("Ollama returned invalid structured analyst output") from error
         if not isinstance(result, dict):

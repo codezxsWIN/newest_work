@@ -8,8 +8,12 @@ from typing import Any
 from vulnassess.errors import ConfigError, LLMUnavailable
 from vulnassess.explain import DEFAULT_HOST, DEFAULT_MODEL, OllamaClient, sanitise
 
-MAX_EVIDENCE = 80
+MAX_EVIDENCE = 128
 MAX_TEXT = 600
+MAX_INTEL_PER_FINDING = 3
+# ~15k tokens at ~4 chars/token; Ollama silently truncates prompts over num_ctx, which
+# would quietly strip the instructions, so an over-budget case fails closed instead.
+MAX_PROMPT_CHARS = 60_000
 
 ANALYSIS_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -125,15 +129,44 @@ def build_case(
         alias_map[alias] = finding_id
         finding_evidence = cite(f"{finding['tool']}_finding", finding["evidence"])
         intel = []
-        for enrichment in enrichments.get(finding_id, []):
-            intel_text = (
-                f"{enrichment['cve_id']} CVSS {enrichment.get('cvss31_base')} "
-                f"EPSS {enrichment.get('epss')} percentile {enrichment.get('epss_percentile')} "
-                f"KEV {enrichment.get('kev')} {enrichment.get('description', '')}"
+        available = enrichments.get(finding_id, [])
+        # Coarse CPE matching pairs a real service with hundreds of CVEs; the bounded
+        # case keeps only the sharpest records (KEV, then CVSS, then EPSS) so the prompt
+        # stays inside the model's context window. Truncation is declared, not hidden.
+        ranked = sorted(
+            available,
+            key=lambda item: (
+                not item.get("kev"),
+                -(item.get("cvss31_base") or 0.0),
+                -(item.get("epss") or 0.0),
+            ),
+        )
+        for enrichment in ranked[:MAX_INTEL_PER_FINDING]:
+            intel_text = _clean(
+                (
+                    f"{enrichment['cve_id']} CVSS {enrichment.get('cvss31_base')} "
+                    f"EPSS {enrichment.get('epss')} percentile {enrichment.get('epss_percentile')} "
+                    f"KEV {enrichment.get('kev')} {enrichment.get('description', '')}"
+                ),
+                280,
             )
+            # Decision-relevant fields only; vectors, patch URLs and feed bookkeeping are
+            # stored in the database and do not need to spend the model's context.
+            brief = {
+                key: enrichment[key]
+                for key in (
+                    "cve_id",
+                    "cvss31_base",
+                    "epss",
+                    "epss_percentile",
+                    "kev",
+                    "match_method",
+                )
+                if key in enrichment
+            }
             intel.append(
                 {
-                    **{key: value for key, value in enrichment.items() if key != "finding_id"},
+                    **brief,
                     "alias": alias,
                     "evidence_id": cite("vulnerability_intelligence", intel_text),
                 }
@@ -141,8 +174,17 @@ def build_case(
         score = scores.get(finding_id)
         score_record = None
         if score is not None:
+            # The model needs the verdict, not the full breakdown; vectors and metric
+            # deltas stay in the store and the evidence quote carries the reason.
+            brief_score = {
+                key: score[key]
+                for key in ("base_score", "env_score", "risk", "band", "reason")
+                if key in score
+            }
+            if "reason" in brief_score:
+                brief_score["reason"] = _clean(brief_score["reason"], 160)
             score_record = {
-                **{key: value for key, value in score.items() if key != "finding_id"},
+                **brief_score,
                 "alias": alias,
                 "evidence_id": cite(
                     "deterministic_priority",
@@ -154,7 +196,7 @@ def build_case(
                 "id": alias,
                 "tool": finding["tool"],
                 "title": _clean(finding["title"], 180),
-                "description": _clean(finding.get("description"), 300),
+                "description": _clean(finding.get("description"), 200),
                 "port": finding.get("port"),
                 "protocol": finding.get("protocol"),
                 "url": _clean(finding.get("url"), 180),
@@ -164,6 +206,8 @@ def build_case(
                 "native_confidence": finding.get("native_confidence"),
                 "evidence_id": finding_evidence,
                 "intelligence": intel,
+                "intel_included": len(intel),
+                "intel_available": len(available),
                 "deterministic_score": score_record,
             }
         )
@@ -286,12 +330,16 @@ def analyze_target(
     model: str = DEFAULT_MODEL,
     ollama_host: str = DEFAULT_HOST,
 ) -> dict[str, Any]:
-    active_client = client or OllamaClient(ollama_host, model, timeout=180.0)
+    active_client = client or OllamaClient(ollama_host, model, timeout=240.0)
     active_client.available()
     case, evidence, alias_map = build_case(payload, host_ip)
-    raw = active_client.generate_structured(
-        build_prompt(case, evidence, len(alias_map)), ANALYSIS_SCHEMA
-    )
+    prompt = build_prompt(case, evidence, len(alias_map))
+    if len(prompt) > MAX_PROMPT_CHARS:
+        raise ConfigError(
+            f"analyst case for {host_ip!r} builds a {len(prompt)}-character prompt, "
+            f"over the {MAX_PROMPT_CHARS}-character budget"
+        )
+    raw = active_client.generate_structured(prompt, ANALYSIS_SCHEMA, num_ctx=16384)
     result = validate_analysis(
         raw,
         set(alias_map),

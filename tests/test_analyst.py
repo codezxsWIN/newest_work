@@ -21,8 +21,9 @@ class FakeClient:
     def available(self):
         return True
 
-    def generate_structured(self, prompt, schema):
+    def generate_structured(self, prompt, schema, **kwargs):
         self.prompt = prompt
+        self.kwargs = kwargs
         assert schema == analyst.ANALYSIS_SCHEMA
         return self.result
 
@@ -95,3 +96,33 @@ def test_unknown_model_citation_is_rejected():
 def test_missing_target_findings_are_explicit():
     with pytest.raises(Exception, match="MISSING"):
         analyst.build_case(demo_payload(), "192.0.2.99")
+
+
+def test_case_bounds_intel_to_the_sharpest_records_at_real_scale():
+    payload = demo_payload()
+    finding_id = next(f["id"] for f in payload["findings"] if f["host_ip"] == "172.28.0.12")
+    payload["enrichments"] = [
+        {
+            "finding_id": finding_id,
+            "cve_id": f"CVE-2020-{index:04d}",
+            "match_method": "cpe",
+            "match_confidence": 0.5,
+            "cvss31_base": 5.0 + index * 0.1,
+            "epss": 0.1,
+            "epss_percentile": 0.5,
+            "kev": index == 7,
+            "description": "x" * 400,
+        }
+        for index in range(40)
+    ]
+    original = copy.deepcopy(payload)
+    case, evidence, alias_map = analyst.build_case(payload, "172.28.0.12")
+    assert payload == original
+    target = case["findings"][0]
+    assert target["intel_available"] == 40
+    assert target["intel_included"] == len(target["intelligence"]) == analyst.MAX_INTEL_PER_FINDING
+    kept = {item["cve_id"] for item in target["intelligence"]}
+    assert kept == {"CVE-2020-0007", "CVE-2020-0039", "CVE-2020-0038"}
+    assert all("description" not in item for item in target["intelligence"])
+    prompt = analyst.build_prompt(case, evidence, len(alias_map))
+    assert len(prompt) < 60_000

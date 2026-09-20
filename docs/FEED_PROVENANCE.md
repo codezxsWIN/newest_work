@@ -26,3 +26,12 @@ and KEV flags in reports come from the real world. It does **not** constitute
 scan evidence: no real scanner captures exist yet, and RQ1–RQ4 research outcomes
 remain `NOT RUN` until independent captures, host-context truth and expert
 rankings arrive (`DOWNLOADS_REQUIRED.txt` §6).
+
+- 2026-09-21: fetched kev.json (1,716 rows, sha256 7b770a6f5eb1d47a...) and epss.csv.gz
+  (377,238 rows, sha256 6e5d46d4fa7f7229...) via scripts/fetch_feeds.py --skip-nvd from
+  CISA and FIRST/Cyentia. NVD: targeted mirror pages page-9100-*.json / page-9105-*.json
+  from the official NVD API 2.0 using virtualMatchString for the CPEs observed in the
+  real local scan (apache:tomcat 276, python:python 157, golang:go 180 full history;
+  microsoft:windows last 360 days 1,926), while the full resumable mirror
+  (scripts/fetch_nvd.py) continues in the background. Loaded: epss 377,238 / kev 1,716 /
+  nvd 54,551 rows. Enrichment of run 'reallab': 14/14 findings matched, 1,231 enrichments.
