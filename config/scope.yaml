@@ -2,7 +2,7 @@
 # before any scan file is read. Three /32s rather than the /24 so the canary is provably outside.
 # 127.0.0.1/32 authorises the local real-lab host (Juice Shop / WebGoat / local services);
 # it is this machine itself, scanned with owner consent. Everything else stays refused.
-allowed_cidrs: [172.28.0.10/32, 172.28.0.11/32, 172.28.0.12/32, 127.0.0.1/32]
+allowed_cidrs: [172.28.0.10/32, 172.28.0.11/32, 172.28.0.12/32, 127.0.0.1/32, 192.168.0.116/32]
 allowed_hosts: []
 vantage: internal
 lab_targets:
@@ -10,4 +10,5 @@ lab_targets:
   - {name: dvwa,            ip: 172.28.0.11, tags: {environment: prod, criticality: 4}}
   - {name: juice-shop,      ip: 172.28.0.12, tags: {environment: prod, criticality: 3, vantage: external}}
   - {name: real-local-lab,  ip: 127.0.0.1,  tags: {environment: test, criticality: 3}}
+  - {name: real-local-lan,  ip: 192.168.0.116, tags: {environment: test, criticality: 3, vantage: internal}}
 canary: {ip: 172.28.0.250}
