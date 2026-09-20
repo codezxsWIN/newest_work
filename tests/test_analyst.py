@@ -53,10 +53,13 @@ def valid_result(finding_id, evidence_id):
 def test_case_packages_all_target_evidence_without_mutating_records():
     payload = demo_payload()
     original = copy.deepcopy(payload)
-    case, evidence = analyst.build_case(payload, "172.28.0.12")
+    case, evidence, alias_map = analyst.build_case(payload, "172.28.0.12")
     assert payload == original
     assert case["services"]
     assert case["findings"]
+    canonical = {finding["id"] for finding in payload["findings"]}
+    assert set(alias_map.values()) <= canonical
+    assert all(item["id"].startswith("F") for item in case["findings"])
     assert any(item["kind"] == "nmap_service" for item in evidence)
     assert any(item["kind"] == "vulnerability_intelligence" for item in evidence)
     assert any(item["kind"] == "deterministic_priority" for item in evidence)
@@ -64,17 +67,20 @@ def test_case_packages_all_target_evidence_without_mutating_records():
 
 def test_analysis_runs_local_model_and_preserves_canonical_scores():
     payload = demo_payload()
-    case, evidence = analyst.build_case(payload, "172.28.0.12")
+    case, evidence, alias_map = analyst.build_case(payload, "172.28.0.12")
     client = FakeClient(valid_result(case["findings"][0]["id"], evidence[0]["id"]))
     result = analyst.analyze_target(payload, "172.28.0.12", client)
     assert result["model"] == "test-local-model"
     assert result["canonical_scores_changed"] is False
     assert "untrusted_evidence" in client.prompt
+    canonical = {finding["id"] for finding in payload["findings"]}
+    cited = result["analysis"]["recommended_actions"][0]["finding_ids"]
+    assert cited and set(cited) <= canonical
 
 
 def test_unknown_model_citation_is_rejected():
     payload = demo_payload()
-    case, evidence = analyst.build_case(payload, "172.28.0.12")
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
     response = valid_result(case["findings"][0]["id"], evidence[0]["id"])
     response["recommended_actions"][0]["evidence_ids"] = ["E999"]
     with pytest.raises(LLMUnavailable, match="unknown evidence"):
