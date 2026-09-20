@@ -22,6 +22,7 @@ from scripts.generate_ui_swatches import (
     svg_document,
     validate_palette,
 )
+from vulnassess import analyst
 from vulnassess.cli import build_parser, main
 from vulnassess.errors import ConfigError
 from vulnassess.role_model import RoleModel, load_model
@@ -482,15 +483,32 @@ class TestUiModel(unittest.TestCase):
         with ReadOnlyStore(DATABASE) as store:
             self.assertEqual(before, store.run(DEMO_RUN))
 
-    def test_loading_page_and_removed_model_routes_does_not_run_inference(self) -> None:
-        with patch.object(RoleModel, "predict", side_effect=AssertionError("implicit inference")):
-            for path, status in (
-                ("/", 200),
-                ("/api/model", 404),
-                ("/api/model/run", 404),
-                ("/api/run/verify", 200),
-            ):
-                self.assertEqual(request(self.application, path)[0], status)
+    def test_loading_page_does_not_run_local_analyst(self) -> None:
+        with patch.object(
+            analyst, "analyze_target", side_effect=AssertionError("implicit inference")
+        ):
+            self.assertEqual(request(self.application, "/")[0], 200)
+            self.assertEqual(request(self.application, "/api/model")[0], 404)
+            self.assertEqual(request(self.application, "/api/model/run")[0], 404)
+            self.assertEqual(request(self.application, "/api/analyst")[0], 404)
+            self.assertEqual(request(self.application, "/api/run/verify")[0], 200)
+
+    def test_target_analyst_route_runs_only_on_explicit_request(self) -> None:
+        expected = {
+            "host_ip": "172.28.0.12",
+            "model": "llama3.2:3b",
+            "source": "local_ollama_grounded_analysis",
+            "canonical_scores_changed": False,
+            "analysis": {},
+            "evidence": [],
+        }
+        with patch.object(analyst, "analyze_target", return_value=expected) as analyze:
+            status, _, body = request(self.application, "/api/analyst/demo/172.28.0.12")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertEqual(payload["host_ip"], "172.28.0.12")
+        self.assertFalse(payload["canonical_scores_changed"])
+        analyze.assert_called_once()
 
     def test_model_request_is_refused_regardless_of_origin_and_action(self) -> None:
         self.assertEqual(request(self.application, "/api/model/run", "POST")[0], 405)
@@ -527,19 +545,17 @@ class TestUiModel(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "synthetic_missing.json"):
             run_model(DATABASE, ROOT / "models" / "synthetic_missing.json", DEMO_RUN)
 
-    def test_viewer_does_not_load_models(self) -> None:
-        with patch(
-            "vulnassess.ui.runtime.load_model", side_effect=AssertionError("model load forbidden")
-        ):
-            application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
-            self.assertEqual(request(application, "/")[0], 200)
-            self.assertEqual(request(application, "/api/model")[0], 404)
+    def test_viewer_loads_grounded_analyst_only_for_explicit_target_route(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        self.assertEqual(request(application, "/")[0], 200)
+        self.assertEqual(request(application, "/api/model")[0], 404)
         source = (ROOT / "vulnassess" / "ui" / "server.py").read_text(encoding="utf-8")
         imports = [
             node.module for node in ast.walk(ast.parse(source)) if isinstance(node, ast.ImportFrom)
         ]
         self.assertNotIn("vulnassess.ui.runtime", imports)
-        self.assertNotIn("vulnassess.role_model", imports)
+        self.assertIn("import vulnassess.analyst as analyst", source)
+        self.assertNotIn("vulnassess.priority_model", imports)
         self.assertFalse(hasattr(self.application, "infer"))
 
 

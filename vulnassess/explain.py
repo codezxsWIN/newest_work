@@ -23,7 +23,7 @@ DEFAULT_MODEL = "llama3.2:3b"
 MAX_FACT_CHARS = 600
 MAX_SENTENCE_CHARS = 240
 MAX_RESPONSE_BYTES = 64 * 1024
-MAX_TIMEOUT_SECONDS = 120.0
+MAX_TIMEOUT_SECONDS = 240.0
 FENCE = "-----"
 UNTRUSTED_PREFIX = "untrusted data follows"
 INSTRUCTION = (
@@ -196,6 +196,33 @@ class OllamaClient:
             "options": {"temperature": 0, "seed": 0, "num_predict": 120},
         }
         return str(self._request("/api/generate", payload).get("response", ""))
+
+    def generate_structured(
+        self, prompt: str, schema: dict[str, object], *, num_predict: int = 900
+    ) -> dict:
+        """Generate JSON constrained by an Ollama structured-output schema."""
+        if not 1 <= num_predict <= 2048:
+            raise ConfigError("structured generation num_predict must be in 1..2048")
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {
+                "temperature": 0,
+                "seed": 0,
+                "num_ctx": 2048,
+                "num_predict": num_predict,
+            },
+        }
+        response = self._request("/api/generate", payload)
+        try:
+            result = json.loads(str(response.get("response", "")))
+        except (json.JSONDecodeError, TypeError, ValueError) as error:
+            raise LLMUnavailable("Ollama returned invalid structured analyst output") from error
+        if not isinstance(result, dict):
+            raise LLMUnavailable("Ollama analyst output must be a JSON object")
+        return result
 
 
 def rationale_for(

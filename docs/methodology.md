@@ -12,8 +12,10 @@ supplied brief, not a verbatim transcription of an independently inspected slide
    execution metadata, raw observations, coverage, and safety evidence.
 4. **Unified result engine.** Normalize observations, justify duplicate merges,
    preserve every source, and expose evidence-based confidence.
-5. **AI security analyst.** Infer context with rules and produce validated,
-   score-independent local-model rationales under the current LLM boundary.
+5. **AI security analyst.** Infer context with rules; optionally ask a local Ollama
+   model to correlate the selected target's complete stored evidence and propose an
+   advisory remediation sequence. Validate every cited finding/evidence ID and never
+   let model output overwrite canonical context, scores or records.
 6. **CVE intelligence.** Match against dated, human-provided NVD, EPSS, and KEV
    snapshots offline, retaining uncertainty and match provenance.
 7. **Report.** Present ranks, reasons, evidence, methodology, provenance,

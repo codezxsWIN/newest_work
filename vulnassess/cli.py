@@ -834,7 +834,7 @@ def cmd_enrich(args: argparse.Namespace) -> int:
 def cmd_context(args: argparse.Namespace) -> int:
     settings = _settings(args)
     with _store(args) as store:
-        profiles = pipeline.do_context(settings, store, args.run_id)
+        profiles = pipeline.do_context(settings, store, args.run_id, args.model_artifact)
     lines = []
     for profile in profiles:
         controls = ", ".join(
@@ -930,7 +930,9 @@ def cmd_two_machine(args: argparse.Namespace) -> int:
 def cmd_ui(args: argparse.Namespace) -> int:
     from vulnassess.ui.server import UiApplication, UiServer
 
-    application = UiApplication(args.db, args.config, args.run_id)
+    application = UiApplication(
+        args.db, args.config, args.run_id, args.analyst_model, args.ollama_host
+    )
     if args.export is not None:
         from vulnassess.ui.export import export_html
 
@@ -1019,6 +1021,13 @@ def build_parser() -> argparse.ArgumentParser:
     viewer.add_argument("--port", type=int, default=8765, help="loopback HTTP port")
     viewer.add_argument("--db", default=argparse.SUPPRESS, help="existing SQLite store path")
     viewer.add_argument("--config", default=argparse.SUPPRESS, help="configuration directory")
+    viewer.add_argument(
+        "--model",
+        dest="analyst_model",
+        default="llama3.2:3b",
+        help="local Ollama model used by the explicit Analyze target action",
+    )
+    viewer.add_argument("--ollama-host", default="http://127.0.0.1:11434")
     viewer.add_argument(
         "--export", metavar="PATH", help="write one offline HTML file without starting a server"
     )
@@ -1147,7 +1156,10 @@ def build_parser() -> argparse.ArgumentParser:
     stability.add_argument("--out")
 
     add("enrich", cmd_enrich, help="attach CVE intelligence to findings")
-    add("context", cmd_context, help="infer role, exposure and controls per host")
+    context_parser = add("context", cmd_context, help="infer role, exposure and controls per host")
+    context_parser.add_argument(
+        "--model", dest="model_artifact", help="use a trained role model with rule fallback"
+    )
     rank = add("rank", cmd_rank, help="rank findings with the documented formula")
     rank.add_argument("--top", type=int)
     reporter = add("report", cmd_report, help="write the offline HTML report")

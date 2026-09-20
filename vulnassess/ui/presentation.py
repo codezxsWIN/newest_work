@@ -391,7 +391,19 @@ def _context_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         )
         + '<p class="context-key"><span class="ring-key" aria-hidden="true"></span>Confidence is how sure, not how dangerous.</p>'
         + f'<div class="context-grid">{"".join(profiles) or "No context profiles stored"}</div>'
-        + '<p class="stage-footnote">Rule-based context is authoritative. No model is run by this viewer.</p></section>'
+        + '<section class="model-workspace" aria-labelledby="model-title">'
+        + '<div class="section-head"><div><span class="eyebrow">LOCAL AI SECURITY ANALYST</span><h2 id="model-title">Analyze the complete target.</h2></div>'
+        + '<span class="model-badge">Ollama / grounded evidence</span></div>'
+        + '<p class="model-copy">The local model reads every stored service, finding, context inference, CVSS record, EPSS signal and KEV flag for one target. Its actions must cite records from this assessment.</p>'
+        + '<div class="model-controls"><label for="model-host">Asset</label><select id="model-host">'
+        + "".join(
+            f'<option value="{escape(profile["host_ip"])}">{escape(profile["host_ip"])} · {escape(_text(profile["role"]["value"]).replace("_", " "))}</option>'
+            for profile in payload["context"]
+        )
+        + '</select><button id="run-model" class="primary-button" type="button">Analyze target</button></div>'
+        + '<div id="model-output" class="model-output" aria-live="polite"><span class="model-placeholder">Select an asset to ask the local analyst for correlations and an evidence-backed remediation sequence.</span></div>'
+        + "</section>"
+        + '<p class="stage-footnote">AI analysis is advisory. Canonical risk remains the transparent stored calculation; unknown citations or malformed model output are rejected.</p></section>'
     )
 
 

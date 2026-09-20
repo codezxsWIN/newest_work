@@ -108,6 +108,40 @@ details .quotation + .quotation { margin-top: 14px; }
 .archive > .quotation { margin: 16px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
 .all-evidence { margin-top: 32px; }
 .stage-footnote { font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); padding: 20px 0; margin-top: 24px; }
+.model-workspace { margin-top: 36px; border-top: 2px solid var(--ink); padding-top: 24px; }
+.model-copy { max-width: 680px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+.model-badge { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; border: 1px solid var(--line-strong); padding: 7px 9px; color: var(--muted); }
+.model-controls { display: flex; align-items: end; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
+.model-controls label { display: grid; gap: 6px; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+.model-controls select { min-width: 260px; border: 1px solid var(--line-strong); background: var(--surface); padding: 9px 12px; border-radius: 4px; }
+.model-output { background: var(--wash); border: 1px solid var(--line); min-height: 110px; padding: 20px; }
+.model-placeholder { color: var(--muted); font-size: 13px; }
+.model-result { display: flex; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+.model-result strong { display: block; font: 30px/1.05 var(--font-display); text-transform: capitalize; margin-top: 5px; }
+.model-result p, .model-reason p { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+.model-confidence { text-align: right; min-width: 90px; }
+.model-confidence span { display: block; color: var(--muted); font-size: 11px; }
+.model-confidence strong { font: 28px var(--font-display); }
+.model-reason { padding-top: 16px; }
+.model-next { border-left: 2px solid var(--ink); padding-left: 10px; }
+.analyst-progress { display: flex; align-items: center; gap: 16px; min-height: 72px; }
+.analyst-progress strong { font: 20px/1.25 var(--font-display); }
+.analyst-progress p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.analyst-pulse { width: 18px; height: 18px; border: 2px solid var(--line-strong); border-top-color: var(--ink); border-radius: 50%; animation: analyst-spin .8s linear infinite; flex: 0 0 auto; }
+@keyframes analyst-spin { to { transform: rotate(360deg); } }
+.analyst-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; border-bottom: 1px solid var(--line); padding-bottom: 18px; }
+.analyst-header > div:first-child > strong { display: block; max-width: 850px; margin-top: 7px; font: 24px/1.2 var(--font-display); }
+.analyst-confidence { min-width: 120px; text-align: right; }
+.analyst-confidence span { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; }
+.analyst-confidence strong { font: 24px var(--font-display); text-transform: capitalize; }
+.analyst-section { padding-top: 20px; }
+.analyst-section h3 { font: 12px var(--font-prose); letter-spacing: .08em; text-transform: uppercase; }
+.analyst-section ol { list-style: none; margin: 10px 0 0; padding: 0; }
+.analyst-section li { border-top: 1px solid var(--line); padding: 13px 0; }
+.analyst-section li > strong { font: 18px/1.25 var(--font-display); }
+.analyst-section p { margin: 5px 0; font-size: 13px; line-height: 1.5; }
+.analyst-section small { display: block; color: var(--muted); font: 10px/1.45 var(--font-evidence); overflow-wrap: anywhere; }
+.primary-button:disabled { cursor: wait; opacity: .55; }
 .context-key { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 8px; margin-bottom: 22px; }
 .ring-key { width: 16px; height: 16px; border: 1px dashed var(--muted); border-radius: 50%; }
 .context-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -474,6 +508,7 @@ select { padding: 9px 24px 9px 9px; border: 1px solid var(--line); border-radius
   .finding-marker-button, .finding-marker-button:hover { transition: none; transform: none; }
   .stage-link::after, .stage-link.active::after { transition: none; }
   .quad-point:hover > circle, .quad-point:focus > circle { filter: none; }
+  .analyst-pulse { animation: none; }
 }
 
 @media (max-width: 760px) {

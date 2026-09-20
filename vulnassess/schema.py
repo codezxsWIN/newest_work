@@ -7,7 +7,7 @@ from uuid import NAMESPACE_URL, uuid5
 
 EVIDENCE_MAX = 2048
 TRUNCATION_MARKER = "\u2026[truncated]"
-SOURCES = ("rule", "llm", "manual")
+SOURCES = ("rule", "model", "llm", "manual")
 EXPOSURES = ("internal", "internet_facing")
 
 

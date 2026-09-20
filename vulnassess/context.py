@@ -7,6 +7,7 @@ import re
 from ipaddress import ip_address
 from typing import Any, Iterable, Sequence
 
+from vulnassess.role_model import RoleModel
 from vulnassess.schema import ContextProfile, Feature, Finding, Host
 
 CONTROL_KEYS = ("waf", "auth_required", "tls", "rate_limiting")
@@ -153,6 +154,7 @@ def build_profile(
     scope,
     rules: dict[str, Any],
     signatures: dict[str, Any],
+    model: RoleModel | None = None,
 ) -> ContextProfile:
     findings = list(findings)
     exposure, segment = infer_exposure(host, scope)
@@ -163,9 +165,14 @@ def build_profile(
             continue
         quote = f"scope.yaml lab_targets[{name}].tags.{key}={value}"
         manual[key] = Feature(value, 1.0, "manual", quote)
+    role = infer_role(host, rules)
+    if model is not None:
+        prediction = model.predict(host)
+        if not prediction.abstained:
+            role = Feature(prediction.label, prediction.confidence, "model", prediction.evidence)
     return ContextProfile(
         host_ip=host.ip,
-        role=infer_role(host, rules),
+        role=role,
         exposure=exposure,
         segment=segment,
         controls=detect_controls(host, findings, signatures),

@@ -35,6 +35,6 @@ class IntelUnavailable(VulnAssessError):
 
 
 class LLMUnavailable(VulnAssessError):
-    """Reserved: no model is used in this prototype."""
+    """The configured local model is absent, unreachable, malformed, or timed out."""
 
     exit_code = 6

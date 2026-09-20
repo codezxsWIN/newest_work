@@ -106,6 +106,101 @@ document.getElementById('select-run')?.addEventListener('change', event => {
   if (event.target.value) location.href = `/?run=${encodeURIComponent(event.target.value)}`;
 });
 
+const modelHost = document.getElementById('model-host');
+const modelOutput = document.getElementById('model-output');
+const runModel = document.getElementById('run-model');
+
+function analystSection(label, items, render) {
+  const section = document.createElement('section');
+  section.className = 'analyst-section';
+  const heading = document.createElement('h3');
+  heading.textContent = label;
+  section.append(heading);
+  const list = document.createElement('ol');
+  for (const item of items) list.append(render(item));
+  section.append(list);
+  return section;
+}
+
+runModel?.addEventListener('click', () => {
+  const host = bootstrap.assessment?.context?.find(item => item.host_ip === modelHost?.value);
+  if (!host || !modelOutput) return;
+  runModel.disabled = true;
+  modelOutput.replaceChildren();
+  const progress = document.createElement('div');
+  progress.className = 'analyst-progress';
+  progress.setAttribute('role', 'status');
+  const pulse = document.createElement('span');
+  pulse.className = 'analyst-pulse';
+  const progressCopy = document.createElement('div');
+  const progressTitle = document.createElement('strong');
+  progressTitle.textContent = 'Local model is analyzing the complete target';
+  const progressDetail = document.createElement('p');
+  progressDetail.textContent = 'Correlating services, scanner findings, context, CVSS, EPSS and KEV locally. CPU inference can take one to three minutes.';
+  progressCopy.append(progressTitle, progressDetail);
+  progress.append(pulse, progressCopy);
+  modelOutput.append(progress);
+  fetch(`/api/analyst/${encodeURIComponent(bootstrap.assessment.run.run_id)}/${encodeURIComponent(host.host_ip)}`)
+    .then(async response => {
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error?.message || 'Local analyst request failed.');
+      return body;
+    })
+    .then(result => {
+      const analysis = result.analysis;
+      const evidence = new Map(result.evidence.map(item => [item.id, item]));
+      modelOutput.replaceChildren();
+      const header = document.createElement('div');
+      header.className = 'analyst-header';
+      const title = document.createElement('div');
+      const eyebrow = document.createElement('span');
+      eyebrow.className = 'eyebrow';
+      eyebrow.textContent = `${result.model} · LOCAL OLLAMA`;
+      const summary = document.createElement('strong');
+      summary.textContent = analysis.summary;
+      title.append(eyebrow, summary);
+      const confidence = document.createElement('div');
+      confidence.className = 'analyst-confidence';
+      const confidenceLabel = document.createElement('span');
+      confidenceLabel.textContent = 'Analysis confidence';
+      const confidenceValue = document.createElement('strong');
+      confidenceValue.textContent = analysis.confidence;
+      confidence.append(confidenceLabel, confidenceValue);
+      header.append(title, confidence);
+      modelOutput.append(header);
+
+      modelOutput.append(analystSection('Recommended remediation sequence', analysis.recommended_actions, item => {
+        const row = document.createElement('li');
+        const action = document.createElement('strong');
+        action.textContent = `${item.order}. ${item.action}`;
+        const reason = document.createElement('p');
+        reason.textContent = item.reason;
+        const citations = document.createElement('small');
+        citations.textContent = item.evidence_ids.map(id => `${id}: ${evidence.get(id)?.text || 'validated record'}`).join(' · ');
+        row.append(action, reason, citations);
+        return row;
+      }));
+
+      if (analysis.correlations.length) modelOutput.append(analystSection('Correlations', analysis.correlations, item => {
+        const row = document.createElement('li');
+        const observation = document.createElement('p');
+        observation.textContent = item.observation;
+        const citations = document.createElement('small');
+        citations.textContent = item.evidence_ids.join(', ');
+        row.append(observation, citations);
+        return row;
+      }));
+
+      if (analysis.uncertainties.length) modelOutput.append(analystSection('What is still unknown', analysis.uncertainties, item => {
+        const row = document.createElement('li');
+        row.textContent = item;
+        return row;
+      }));
+    })
+    .catch(error => { modelOutput.textContent = error.message; })
+    .finally(() => { runModel.disabled = false; });
+});
+
 function setTheme(theme) {
   document.documentElement.dataset.theme = theme;
   document.getElementById('theme').setAttribute('aria-pressed', String(theme === 'dark'));

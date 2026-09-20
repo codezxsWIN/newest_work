@@ -78,12 +78,13 @@ SHA-256 and row count. The runtime itself still reaches no network, ever.
 
 ## Where the LLM fits (and where it cannot go)
 
-`vulnassess explain` may hand a finding to a local Ollama model to **reword the
-one-line rationale**. It receives only the band and the context words — never a score.
-The reply must be one plain sentence under 240 characters with no URLs, no markup, and
-no number we didn't supply; anything else is discarded. **The model can change the
-wording of a rank. It cannot change a rank.** With no model configured, every sentence
-is deterministic and the report says so.
+`vulnassess explain` may hand a finding to local Ollama to reword its one-line rationale.
+The live workbench also has an explicit **Analyze target** action. It sends the selected
+host's stored services, findings, context, CVSS, EPSS, KEV and deterministic scores to a
+local model, then validates the structured response and rejects unknown finding or
+evidence citations. The analyst can correlate evidence and suggest a remediation order;
+it cannot overwrite canonical scores, context or records. No analysis runs while loading
+the page, and model unavailability or malformed output is shown as an error.
 
 ## What is real, and what is not
 
@@ -93,6 +94,7 @@ is deterministic and the report says so.
 | NVD / EPSS / KEV snapshots | **real**, fetched from official publishers 2026-09-17 |
 | Scan captures | **real loopback captures committed** (Nmap + ZAP); nginx host carries **3 real CVE findings** with real EPSS enrichment; two older captures are zero-CVE |
 | LLM rationale | **real Ollama run stored** (llama3.2:3b reworded wording only; scores untouched) |
+| Live AI analyst | **real local Ollama inference verified**; evidence-grounded advisory output, scores untouched |
 | Demo scanner inputs | synthetic, labelled as such |
 | Ollama rationale rewording | works without a model; optional |
 | Role model | trained on synthetic labels, **shadow mode only** — predictions are printed, never scored |
@@ -136,6 +138,7 @@ The four-stage workbench is the only interactive UI:
 
 ```text
 vulnassess ui --run R --port 8765                 # loopback, read-only
+vulnassess ui --run R --model llama3.2:3b         # enable explicit local target analysis
 vulnassess ui --run R --export reports/R-ui.html  # one offline HTML file
 python run_visual_simulation.py                    # same UI, synthetic demo data
 ```

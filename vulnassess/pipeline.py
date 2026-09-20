@@ -7,6 +7,7 @@ from typing import Any, Sequence
 from vulnassess import context, evaluate, report, scoring
 from vulnassess.errors import ConfigError, ScopeError
 from vulnassess.readers import parse_nikto_json, parse_nmap_xml, parse_zap_json
+from vulnassess.role_model import load_model
 from vulnassess.schema import Host, ScoreBreakdown
 from vulnassess.settings import Settings
 from vulnassess.store import Store
@@ -89,8 +90,11 @@ def do_import(
     return summary
 
 
-def do_context(settings: Settings, store: Store, run_id: str) -> list:
+def do_context(
+    settings: Settings, store: Store, run_id: str, model_path: str | None = None
+) -> list:
     profiles = []
+    model = load_model(model_path) if model_path else None
     for host in store.hosts(run_id):
         profile = context.build_profile(
             host,
@@ -98,6 +102,7 @@ def do_context(settings: Settings, store: Store, run_id: str) -> list:
             settings.scope,
             settings.roles,
             settings.controls,
+            model,
         )
         store.upsert_profile(run_id, profile)
         profiles.append(profile)

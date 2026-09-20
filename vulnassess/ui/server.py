@@ -1,4 +1,4 @@
-"""GET-only loopback record viewer; no model execution or writable Store."""
+"""GET-only loopback workbench with explicit local analysis and no writable Store."""
 
 import json
 from dataclasses import dataclass
@@ -11,7 +11,8 @@ from urllib.parse import parse_qs, unquote, urlsplit
 
 import yaml
 
-from vulnassess.errors import ConfigError
+import vulnassess.analyst as analyst
+from vulnassess.errors import ConfigError, LLMUnavailable
 from vulnassess.settings import CONFIG_FILES, Settings
 from vulnassess.ui.entry import render_entry
 from vulnassess.ui.reader import ReadOnlyStore, local_path
@@ -57,11 +58,18 @@ def error_response(status: int, message: str) -> Response:
 
 class UiApplication:
     def __init__(
-        self, database: str | Path, config_dir: str | Path, run_id: str | None = None
+        self,
+        database: str | Path,
+        config_dir: str | Path,
+        run_id: str | None = None,
+        analyst_model: str = analyst.DEFAULT_MODEL,
+        ollama_host: str = analyst.DEFAULT_HOST,
     ) -> None:
         self.database = local_path(database)
         self.config_dir = local_path(config_dir)
         self.run_id = run_id
+        self.analyst_model = analyst_model
+        self.ollama_host = ollama_host
         for name in CONFIG_FILES:
             path = local_path(self.config_dir / name)
             if not path.is_relative_to(self.config_dir):
@@ -133,6 +141,19 @@ class UiApplication:
         except (OSError, ValueError) as error:
             raise ConfigError(f"cannot read CVSS arithmetic fixture {path}") from error
 
+    def analyst_report(self, run_id: str, host_ip: str) -> dict[str, Any]:
+        with ReadOnlyStore(self.database) as store:
+            payload = store.run(run_id)
+        return {
+            "run_id": run_id,
+            **analyst.analyze_target(
+                payload,
+                host_ip,
+                model=self.analyst_model,
+                ollama_host=self.ollama_host,
+            ),
+        }
+
     def get(self, target: str) -> Response:
         try:
             parsed = urlsplit(target)
@@ -176,6 +197,8 @@ class UiApplication:
         if parts[0] != "api":
             return error_response(404, "UI route not found")
         try:
+            if len(parts) == 4 and parts[1] == "analyst":
+                return json_response(200, self.analyst_report(parts[2], parts[3]))
             with ReadOnlyStore(self.database) as store:
                 if parts == ["api", "runs"]:
                     return json_response(200, {"runs": store.runs(), "selected_run": self.run_id})
@@ -200,7 +223,7 @@ class UiApplication:
                             **store.unavailable("diff result", f"{parts[2]} / {parts[3]}"),
                         },
                     )
-        except ConfigError as error:
+        except (ConfigError, LLMUnavailable) as error:
             return error_response(409, str(error))
         return error_response(404, "UI route not found")
 
