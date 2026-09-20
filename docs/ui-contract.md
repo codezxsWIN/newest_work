@@ -38,8 +38,9 @@ changes any stored field. See [ui.md](ui.md) for the checkpoint and limitations.
 
 - Only GET is served. Every other parsed HTTP method returns 405 with `Allow: GET`.
 - The temporary `/api/model` and `/api/model/run` routes are withdrawn by UI-12.
-  GET returns 404 and POST returns 405. The viewer does not load or run a model;
-  the retained runtime helper is not imported by the HTTP server.
+  GET returns 404 and POST returns 405. The later AI-01 analyst route is separate:
+  only its explicit target-analysis request invokes local Ollama. Ordinary record
+  routes, the workflow page and exports do not run a model.
 - `/` and `/static/index.html` serve the same entry file. `/static/` has no listing.
 - Static paths must remain inside `vulnassess/ui/static/`. Dot paths, hidden paths,
   encoded traversal, backslashes, control characters and Windows alternate streams
@@ -51,7 +52,8 @@ changes any stored field. See [ui.md](ui.md) for the checkpoint and limitations.
   inline scripts/styles, embedding, objects, base overrides and form actions.
 - Each database request opens a new `sqlite3` connection with `uri=True`, `mode=ro`,
   `PRAGMA query_only = ON`, and one read transaction. It never constructs `Store`,
-  changes journal mode, runs DDL, commits, scores, scans, downloads or calls a model.
+  changes journal mode, runs DDL, commits, scores, scans or downloads. The existing
+  analyst route reads those records before its separately explicit model call.
 - Unknown routes return 404. Missing runs, missing database/schema records and
   invalid stored records return 409 with a named error; they never become empty
   successful assessments. A present run with genuinely no rows may have empty arrays.
@@ -72,6 +74,29 @@ indexed score columns; conflicting values cause `ConfigError`.
 | `/api/cvss-fixture` | 200 when present | `source`, `seed`, `pinned`, `vectors`, `sandbox_weights`, `sandbox_cases` |
 | `/api/eval/<id>` | 409 while absent | `run_id`, `status`, `records`, `reason` |
 | `/api/diff/<a>/<b>` | 409 while absent | `run_ids`, `status`, `records`, `reason` |
+| `/api/analyst/<run>/<host>` | 200 on a validated local response | `run_id`, `host_ip`, `model`, `source`, `canonical_scores_changed`, `analysis`, `evidence` |
+
+## Workflow view
+
+`GET /workflow` serves the independent visualization HTML. Its local modules read
+the unchanged `/api/runs`, `/api/run/<id>`, `/api/scope` and `/api/weights` shapes.
+`?run=<id>` selects the existing assessment. Hash keys `node`, `host` and `finding`
+restore selection only; they do not execute stages or change configuration.
+No new JSON assessment fields or score computations are introduced.
+
+The analyst action uses the already-existing route documented above. It is never
+requested on load, node selection, filtering or refresh. Its transient response
+is held in page memory under the requested run and target and discarded on a full
+reload. Errors remain explicit; no default answer substitutes for failed inference.
+Model prose is rendered with text nodes and never feeds back into stored scores.
+The new visualization does not change the backend analyst implementation.
+
+Nodes expose whether source records exist, not a manufactured execution timeline.
+Report/evaluation/re-scan outputs remain unattached when the run API has no such
+artifact. Counts and scores shown by the inspector are values from existing
+records; diagram layout coordinates are presentation metadata, not measurements.
+
+## Missing results
 
 IDs are URL-encoded path segments and parameterized SQL values, never filenames
 or SQL fragments. Both run IDs must exist for a diff request. The current pipeline

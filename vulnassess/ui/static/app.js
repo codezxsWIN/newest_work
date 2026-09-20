@@ -2,6 +2,11 @@ import { scoreVector, sandbox } from './cvss31.js';
 
 const embedded = document.getElementById('assessment-data');
 const bootstrap = JSON.parse(embedded.textContent);
+const workflowLink = document.getElementById('open-workflow');
+if (workflowLink && !bootstrap.offline) {
+  workflowLink.hidden = false;
+  workflowLink.href = bootstrap.assessment ? `/workflow?run=${encodeURIComponent(bootstrap.assessment.run.run_id)}` : '/workflow';
+}
 const panels = [...document.querySelectorAll('[data-panel]')];
 const dialog = document.getElementById('inspector');
 const stageNames = new Set(['evidence', 'context', 'risk', 'priorities']);

@@ -40,7 +40,11 @@ def main() -> int:
         action="store_true",
         help="capture the current four-stage interface and its key states",
     )
+    parser.add_argument("--workflow", action="store_true", help="capture the independent workflow canvas without running a model")
+    parser.add_argument("--run", help="existing assessment identifier")
     arguments = parser.parse_args()
+    if arguments.workflow and arguments.workbench:
+        parser.error("choose --workflow or --workbench, not both")
     executable = edge_path()
     if executable is None:
         print("NOT RUN: screenshot capture; MISSING msedge executable")
@@ -48,10 +52,24 @@ def main() -> int:
     sys.path.insert(0, str(ROOT))
     from vulnassess.ui.server import UiApplication, UiServer
 
-    application = UiApplication(ROOT / "data" / "vulnassess.db", ROOT / "config", "verify")
+    run_id = arguments.run or ("demo" if arguments.workflow else "verify")
+    application = UiApplication(ROOT / "data" / "vulnassess.db", ROOT / "config", run_id)
     captures = [(filename, width, height, "") for filename, width, height in CAPTURES]
+    page_path = "workflow" if arguments.workflow else ""
+    if arguments.workflow:
+        response = application.get("/api/run/" + run_id)
+        if response.status != 200:
+            raise RuntimeError(f"MISSING: run {run_id} for workflow captures")
+        hosts = json.loads(response.body)["hosts"]
+        selected = f"&host={hosts[0]['ip']}" if hosts else ""
+        captures = [
+            ("workflow-overview.png", 1600, 1000, ""),
+            ("workflow-inspector.png", 1440, 1000, "#node=score" + selected),
+            ("workflow-analyst.png", 1440, 1000, "#node=analyst" + selected),
+            ("workflow-narrow.png", 500, 900, "#node=context" + selected),
+        ]
     if arguments.workbench:
-        response = application.get("/api/run/verify")
+        response = application.get("/api/run/" + run_id)
         if response.status != 200:
             raise RuntimeError("MISSING: verify run for workbench captures")
         scores = json.loads(response.body)["scores"]
@@ -99,7 +117,7 @@ def main() -> int:
                     f"--user-data-dir={profile}",
                     f"--screenshot={temporary}",
                     f"--window-size={width},{height}",
-                    f"http://127.0.0.1:{server.server_port}/{fragment}",
+                    f"http://127.0.0.1:{server.server_port}/{page_path}{fragment}",
                 ]
                 try:
                     result = subprocess.run(command, capture_output=True, check=False, timeout=45)

@@ -169,6 +169,8 @@ class UiApplication:
             or any(character in decoded for character in ("\\", ":", "%"))
         ):
             return error_response(404, "UI path not found")
+        if decoded == "/workflow":
+            return self._static(["workflow.html"])
         if decoded == "/":
             parameters = parse_qs(parsed.query, keep_blank_values=True)
             if parameters:

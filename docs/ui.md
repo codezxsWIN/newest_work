@@ -1,8 +1,155 @@
 # VulnAssess UI
 
+## Workflow canvas - 2026-09-21
+
+The user requested a separate Make-style visualization of the entire project,
+not a restyle of the four-stage notebook. This serves PROJECT.md Stage 7 and
+cross-cutting context/ranking/evaluation auditability. The workflow is a second
+view of the existing records, not a second pipeline or a new scoring model.
+
+```text
+python -m vulnassess ui --run demo --port 8766
+```
+
+Open `http://127.0.0.1:8766/workflow?run=demo`. The assessment header also has an
+Open workflow canvas link; Open assessment returns to the original view with the
+same run. Existing offline exports remain unchanged and do not show the live link.
+
+The canvas connects target/scope, Nmap/ZAP/Nikto imports, canonical records,
+NVD/EPSS/KEV enrichment, context, optional role classification, deterministic risk,
+priorities, recorded explanations, reporting, local analysis, expert evaluation
+and re-scan comparison. Click a node for input, operation, output and source
+records. Choose a target or a single finding to follow only its evidence.
+The diagram supports pan, zoom, Fit, keyboard panning and an Escape-close inspector.
+
+Node states mean exactly what they say: import recorded, stored output, current
+configuration, output not attached, or local request status. Edges are data
+dependencies, never execution evidence. Missing report/evaluation/re-scan artifacts
+are not called completed. No queue metrics or synthetic scanner results are invented.
+The current demo remains visibly labelled synthetic.
+
+The Local AI analyst node reuses the already-existing `/api/analyst/<run>/<host>`
+route. It requires an explicit Analyze target click and uses the whole selected
+host, even when the diagram traces one finding. Merely opening the page, selecting
+a node, filtering or refreshing does not invoke a model. The returned advisory
+confidence is separate from deterministic risk. There is no analyst-to-scoring
+edge, no timer-driven stage completion and no scanner action on this page.
+
+The workflow has its own HTML, stylesheet and JavaScript modules, with neutral
+circle nodes, local SVG icons and curved dependency lines. Its palette is scoped
+in the common tokens file. It loads no framework, CDN or new dependency. It is a
+live visualization; it is not included in the existing single-file export.
+
+### Verification
+
+VERIFIED: existing system Python was used for the full test suites because the
+project venv lacks pytest. No dependency was installed or copied.
+
+```text
+& 'C:\Users\amitdamle\AppData\Local\Microsoft\WindowsApps\python.exe' -m unittest -v
+Ran 254 tests in 17.142s
+OK
+
+& 'C:\Users\amitdamle\AppData\Local\Microsoft\WindowsApps\python.exe' -m pytest -q
+259 passed, 353 subtests passed in 15.47s
+```
+
+There were no test failures or fixture skips in those completed runs. The initial
+venv unittest attempt had a missing-pytest import error, not a workflow assertion
+failure. The available system interpreter resolved that test-execution blocker.
+
+TESTED WITH MOCKS: new focused checks:
+
+```text
+& '.\.venv\Scripts\python.exe' -m unittest -v tests.test_ui.TestUiContract.test_workflow_graph_is_grounded_and_read_only tests.test_ui.TestUiContract.test_workflow_is_independent_and_does_not_run_analyst
+test_workflow_graph_is_grounded_and_read_only (tests.test_ui.TestUiContract.test_workflow_graph_is_grounded_and_read_only) ... ok
+test_workflow_is_independent_and_does_not_run_analyst (tests.test_ui.TestUiContract.test_workflow_is_independent_and_does_not_run_analyst) ... ok
+Ran 2 tests in 0.277s
+OK
+```
+
+The graph test checks every node and edge, preserves stored score values, narrows
+context to the traced host, marks missing outputs and isolates analyst state by
+run/host. It executes only pure JavaScript through the already-installed Node.
+
+VERIFIED: live loopback smoke, `& '.\.venv\Scripts\python.exe' scripts/check_ui_server.py --run demo`:
+
+```text
+GET /workflow -> 200
+GET /static/workflow.css -> 200
+GET /static/workflow.js -> 200
+GET /static/workflow-data.js -> 200
+SCORES: 6 API records equal stored JSON
+DATABASE: SHA-256 unchanged
+SERVER: stopped
+UI LOOPBACK SMOKE PASSED
+```
+
+VERIFIED: browser checks exercised node selection, stored risk inspection, zoom/Fit,
+keyboard panning and the inspector at a device-emulated 390px width. Browsing
+made no analyst request. `page.goto('/workflow?run=verify')` showed
+`No stored output` and no host options beyond the empty selector;
+`page.goto('/workflow?run=__workflow_missing_run__')` showed
+`Records unavailable` after the expected HTTP 409. Both checks used the local
+`http://127.0.0.1:8766` origin and restored the demo afterward.
+TESTED WITH MOCKS: an intercepted analyst failure was
+rendered as text, did not execute HTML-like content, permitted retry and did not
+leak to another host. Pointer-pan logic was tested with synthetic pointer events
+and mocked pointer capture. The integrated hidden tab delivered pointer moves but
+not pointer-down through its mouse harness; physical dragging was not established
+by that harness. NOT RUN: real Ollama inference and scanner execution in this change.
+
+MISSING: the venv's pytest; Ruff lint/format, Pyright and pytest-cov in the checked
+environments. Source coverage is unmeasured. The existing gate script reported:
+
+```text
+GATE INCOMPLETE: missing prerequisites: ruff lint, ruff format, pyright, pytest + coverage
+```
+
+The blocked gate commands are `python -m ruff check .`,
+`python -m ruff format --check .`, `python -m pyright`, and
+`python -m pytest --cov=vulnassess --cov-fail-under=75`. Human-approved provisioning
+is required before rerunning `python scripts/check.py`; no installation command
+was run. VERIFIED: `git diff --check` returned no output (exit 0).
+
+MISSING: a human-captured Nikto JSON file under `tests/fixtures/nikto/` with a
+provenance row in [its README](../tests/fixtures/nikto/README.md), which currently
+lists no real capture. Existing synthetic examples are not real-tool evidence.
+The completed test run reported zero skips; that is not a Nikto integration claim.
+
+### Screenshots
+
+VERIFIED: `& '.\.venv\Scripts\python.exe' scripts/capture_ui_phase2.py --workflow --run demo`
+uses installed Edge and an ephemeral loopback viewer. It only reads records and
+opens node inspectors; it never clicks Analyze target.
+
+| View | Image | Size |
+| --- | --- | --- |
+| Entire workflow | [Workflow overview](ui/screenshots/workflow-overview.png) | 1600x1000 |
+| Stored risk inputs | [Score inspector](ui/screenshots/workflow-inspector.png) | 1440x1000 |
+| Optional local analysis | [Analyst inspector](ui/screenshots/workflow-analyst.png) | 1440x1000 |
+| Narrow inspector | [Narrow workflow](ui/screenshots/workflow-narrow.png) | 500x900 |
+
+### Increment status
+
+STATUS: visualization implemented and left running locally; no model-quality or
+fully green quality-gate claim. BRANCH / COMMIT: `audit-no-assumptions` based on
+`33f1293`; changes uncommitted. GATE: available tests pass as quoted above;
+lint/type/coverage prerequisites remain MISSING.
+
+BUILT: independent workflow canvas, evidence inspector, target/finding tracing
+and a clearly separate existing analyst action. CHANGED: `vulnassess/ui/`,
+`tests/`, `scripts/`, `docs/`. DECIDED: data dependencies and recorded states over
+animated progress theatre; reuse backend contracts over new pipeline execution.
+DECISIONS: WF-01 and WF-02 below in the decision log. EVIDENCE: commands and
+captures above. DEFERRED: real-model/scanner verification and attachment of
+persisted report/evaluation/re-scan results; these do not prevent inspection of
+stored context and ranking evidence. NEXT: user review of the new canvas.
+
 ## One-interface consolidation - 2026-09-19
 
-The four-stage workbench is the sole active interactive interface. The synthetic
+This section records the earlier consolidation, before the later workflow request.
+The four-stage workbench remains the assessment renderer. The synthetic
 simulation now builds a labelled assessment and exports this same renderer; the
 `visualize` command is a compatibility alias for the same export path. The historical
 eight-stage replay remains unreferenced source history, not a second product. The
@@ -79,8 +226,10 @@ viewing the stored assessment: both temporary model routes remain withdrawn.
 ## Read-only boundary
 
 Only GET is accepted. SQLite is opened with `mode=ro`, and the viewer does not
-scan, enrich, score, evaluate, train or invoke a model. The old runtime helper is
-retained but not imported by the HTTP server. All recorded scores stay separate
+scan, enrich, score, evaluate or train. Stored-record routes do not invoke a
+model; the later AI-01 analyst action is the explicit local-inference exception.
+The old runtime helper is retained but not imported by the HTTP server.
+All recorded scores stay separate
 from sandbox output. A future shadow prediction must remain beside rule context
 and be labelled as having no effect on scores.
 

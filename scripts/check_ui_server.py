@@ -41,6 +41,10 @@ def main() -> int:
         print(f"BOUND: 127.0.0.1:{server.server_port}")
         targets = (
             ("GET", "/", 200),
+            ("GET", "/workflow", 200),
+            ("GET", "/static/workflow.css", 200),
+            ("GET", "/static/workflow.js", 200),
+            ("GET", "/static/workflow-data.js", 200),
             ("GET", "/static/tokens.css", 200),
             ("GET", "/static/workbench.css", 200),
             ("GET", "/static/app.js", 200),

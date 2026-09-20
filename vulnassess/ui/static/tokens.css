@@ -66,3 +66,22 @@
   --medium: var(--night-medium);
   --low: var(--night-low);
 }
+
+:root.workflow-theme {
+  --flow-bg: #f4f6f5;
+  --flow-paper: #ffffff;
+  --flow-ink: #232d2c;
+  --flow-muted: #62706c;
+  --flow-line: #d6dedb;
+  --flow-line-strong: #a9b7af;
+  --flow-dot: #ced8d3;
+  --flow-wire: #a2b4aa;
+  --flow-focus: #344b45;
+  --flow-soft: #e9eeeb;
+  --flow-accent: #395b50;
+  --flow-transform: #eef2ed;
+  --flow-intel: #eef1f3;
+  --flow-output: #f4f3ed;
+  --flow-critical: #842333;
+  --flow-shadow: #232d2c14;
+}
