@@ -9,7 +9,7 @@ from vulnassess.errors import ConfigError, LLMUnavailable
 from vulnassess.explain import DEFAULT_HOST, DEFAULT_MODEL, OllamaClient, sanitise
 
 MAX_EVIDENCE = 128
-MAX_TEXT = 600
+MAX_TEXT = 200
 MAX_INTEL_PER_FINDING = 3
 # ~15k tokens at ~4 chars/token; Ollama silently truncates prompts over num_ctx, which
 # would quietly strip the instructions, so an over-budget case fails closed instead.
@@ -112,7 +112,7 @@ def build_case(
         + list(context["controls"].items())
         + list(context["manual"].items())
     ):
-        feature["evidence_id"] = cite(f"context_{name}", feature.get("evidence"))
+        feature["evidence_id"] = cite(f"context_{name}", _clean(feature.get("evidence"), 240))
 
     scores = {item["finding_id"]: item for item in payload["scores"]}
     enrichments: dict[str, list[dict[str, Any]]] = {}
@@ -148,7 +148,7 @@ def build_case(
                     f"EPSS {enrichment.get('epss')} percentile {enrichment.get('epss_percentile')} "
                     f"KEV {enrichment.get('kev')} {enrichment.get('description', '')}"
                 ),
-                280,
+                230,
             )
             # Decision-relevant fields only; vectors, patch URLs and feed bookkeeping are
             # stored in the database and do not need to spend the model's context.
@@ -182,7 +182,7 @@ def build_case(
                 if key in score
             }
             if "reason" in brief_score:
-                brief_score["reason"] = _clean(brief_score["reason"], 160)
+                brief_score["reason"] = _clean(brief_score["reason"], 120)
             score_record = {
                 **brief_score,
                 "alias": alias,
@@ -195,8 +195,8 @@ def build_case(
             {
                 "id": alias,
                 "tool": finding["tool"],
-                "title": _clean(finding["title"], 180),
-                "description": _clean(finding.get("description"), 200),
+                "title": _clean(finding["title"], 140),
+                "description": _clean(finding.get("description"), 160),
                 "port": finding.get("port"),
                 "protocol": finding.get("protocol"),
                 "url": _clean(finding.get("url"), 180),
@@ -330,7 +330,7 @@ def analyze_target(
     model: str = DEFAULT_MODEL,
     ollama_host: str = DEFAULT_HOST,
 ) -> dict[str, Any]:
-    active_client = client or OllamaClient(ollama_host, model, timeout=240.0)
+    active_client = client or OllamaClient(ollama_host, model, timeout=300.0)
     active_client.available()
     case, evidence, alias_map = build_case(payload, host_ip)
     prompt = build_prompt(case, evidence, len(alias_map))
@@ -339,7 +339,7 @@ def analyze_target(
             f"analyst case for {host_ip!r} builds a {len(prompt)}-character prompt, "
             f"over the {MAX_PROMPT_CHARS}-character budget"
         )
-    raw = active_client.generate_structured(prompt, ANALYSIS_SCHEMA, num_ctx=16384)
+    raw = active_client.generate_structured(prompt, ANALYSIS_SCHEMA, num_ctx=20480)
     result = validate_analysis(
         raw,
         set(alias_map),
