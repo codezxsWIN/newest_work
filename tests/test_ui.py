@@ -140,23 +140,34 @@ class TestUiContract(unittest.TestCase):
         payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
         result = subprocess.run(
             [node, str(script)],
-            input=json.dumps({"assessment": payload, "scope": application.configurations["scope"], "weights": application.configurations["weights"]}),
-            capture_output=True, text=True, check=False, cwd=ROOT,
+            input=json.dumps(
+                {
+                    "assessment": payload,
+                    "scope": application.configurations["scope"],
+                    "weights": application.configurations["weights"],
+                }
+            ),
+            capture_output=True,
+            text=True,
+            check=False,
+            cwd=ROOT,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("stored score fidelity", result.stdout)
 
     def test_workflow_is_independent_and_does_not_run_analyst(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
-        with patch.object(analyst, "analyze_target", side_effect=AssertionError("implicit analyst execution")):
+        with patch.object(
+            analyst, "analyze_target", side_effect=AssertionError("implicit analyst execution")
+        ):
             status, headers, body = request(application, "/workflow")
         self.assertEqual(status, 200)
         self.assertEqual(headers["Content-Security-Policy"], CSP)
         self.assertIn(b'id="viewport"', body)
         self.assertIn(b'id="connections"', body)
         self.assertIn(b'id="node-inspector"', body)
-        self.assertNotIn(b'/static/workbench.css', body)
-        self.assertNotIn(b'/static/app.js', body)
+        self.assertNotIn(b"/static/workbench.css", body)
+        self.assertNotIn(b"/static/app.js", body)
         for path in ("/static/workflow.css", "/static/workflow.js"):
             self.assertEqual(request(application, path)[0], 200)
 
