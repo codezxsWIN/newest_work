@@ -85,3 +85,20 @@
   --flow-critical: #842333;
   --flow-shadow: #232d2c14;
 }
+
+:root.workflow-theme {
+  color-scheme: light;
+  --flow-bg: #f4f5f2;
+  --flow-paper: #fbfbf9;
+  --flow-ink: #14171a;
+  --flow-plate: #171a1e;
+  --flow-plate-ink: #f2f2ee;
+  --flow-muted: #5c625f;
+  --flow-line: #d8dad4;
+  --flow-line-strong: #9aa09a;
+  --flow-accent: #0e5a46;
+  --flow-soft: #edeeea;
+  --flow-mono: Consolas, "Liberation Mono", monospace;
+  --flow-display: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  font-family: "Segoe UI", system-ui, sans-serif;
+}

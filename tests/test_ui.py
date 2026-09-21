@@ -163,13 +163,43 @@ class TestUiContract(unittest.TestCase):
             status, headers, body = request(application, "/workflow")
         self.assertEqual(status, 200)
         self.assertEqual(headers["Content-Security-Policy"], CSP)
-        self.assertIn(b'id="viewport"', body)
-        self.assertIn(b'id="connections"', body)
-        self.assertIn(b'id="node-inspector"', body)
+        self.assertIn(b'id="trace-stack"', body)
+        self.assertIn(b'id="queue-rail"', body)
+        self.assertIn(b'id="compare-stack"', body)
         self.assertNotIn(b"/static/workbench.css", body)
         self.assertNotIn(b"/static/app.js", body)
         for path in ("/static/workflow.css", "/static/workflow.js"):
             self.assertEqual(request(application, path)[0], 200)
+
+    def test_decision_hero_leads_with_the_stored_top_priority(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        _, _, body = request(application, "/")
+        document = body.decode("utf-8")
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        top = payload["scores"][0]
+        self.assertIn('id="decision"', document)
+        self.assertLess(
+            document.index('id="decision"'),
+            document.index('data-panel="evidence"'),
+            "the decision plate must open the document before the evidence stage",
+        )
+        self.assertIn(f">{top['risk']}</span>", document)
+        self.assertIn(f">{top['band']}</span>", document)
+        self.assertIn(f"finding={top['finding_id']}", document)
+        self.assertIn(f"/workflow?run={DEMO_RUN}&amp;finding={top['finding_id']}", document)
+        self.assertIn('class="stamp">SYNTHETIC', document)
+
+    def test_decision_hero_names_missing_scores_instead_of_inventing_one(self) -> None:
+        from vulnassess.ui.presentation import _decision_hero
+
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        payload["scores"] = []
+        hero = _decision_hero(payload, "SYNTHETIC")
+        self.assertIn("No stored priority.", hero)
+        self.assertIn("imported finding(s) and no stored scores", hero)
+        self.assertIn("SYNTHETIC", hero)
+        self.assertNotIn("decision-number", hero)
 
     def test_top_level_keys_are_pinned(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)

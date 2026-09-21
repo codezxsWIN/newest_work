@@ -521,3 +521,70 @@ select { padding: 9px 24px 9px 9px; border: 1px solid var(--line); border-radius
   .threat-meter-wrap { min-width: 0; }
   .compare-risk strong { font-size: 46px; }
 }
+
+/* Decision plate — the opening viewport. The top stored decision, inverted plane,
+ * with the traceback path to its evidence. All values are stored records. */
+.decision-plate {
+  background: var(--ink);
+  color: var(--paper);
+  padding: var(--space-6) var(--space-6) var(--space-7);
+  border-bottom: 1px solid var(--line-strong);
+}
+.decision-plate.empty { max-width: var(--measure); }
+.decision-meta {
+  display: flex; flex-wrap: wrap; gap: var(--space-4);
+  font-family: var(--font-evidence); font-size: 11px; letter-spacing: 0.14em;
+  color: var(--paper); opacity: 0.82; margin: 0 0 var(--space-5);
+}
+.decision-meta .stamp { border-color: currentColor; opacity: 1; }
+.decision-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--space-7); align-items: start; }
+.decision-eyebrow {
+  font-family: var(--font-evidence); font-size: 11px; letter-spacing: 0.2em;
+  margin: 0 0 var(--space-2); opacity: 0.72;
+}
+.decision-risk { display: flex; align-items: baseline; gap: var(--space-4); margin: 0; }
+.decision-number {
+  font-family: var(--font-display); font-size: clamp(72px, 11vw, 148px);
+  line-height: 0.9; letter-spacing: -0.02em;
+}
+.decision-band {
+  font-family: var(--font-evidence); font-size: 13px; letter-spacing: 0.24em;
+  border: 1px solid currentColor; padding: 4px 10px; transform: translateY(-14px);
+}
+.decision-band.band-critical { color: var(--night-critical); }
+.decision-band.band-high { color: var(--night-high); }
+.decision-band.band-medium { color: var(--night-medium); }
+.decision-band.band-low { color: var(--night-low); }
+.decision-title { font-family: var(--font-display); font-size: clamp(26px, 3vw, 40px); margin: var(--space-3) 0 0; }
+.decision-endpoint, .decision-threat {
+  font-family: var(--font-evidence); font-size: 12.5px; margin: var(--space-2) 0 0; opacity: 0.85;
+}
+.decision-reason { max-width: 52ch; margin: var(--space-3) 0 0; font-size: 15px; }
+.decision-trace ol { list-style: none; margin: 0; padding: 0; border-top: 1px solid rgba(255, 255, 255, 0.18); }
+.trace-hop {
+  display: grid; grid-template-columns: 128px 1fr; gap: var(--space-3); text-decoration: none; color: inherit;
+  padding: var(--space-3) var(--space-2); border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+.trace-hop strong { font-family: var(--font-evidence); font-size: 12px; letter-spacing: 0.2em; }
+.trace-hop span { font-size: 13px; opacity: 0.75; }
+.trace-hop:hover, .trace-hop:focus-visible { background: rgba(255, 255, 255, 0.08); }
+.decision-trace-note { font-size: 12px; opacity: 0.6; margin: var(--space-2) 0 0; }
+.decision-actions { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-5); }
+.decision-actions .primary-button { text-align: center; }
+.decision-actions .quiet-link { color: inherit; text-align: center; }
+.decision-plate.empty h1 { font-family: var(--font-display); font-size: clamp(30px, 4vw, 48px); margin: var(--space-2) 0; }
+.decision-plate.empty p { max-width: 56ch; }
+
+@media (max-width: 900px) {
+  .decision-grid { grid-template-columns: 1fr; gap: var(--space-5); }
+  .decision-number { font-size: clamp(64px, 18vw, 110px); }
+  .decision-band { transform: none; }
+}
+
+.decision-actions .decision-inspect {
+  border: 1px solid rgba(255, 255, 255, 0.55); background: transparent; color: inherit;
+  font-family: var(--font-evidence); font-size: 12px; letter-spacing: 0.14em;
+  padding: 9px 16px; cursor: pointer; text-align: center;
+}
+.decision-actions .decision-inspect:hover { border-color: var(--paper); }
+#open-palette svg, .icon-button svg, .tour-button svg { fill: none; stroke: currentColor; stroke-width: 1.7; }

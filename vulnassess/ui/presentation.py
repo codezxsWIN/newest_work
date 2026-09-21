@@ -1184,6 +1184,90 @@ def _inspector(payload: dict[str, Any]) -> str:
     )
 
 
+def _decision_hero(payload: dict[str, Any], kind: str) -> str:
+    """The opening viewport: the top stored decision, traced to its evidence.
+
+    Every value is copied from stored records. The traceback strip links into the
+    existing stages with the finding preselected; no state is invented when the
+    run has no scores — the plate names what is missing instead.
+    """
+    run_id = escape(payload["run"]["run_id"])
+    config_hash = escape(str(payload["run"]["config_hash"]))[:12]
+    scores = payload["scores"]
+    if not scores:
+        return (
+            '<section class="decision-plate empty" aria-label="Stored decision">'
+            f'<p class="decision-eyebrow"><span class="stamp">{kind}</span> ASSESSMENT {run_id}</p>'
+            '<h1 class="decision-verdict-title">No stored priority.</h1>'
+            "<p>This run has "
+            f"{len(payload['findings'])} imported finding(s) and no stored scores. "
+            "Run the context and ranking stages through the CLI; this plate only ever "
+            "shows recorded decisions.</p></section>"
+        )
+    top = scores[0]
+    finding = next((item for item in payload["findings"] if item["id"] == top["finding_id"]), None)
+    enrichment = next(
+        (item for item in payload["enrichments"] if item["finding_id"] == top["finding_id"]), None
+    )
+    position = len(scores)
+    identity = escape(top.get("cve_id") or (finding["title"] if finding else top["finding_id"]))
+    endpoint = (
+        escape(finding["url"])
+        if finding and finding.get("url")
+        else (
+            f"{escape(finding['host_ip'])}:{escape(str(finding['port']))}"
+            if finding and finding.get("port")
+            else escape(top["host_ip"])
+        )
+    )
+    band_class = BAND_CLASSES.get(top.get("band") or "", "band-unscored")
+    threat_bits = []
+    if enrichment is not None:
+        if enrichment.get("epss_percentile") is not None:
+            threat_bits.append(
+                f"EPSS {int(round(float(enrichment['epss_percentile']) * 100))}th percentile"
+            )
+        if enrichment.get("kev"):
+            threat_bits.append("CISA KEV listed")
+    if not threat_bits:
+        threat_bits.append("no exploitation data stored")
+    hops = [
+        ("PRIORITY", "priorities", "stored risk order"),
+        ("CALCULATION", "risk", "formula + weights hash"),
+        ("CONTEXT", "context", "role, exposure, controls"),
+        ("SCANNER", "evidence", "verbatim capture"),
+    ]
+    strip = "".join(
+        f'<li><a class="trace-hop" href="#stage-{stage}?finding={escape(top["finding_id"])}">'
+        f"<strong>{label}</strong><span>{detail}</span></a></li>"
+        for label, stage, detail in hops
+    )
+    return (
+        f'<section class="decision-plate" id="decision" aria-label="Highest stored priority">'
+        f'<div class="decision-meta"><span class="stamp">{kind}</span>'
+        f"<span>ASSESSMENT {run_id}</span><span>CONFIG {config_hash}</span>"
+        f"<span>MONOSPACE VALUES ARE STORED RECORDS</span></div>"
+        '<div class="decision-grid">'
+        '<div class="decision-verdict">'
+        f'<p class="decision-eyebrow">HIGHEST STORED PRIORITY · 1 OF {position}</p>'
+        f'<p class="decision-risk"><span class="decision-number">{top["risk"]}</span>'
+        f'<span class="decision-band {band_class}">{escape(str(top.get("band") or "Unscored"))}</span></p>'
+        f'<h1 class="decision-title">{identity}</h1>'
+        f'<p class="decision-endpoint">{endpoint} · {escape(str(finding["tool"]) if finding else "unknown scanner")}</p>'
+        f'<p class="decision-reason">{escape(str(top.get("reason") or ""))}</p>'
+        f'<p class="decision-threat">{escape(" · ".join(threat_bits))}</p>'
+        "</div>"
+        f'<nav class="decision-trace" aria-label="Traceback from priority to raw evidence"><ol>{strip}</ol>'
+        '<p class="decision-trace-note">Fall down the stack: each hop opens the stored records behind it.</p></nav>'
+        '<div class="decision-actions">'
+        f'<a class="primary-button" href="/workflow?run={run_id}&amp;finding={escape(top["finding_id"])}">Open full traceback</a>'
+        f'<button class="inspect-link decision-inspect" type="button" data-inspect="{escape(top["finding_id"])}">Inspect record</button>'
+        f'<a class="quiet-link" href="#stage-context">Local AI analysis ↓</a>'
+        "</div>"
+        "</div></section>"
+    )
+
+
 def render_workbench(
     template: str,
     payload: dict[str, Any] | None,
@@ -1208,8 +1292,15 @@ def render_workbench(
         strip = ""
         boot = {"assessment": None, "configuration": config, "runs": runs}
     else:
+        synthetic = any(
+            "synthetic" in item["path"].lower() for item in payload["feeds_meta"]
+        ) or any(
+            "synthetic" in item["provenance"]["raw_path"].lower() for item in payload["findings"]
+        )
+        kind = "SYNTHETIC" if synthetic else "SOURCE UNLABELLED"
         content = (
-            _evidence_stage(payload, config)
+            _decision_hero(payload, kind)
+            + _evidence_stage(payload, config)
             + _context_stage(payload, config)
             + _risk_stage(payload, config)
             + _priorities_stage(payload)
@@ -1222,12 +1313,6 @@ def render_workbench(
             + _inspector(payload)
         )
         strip = run_strip(payload)
-        synthetic = any(
-            "synthetic" in item["path"].lower() for item in payload["feeds_meta"]
-        ) or any(
-            "synthetic" in item["provenance"]["raw_path"].lower() for item in payload["findings"]
-        )
-        kind = "SYNTHETIC" if synthetic else "SOURCE UNLABELLED"
         strip = strip.replace(
             "<span>Run provenance</span>",
             f'<span class="stamp">{kind}</span><span>Run provenance</span>',
