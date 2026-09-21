@@ -346,7 +346,7 @@ def analyze_target(
             f"analyst case for {host_ip!r} builds a {len(prompt)}-character prompt, "
             f"over the {MAX_PROMPT_CHARS}-character budget"
         )
-    raw = active_client.generate_structured(prompt, ANALYSIS_SCHEMA, num_ctx=20480)
+    raw = active_client.generate_structured(prompt, ANALYSIS_SCHEMA, num_ctx=4096)
     result = validate_analysis(
         raw,
         set(alias_map),
