@@ -154,6 +154,7 @@ class TestUiContract(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("stored score fidelity", result.stdout)
+        self.assertIn("analyst queue safety passed", result.stdout)
 
     def test_workflow_is_independent_and_does_not_run_analyst(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
@@ -628,6 +629,172 @@ class EvidenceParser(HTMLParser):
 class TestUiExport(unittest.TestCase):
     """Test shared live/offline markup against stored assessment records."""
 
+    def test_project_introduction_preserves_the_explicit_model_boundary(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        with patch.object(analyst, "analyze_target", side_effect=AssertionError("implicit model call")):
+            status, _, body = request(application, "/")
+        document = body.decode("utf-8")
+        self.assertEqual(status, 200)
+        self.assertIn('class="assessment-experience project-view"', document)
+        self.assertIn('id="project-title"', document)
+        self.assertIn('data-workflow-node="analyst"', document)
+        self.assertIn("The model explains. The formula scores.", document)
+        self.assertIn("A demonstration is not proof", document)
+        self.assertNotIn('style="', document)
+
+    def test_guided_example_uses_matching_stored_inputs(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        identities = re.findall(r'data-story-finding="([^"]+)"', document)
+        self.assertEqual(len(identities), 2)
+        selected = [
+            next(score for score in payload["scores"] if score["finding_id"] == identity)
+            for identity in identities
+        ]
+        self.assertNotEqual(selected[0]["host_ip"], selected[1]["host_ip"])
+        for key in ("cve_id", "base_vector", "base_score", "epss_percentile", "kev"):
+            self.assertEqual(selected[0][key], selected[1][key], key)
+        for score in selected:
+            panel = document.split(f'data-story-finding="{score["finding_id"]}"', 1)[1].split("</article>", 1)[0]
+            parsed = EvidenceParser()
+            parsed.feed(panel)
+            self.assertIn(str(score["risk"]), parsed.blocks)
+            self.assertIn(score["host_ip"], parsed.blocks)
+        self.assertIn("Synthetic example", document)
+        self.assertIn("not findings about real systems", document)
+        self.assertEqual(payload, json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+
+    def test_project_does_not_substitute_an_example_for_an_empty_run(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", "verify")
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn("No like-for-like example in this run.", document)
+        self.assertNotIn("data-story-finding=", document)
+        unselected = request(UiApplication(DATABASE, ROOT / "config"), "/")[2].decode("utf-8")
+        self.assertIn('id="select-project-run"', unselected)
+        self.assertNotIn("data-story-finding=", unselected)
+
+    def test_project_artwork_is_available_without_external_assets(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        status, headers, body = request(application, "/static/project-horizon.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "image/png")
+        self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_explanation_sections_keep_model_execution_explicit(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        with patch.object(analyst, "analyze_target", side_effect=AssertionError("implicit model call")):
+            status, _, body = request(application, "/")
+        self.assertEqual(status, 200)
+        document = body.decode("utf-8")
+        for section in ("project-analyst", "project-run", "project-outcomes", "project-questions"):
+            self.assertIn(f'id="{section}"', document)
+        self.assertIn('id="project-analyst-target"', document)
+        self.assertIn('data-requires-host="true"', document)
+        self.assertIn("Opening the workflow does not run the model.", document)
+        self.assertIn("No. A published, deterministic formula produces the scores.", document)
+        self.assertIn("not evidence of a successful attack", document)
+
+    def test_project_analysis_requires_review_before_execution(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        with patch.object(analyst, "analyze_target", side_effect=AssertionError("implicit model call")):
+            status, _, body = request(application, "/")
+        self.assertEqual(status, 200)
+        document = body.decode("utf-8")
+        for identifier in ("project-run-form", "project-run-review", "project-run-confirm", "run-confirm-start", "project-run-stop"):
+            self.assertEqual(document.count(f'id="{identifier}"'), 1)
+        self.assertIn('name="analysis-scope" value="all"', document)
+        self.assertIn("does not launch scanners, refresh feeds or recalculate scores", document)
+        self.assertIn("does not cancel inference already running", document)
+        self.assertEqual(request(application, "/static/analyst-client.js")[0], 200)
+
+    def test_project_doors_preserve_findings_scores_and_sources(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn('id="project-doors"', document)
+        self.assertCountEqual(
+            re.findall(r'data-project-door="([^"]+)"', document),
+            [finding["id"] for finding in payload["findings"]],
+        )
+        scores = {score["finding_id"]: score for score in payload["scores"]}
+        for finding in payload["findings"]:
+            detail = document.split(f'data-project-door-detail="{finding["id"]}"', 1)[1].split("</article>", 1)[0]
+            parser = EvidenceParser()
+            parser.feed(detail)
+            self.assertIn(finding["evidence"], parser.blocks)
+            self.assertIn(finding["provenance"]["raw_path"], parser.blocks)
+            self.assertIn(f'data-workflow-finding="{finding["id"]}"', detail)
+            score = scores.get(finding["id"])
+            if score:
+                self.assertIn(f'<strong>{score["risk"]}</strong>', detail)
+                self.assertIn(f'band-{score["band"].lower()}', detail)
+        self.assertIn("Synthetic records / not real-system findings", document)
+        self.assertIn("not proof of an exploitable", document)
+        self.assertEqual(payload, json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+
+    def test_project_doors_do_not_invent_missing_systems(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", "verify")
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn("No recorded systems in this assessment.", document)
+        self.assertNotIn('data-project-door="', document)
+
+    def test_asset_explorer_preserves_record_membership(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertEqual(
+            re.findall(r'data-asset-panel="([^"]+)"', document),
+            [host["ip"] for host in payload["hosts"]],
+        )
+        self.assertEqual(
+            re.findall(r'data-context-panel="([^"]+)"', document),
+            [profile["host_ip"] for profile in payload["context"]],
+        )
+        for host in payload["hosts"]:
+            count = sum(item["host_ip"] == host["ip"] for item in payload["findings"])
+            self.assertIn(f'aria-label="Select {host["ip"]}, {count} stored findings"', document)
+        self.assertIn('class="ascii-field" aria-hidden="true"', document)
+        self.assertEqual(document.count('id="select-run"'), 1)
+        self.assertNotIn('style="', document)
+
+    def test_asset_priority_is_the_first_stored_score(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertTrue(payload["scores"])
+        for host in payload["hosts"]:
+            panel = document.split(f'data-asset-panel="{host["ip"]}"', 1)[1].split(
+                "</article>", 1
+            )[0]
+            scores = [score for score in payload["scores"] if score["host_ip"] == host["ip"]]
+            if not scores:
+                self.assertIn("No scored finding recorded for this asset.", panel)
+                continue
+            self.assertIn(f'data-priority-finding="{scores[0]["finding_id"]}"', panel)
+            self.assertIn(f'<strong>{scores[0]["risk"]}</strong>', panel)
+            parser = EvidenceParser()
+            parser.feed(panel)
+            finding = next(
+                item for item in payload["findings"] if item["id"] == scores[0]["finding_id"]
+            )
+            self.assertIn(finding["evidence"], parser.blocks)
+        selected = payload["scores"][0]["host_ip"]
+        self.assertIn(f'data-asset-panel="{selected}">', document)
+        self.assertEqual(payload, json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+
+    def test_context_evidence_is_disclosed_not_removed(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn('class="feature-evidence"', document)
+        parser = EvidenceParser()
+        parser.feed(document)
+        for profile in payload["context"]:
+            for feature in [profile["role"], profile["exposure"], *profile["controls"].values()]:
+                self.assertIn(feature["evidence"], parser.blocks)
+        self.assertEqual(payload, json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+
     def test_export_is_self_contained(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
         with ReadOnlyStore(DATABASE) as store:
@@ -649,6 +816,8 @@ class TestUiExport(unittest.TestCase):
             self.assertFalse(tag == "script" and key == "src")
             self.assertFalse(value.startswith("/static/"))
         self.assertIn("connect-src 'none'", document)
+        self.assertIn("data:image/png;base64,", document)
+        self.assertNotIn("/static/project-horizon.png", document)
         bootstrap = json.loads(
             re.search(
                 r'<script id="assessment-data" type="application/json">(.*?)</script>',
@@ -660,6 +829,8 @@ class TestUiExport(unittest.TestCase):
         self.assertTrue(bootstrap["offline"])
         self.assertEqual(len(bootstrap["cvss_fixture"]["vectors"]), 211)
         self.assertNotIn("import { scoreVector", document)
+        self.assertNotIn("from './analyst-client.js'", document)
+        self.assertIn("export function createAnalysisQueue", document)
         with ReadOnlyStore(DATABASE) as store:
             self.assertEqual(store.run(DEMO_RUN), before)
 

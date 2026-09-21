@@ -55,11 +55,25 @@ def export_html(application: UiApplication, destination: str | Path) -> Path:
     )
     document = document[: script_match.start(1)] + serialized + document[script_match.end(1) :]
     style = _asset("tokens.css") + "\n" + _asset("workbench.css")
-    import_line = "import { scoreVector, sandbox } from './cvss31.js';"
+    artwork_path = STATIC_ROOT / "project-horizon.png"
+    if not artwork_path.is_file():
+        raise ConfigError(f"MISSING: UI artwork {artwork_path}")
+    try:
+        artwork = base64.b64encode(artwork_path.read_bytes()).decode("ascii")
+    except OSError as error:
+        raise ConfigError(f"cannot read UI artwork {artwork_path}") from error
+    style = style.replace("/static/project-horizon.png", f"data:image/png;base64,{artwork}")
     app = _asset("app.js")
-    if app.count(import_line) != 1:
-        raise ConfigError("UI export requires the known local CVSS module import")
-    script = _asset("cvss31.js") + "\n" + app.replace(import_line, "", 1)
+    modules: list[str] = []
+    for import_line, name in (
+        ("import { scoreVector, sandbox } from './cvss31.js';", "cvss31.js"),
+        ("import { createAnalysisQueue } from './analyst-client.js';", "analyst-client.js"),
+    ):
+        if app.count(import_line) != 1:
+            raise ConfigError(f"UI export requires the known local {name} module import")
+        modules.append(_asset(name))
+        app = app.replace(import_line, "", 1)
+    script = "\n".join([*modules, app])
     for name in ("tokens.css", "workbench.css"):
         document = document.replace(f'<link rel="stylesheet" href="/static/{name}">', "")
     document = document.replace('<script type="module" src="/static/app.js"></script>', "")
