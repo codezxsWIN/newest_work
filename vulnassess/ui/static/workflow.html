@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en" class="workflow-theme">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VulnAssess / Workflow</title>
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/workflow.css">
+  <script type="module" src="/static/workflow.js"></script>
+</head>
+<body>
+  <a class="skip" href="#node-list">Skip to workflow nodes</a>
+  <header class="flow-header">
+    <a class="wordmark" href="/workflow" aria-label="VulnAssess workflow"><span class="flow-mark" aria-hidden="true">v/a</span>VulnAssess<span class="product-label">WORKFLOW</span></a>
+    <div class="run-controls"><label for="workflow-run">Assessment</label><select id="workflow-run" disabled><option>Loading records</option></select><span id="data-kind" class="data-kind">LOCAL</span></div>
+    <div class="header-tools"><a id="assessment-link" class="quiet-link" href="/">Open assessment</a><button id="refresh-workflow" class="tool" type="button" title="Refresh stored records" aria-label="Refresh stored records"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6"/></svg></button></div>
+  </header>
+  <main class="flow-workspace">
+    <section id="viewport" class="viewport" aria-label="Assessment workflow canvas" tabindex="0">
+      <div class="canvas-heading"><span class="eyebrow">ASSESSMENT / DECISION PATH</span><h1>Evidence becomes priority.</h1><p id="canvas-caption">Loading the recorded assessment.</p></div>
+      <div class="trace-controls"><label for="workflow-host">Target</label><select id="workflow-host" disabled><option>All recorded hosts</option></select><label class="sr-only" for="workflow-finding">Trace a finding</label><select id="workflow-finding" disabled><option>All findings</option></select></div>
+      <div id="graph" class="graph"><svg id="connections" class="connections" aria-hidden="true"></svg><div id="lanes" class="lanes" aria-hidden="true"></div><div id="node-list" class="node-list" aria-label="Pipeline nodes"></div></div>
+      <div id="loading-state" class="canvas-state" role="status"><span class="state-symbol" aria-hidden="true"></span><strong>Opening the assessment</strong><p>Reading local records.</p></div>
+      <div class="canvas-legend" aria-label="Connection legend"><span><i class="line-sample"></i>Data dependency</span><span><i class="line-sample optional"></i>Optional / output absent</span></div>
+      <div class="viewport-tools" role="group" aria-label="Canvas controls">
+        <button id="zoom-out" class="tool" type="button" title="Zoom out" aria-label="Zoom out"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg></button>
+        <button id="fit-workflow" class="tool wide-tool" type="button" title="Fit entire workflow" aria-label="Fit entire workflow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg><span>Fit</span></button>
+        <button id="zoom-in" class="tool" type="button" title="Zoom in" aria-label="Zoom in"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M12 5v14"/></svg></button>
+      </div>
+      <div class="canvas-footer"><span class="local-indicator" aria-hidden="true"></span><span id="canvas-status">Stored records / no pipeline execution</span><span id="run-hash"></span></div>
+    </section>
+    <aside id="node-inspector" class="node-inspector" aria-label="Workflow node inspector" hidden>
+      <div class="inspector-heading"><span class="eyebrow">NODE INSPECTOR</span><button id="close-node" class="tool" type="button" title="Close inspector" aria-label="Close inspector"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+      <div id="node-content"></div>
+    </aside>
+  </main>
+  <div id="workflow-announcement" class="sr-only" aria-live="polite"></div>
+</body>
+</html>
