@@ -126,3 +126,17 @@ def test_case_bounds_intel_to_the_sharpest_records_at_real_scale():
     assert all("description" not in item for item in target["intelligence"])
     prompt = analyst.build_prompt(case, evidence, len(alias_map))
     assert len(prompt) < 60_000
+
+
+def test_validator_tolerates_small_model_envelope_noise():
+    payload = demo_payload()
+    case, evidence, alias_map = analyst.build_case(payload, "172.28.0.12")
+    response = valid_result(case["findings"][0]["id"], evidence[0]["id"])
+    del response["correlations"]
+    response["finding_ids"] = [case["findings"][0]["id"]]
+    response["evidence_ids"] = [evidence[0]["id"]]
+    result = analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+    assert result["analysis"]["correlations"] == []
+    alias = case["findings"][0]["id"]
+    canonical = result["analysis"]["recommended_actions"][0]["finding_ids"]
+    assert canonical == [alias_map[alias]]

@@ -261,13 +261,20 @@ def _validated_text(value: Any, field: str, limit: int) -> str:
 def validate_analysis(
     result: dict[str, Any], finding_ids: set[str], evidence_ids: set[str]
 ) -> dict[str, Any]:
-    required = {"summary", "confidence", "recommended_actions", "correlations", "uncertainties"}
+    # correlations may be omitted (an absent array claims nothing), and small models
+    # sometimes hoist citation arrays to the top level; both are formatting noise. The
+    # rendered claims - summary, confidence, action citations, uncertainties - stay
+    # strictly required and strictly checked.
+    required = {"summary", "confidence", "recommended_actions", "uncertainties"}
     confidence = str(result.get("confidence", "")).lower()
     if not required <= set(result) or confidence not in {"low", "medium", "high"}:
         raise LLMUnavailable(
             "analyst output does not match the required fields; "
             f"keys={sorted(str(key) for key in result)}, confidence={confidence!r}"
         )
+    correlations = result.get("correlations", [])
+    if correlations is None:
+        correlations = []
 
     def validate_cited(items: Any, label: str) -> list[dict[str, Any]]:
         if not isinstance(items, list):
@@ -317,7 +324,7 @@ def validate_analysis(
             validate_cited(result["recommended_actions"], "recommended_actions"),
             key=lambda item: item["order"],
         ),
-        "correlations": validate_cited(result["correlations"], "correlations"),
+        "correlations": validate_cited(correlations, "correlations"),
         "uncertainties": [_validated_text(item, "uncertainty", 300) for item in uncertainties[:2]],
     }
 
