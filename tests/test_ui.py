@@ -1078,3 +1078,37 @@ class TestWalls(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestAnalystChoices(unittest.TestCase):
+    """The analyst asset selector can only offer hosts that can form a case."""
+
+    def test_hosts_without_findings_are_disabled_and_labelled(self) -> None:
+        from vulnassess.ui.presentation import _analyst_choices, _analyzable_hosts
+
+        payload = {
+            "findings": [{"host_ip": "127.0.0.1"}],
+            "context": [
+                {"host_ip": "127.0.0.1", "role": {"value": "web_frontend"}},
+                {"host_ip": "192.168.0.116", "role": {"value": "file_share"}},
+            ],
+        }
+        choices = _analyst_choices(payload)
+        self.assertIn('<option value="127.0.0.1">', choices)
+        self.assertIn(
+            '<option value="192.168.0.116" disabled>192.168.0.116 · file share — no stored findings</option>',
+            choices,
+        )
+        self.assertEqual(_analyzable_hosts(payload), {"127.0.0.1"})
+
+    def test_run_selector_matches_stored_analyzable_hosts(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        _, _, body = request(application, "/")
+        document = body.decode("utf-8")
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        analyzable = {item["host_ip"] for item in payload["findings"]}
+        for host_ip in {profile["host_ip"] for profile in payload["context"]}:
+            option = re.search(rf'<option value="{re.escape(host_ip)}"[^>]*>', document)
+            self.assertIsNotNone(option, host_ip)
+            disabled = "disabled" in option.group(0)
+            self.assertEqual(disabled, host_ip not in analyzable, host_ip)
