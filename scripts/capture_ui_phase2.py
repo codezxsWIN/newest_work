@@ -40,7 +40,11 @@ def main() -> int:
         action="store_true",
         help="capture the current four-stage interface and its key states",
     )
-    parser.add_argument("--workflow", action="store_true", help="capture the independent workflow canvas without running a model")
+    parser.add_argument(
+        "--workflow",
+        action="store_true",
+        help="capture the independent workflow canvas without running a model",
+    )
     parser.add_argument("--run", help="existing assessment identifier")
     arguments = parser.parse_args()
     if arguments.workflow and arguments.workbench:
