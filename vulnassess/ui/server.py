@@ -15,7 +15,7 @@ import vulnassess.analyst as analyst
 from vulnassess.errors import ConfigError, LLMUnavailable
 from vulnassess.settings import CONFIG_FILES, Settings
 from vulnassess.ui.entry import render_entry
-from vulnassess.ui.reader import ReadOnlyStore, local_path
+from vulnassess.ui.reader import local_path, open_read_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
 CSP = (
@@ -67,7 +67,7 @@ class UiApplication:
         analyst_model: str = analyst.DEFAULT_MODEL,
         ollama_host: str = analyst.DEFAULT_HOST,
     ) -> None:
-        self.database = local_path(database)
+        self.database = str(database) if str(database).startswith(("postgres://", "postgresql://", "env:")) else local_path(database)
         self.config_dir = local_path(config_dir)
         self.run_id = run_id
         self.analyst_model = analyst_model
@@ -94,7 +94,7 @@ class UiApplication:
                 "values": values,
                 "yaml": document,
             }
-        with ReadOnlyStore(self.database) as store:
+        with open_read_store(self.database) as store:
             if run_id is None:
                 store.runs()
             else:
@@ -118,7 +118,7 @@ class UiApplication:
         if template.status != 200:
             return template
         try:
-            with ReadOnlyStore(self.database) as store:
+            with open_read_store(self.database) as store:
                 run_id = self.run_id if requested_run is None else requested_run
                 payload = None if run_id is None else store.run(run_id)
                 runs = store.runs() if payload is None else []
@@ -144,7 +144,7 @@ class UiApplication:
             raise ConfigError(f"cannot read CVSS arithmetic fixture {path}") from error
 
     def analyst_report(self, run_id: str, host_ip: str) -> dict[str, Any]:
-        with ReadOnlyStore(self.database) as store:
+        with open_read_store(self.database) as store:
             payload = store.run(run_id)
         return {
             "run_id": run_id,
@@ -203,7 +203,7 @@ class UiApplication:
         try:
             if len(parts) == 4 and parts[1] == "analyst":
                 return json_response(200, self.analyst_report(parts[2], parts[3]))
-            with ReadOnlyStore(self.database) as store:
+            with open_read_store(self.database) as store:
                 if parts == ["api", "runs"]:
                     return json_response(200, {"runs": store.runs(), "selected_run": self.run_id})
                 if len(parts) == 3 and parts[1] == "run":
