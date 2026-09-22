@@ -1,6 +1,7 @@
 """GET-only loopback workbench with explicit local analysis and no writable Store."""
 
 import json
+import os
 from dataclasses import dataclass
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -13,6 +14,7 @@ import yaml
 
 import vulnassess.analyst as analyst
 from vulnassess.errors import ConfigError, LLMUnavailable
+from vulnassess.repository import ENV_VAR, AssessmentRepository
 from vulnassess.settings import CONFIG_FILES, Settings
 from vulnassess.ui.entry import render_entry
 from vulnassess.ui.reader import local_path, open_read_store
@@ -67,7 +69,18 @@ class UiApplication:
         analyst_model: str = analyst.DEFAULT_MODEL,
         ollama_host: str = analyst.DEFAULT_HOST,
     ) -> None:
-        self.database = str(database) if str(database).startswith(("postgres://", "postgresql://", "env:")) else local_path(database)
+        resolved = str(database)
+        if os.environ.get(ENV_VAR) and not resolved.startswith(
+            ("postgres://", "postgresql://", "env:")
+        ):
+            # The backend-only env var takes precedence over the default SQLite
+            # path so the same server can read the Supabase cloud store.
+            resolved = f"env:{ENV_VAR}"
+        self.database = (
+            resolved
+            if resolved.startswith(("postgres://", "postgresql://", "env:"))
+            else local_path(resolved)
+        )
         self.config_dir = local_path(config_dir)
         self.run_id = run_id
         self.analyst_model = analyst_model
@@ -156,6 +169,59 @@ class UiApplication:
             ),
         }
 
+    def _repository(self) -> AssessmentRepository:
+        """Open the expanded assessment store strictly read-only."""
+        value = self.database if isinstance(self.database, str) else str(self.database)
+        return AssessmentRepository(value, read_only=True)
+
+    def _assessment_api(self, parts: list[str], query: dict[str, list[str]]) -> Response | None:
+        """Read-only assessment-store routes; the browser never sees the DB URL."""
+        if tuple(parts) in (
+            ("api", "assessment-runs"),
+            ("api", "assets"),
+            ("api", "model-evaluations"),
+            ("api", "ablations"),
+        ):
+            with self._repository() as repo:
+                if parts == ["api", "assessment-runs"]:
+                    payload: Any = {"runs": repo.assessment_runs()}
+                elif parts == ["api", "assets"]:
+                    payload = {"assets": repo.asset_inventory(self._first(query, "run"))}
+                elif parts == ["api", "model-evaluations"]:
+                    payload = repo.model_evaluations()
+                else:
+                    payload = {"ablations": repo.ablation_summaries()}
+            return json_response(200, payload)
+        if parts == ["api", "findings"]:
+            try:
+                limit = int(self._first(query, "limit") or 200)
+            except ValueError:
+                limit = 200
+            with self._repository() as repo:
+                findings = repo.findings_queue(
+                    run_id=self._first(query, "run"),
+                    status=self._first(query, "status"),
+                    severity=self._first(query, "severity"),
+                    decision=self._first(query, "decision"),
+                    limit=limit,
+                )
+            return json_response(200, {"findings": findings})
+        if len(parts) == 3 and parts[1] == "asset":
+            with self._repository() as repo:
+                return json_response(200, repo.asset_details(parts[2]))
+        if len(parts) == 3 and parts[1] == "finding":
+            with self._repository() as repo:
+                return json_response(200, repo.finding_evidence(parts[2]))
+        if len(parts) == 4 and parts[1] == "finding" and parts[3] == "score-history":
+            with self._repository() as repo:
+                return json_response(200, repo.finding_score_history(parts[2]))
+        return None
+
+    @staticmethod
+    def _first(query: dict[str, list[str]], name: str) -> str | None:
+        values = query.get(name)
+        return values[0] if values else None
+
     def get(self, target: str) -> Response:
         try:
             parsed = urlsplit(target)
@@ -203,6 +269,9 @@ class UiApplication:
         try:
             if len(parts) == 4 and parts[1] == "analyst":
                 return json_response(200, self.analyst_report(parts[2], parts[3]))
+            assessment = self._assessment_api(parts, parse_qs(parsed.query, keep_blank_values=True))
+            if assessment is not None:
+                return assessment
             with open_read_store(self.database) as store:
                 if parts == ["api", "runs"]:
                     return json_response(200, {"runs": store.runs(), "selected_run": self.run_id})
