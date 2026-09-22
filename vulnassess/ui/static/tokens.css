@@ -50,6 +50,14 @@
   --night-medium: #94c9e2;
   --night-low: #b7c2bf;
   --overlay: #00000066;
+  --signal: #306f53;
+  --signal-warm: #a45640;
+  --signal-cool: #426c82;
+  --hero-paper: #ededec;
+  --hero-ink: #171719;
+  --hero-muted: #454547;
+  --hero-line: #77777855;
+  --hero-glass: #ffffff44;
 }
 
 :root[data-theme="dark"] {
@@ -65,25 +73,73 @@
   --high: var(--night-high);
   --medium: var(--night-medium);
   --low: var(--night-low);
+  --hero-paper: #1b1b1c;
+  --hero-ink: #f4f4f1;
+  --hero-muted: #c8c8c5;
+  --hero-line: #dadade33;
+  --hero-glass: #18181a55;
+}
+
+:root[data-theme="dark"]:not(.workflow-theme) {
+  --assessment-paper: #202122;
+  --assessment-surface: #27292b;
+  --assessment-wash: #323539;
+  --assessment-ink: #f0f0ed;
+  --assessment-muted: #b7bdc4;
+  --assessment-line: #42464b;
+  --assessment-line-strong: #727980;
+  --assessment-signal: #dce2df;
+  --assessment-signal-warm: #e9ad96;
+  --assessment-signal-cool: #a7cbe0;
+  --paper: var(--assessment-paper);
+  --surface: var(--assessment-surface);
+  --wash: var(--assessment-wash);
+  --ink: var(--assessment-ink);
+  --muted: var(--assessment-muted);
+  --line: var(--assessment-line);
+  --line-strong: var(--assessment-line-strong);
+  --signal: var(--assessment-signal);
+  --signal-warm: var(--assessment-signal-warm);
+  --signal-cool: var(--assessment-signal-cool);
 }
 
 :root.workflow-theme {
-  --flow-bg: #f4f6f5;
-  --flow-paper: #ffffff;
-  --flow-ink: #232d2c;
-  --flow-muted: #62706c;
-  --flow-line: #d6dedb;
-  --flow-line-strong: #a9b7af;
-  --flow-dot: #ced8d3;
-  --flow-wire: #a2b4aa;
-  --flow-focus: #344b45;
-  --flow-soft: #e9eeeb;
-  --flow-accent: #395b50;
-  --flow-transform: #eef2ed;
-  --flow-intel: #eef1f3;
-  --flow-output: #f4f3ed;
-  --flow-critical: #842333;
-  --flow-shadow: #232d2c14;
+  --flow-bg: #24262b;
+  --flow-paper: #2c2f35;
+  --flow-ink: #f1f2f4;
+  --flow-muted: #b6bac4;
+  --flow-line: #454952;
+  --flow-line-strong: #666c77;
+  --flow-dot: #4c515c;
+  --flow-wire: #9299a5;
+  --flow-focus: #d4e8b6;
+  --flow-soft: #363a42;
+  --flow-accent: #c5dda1;
+  --flow-transform: #2b332f;
+  --flow-intel: #2c3440;
+  --flow-output: #35332d;
+  --flow-critical: #ef9296;
+  --flow-shadow: #0000004d;
+  --flow-shadow-contact: #00000026;
+  --flow-shadow-soft: #00000014;
+  --flow-inset: #ffffff10;
+  --flow-inset-strong: #ffffff20;
+  --flow-canvas-shade: #40464f24;
+  --flow-brand-start: #454f42;
+  --flow-brand-end: #30372f;
+  --flow-brand-border: #65745b;
+  --flow-tile-start: #424650;
+  --flow-transform-start: #424c45;
+  --flow-intel-start: #424d5c;
+  --flow-intel-ink: #ccdcef;
+  --flow-decision-start: #414d38;
+  --flow-decision-end: #293321;
+  --flow-decision-border: #889c6c;
+  --flow-decision-inset: #d4e8b624;
+  --flow-output-start: #514b3e;
+  --flow-output-ink: #e4d5b6;
+  --flow-selected-wire: #aec797;
+  --flow-trace: #eff8e4;
 }
 
 :root.workflow-theme {

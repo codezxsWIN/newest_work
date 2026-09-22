@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -8,30 +8,114 @@
   <link rel="stylesheet" href="/static/workbench.css">
   <script type="module" src="/static/app.js"></script>
 </head>
-<body>
-  <a class="skip-link" href="#stage-evidence">Skip to assessment</a>
+<body class="assessment-experience project-view">
+  <a class="skip-link" href="#project-story">Skip to project explanation</a>
   <header class="app-header">
-    <a class="brand" href="#stage-evidence" aria-label="VulnAssess home"><span class="brand-mark" aria-hidden="true">v/a</span><span>VulnAssess<small>Context Is Not Free</small></span></a>
-    <div class="header-note">LOCAL EVIDENCE WORKBENCH</div>
+    <a class="brand" href="#hero" aria-label="VulnAssess home"><span class="brand-mark" aria-hidden="true">v/a</span><span>VulnAssess<small>Context Is Not Free</small></span></a>
+    <nav class="project-nav" aria-label="Project navigation"><a href="#project-story">The idea</a><a href="#project-doors">The systems</a><a href="#project-workflow">Workflow</a><a href="#project-run">Run analysis</a><a href="#project-questions">Questions</a></nav>
+    <div class="header-note">LOCAL / READ ONLY</div>
+    <div id="run-choice-slot"></div>
     <div class="header-actions">
       <a id="open-workflow" class="icon-button" href="/workflow" title="Open workflow canvas" aria-label="Open workflow canvas" hidden><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="5" cy="12" r="3"/><circle cx="19" cy="5" r="3"/><circle cx="19" cy="19" r="3"/><path d="M8 12h3c3 0 2-7 5-7M11 12c3 0 2 7 5 7"/></svg></a>
-      <button id="open-palette" class="palette-button" type="button" aria-haspopup="dialog" aria-controls="palette" title="Search the assessment"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg><span>Search</span><kbd>Ctrl K</kbd></button>
+      <button id="open-palette" class="palette-button" type="button" aria-haspopup="dialog" aria-controls="palette" title="Search the assessment"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg><span>Find an asset or vulnerability</span></button>
       <button id="start-tour" class="tour-button" type="button"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7Z"/></svg>Trace one finding</button>
       <button id="refresh" class="icon-button" type="button" title="Refresh stored records" aria-label="Refresh stored records"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6"/></svg></button>
-      <button id="theme" class="icon-button" type="button" title="Toggle dark theme" aria-label="Toggle dark theme" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 15A8 8 0 0 1 9 4 8 8 0 1 0 20 15Z"/></svg></button>
+      <div class="theme-switch" role="group" aria-label="Appearance">
+        <button class="icon-button" type="button" data-theme-choice="system" title="System theme" aria-label="System theme" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M3 4h18v13H3ZM8 21h8M12 17v4"/></svg></button>
+        <button class="icon-button" type="button" data-theme-choice="light" title="Light theme" aria-label="Light theme" aria-pressed="false"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M5 19l1.5-1.5M17.5 6.5 19 5"/></svg></button>
+        <button id="theme" class="icon-button" type="button" data-theme-choice="dark" title="Dark theme" aria-label="Dark theme" aria-pressed="true"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 15A8 8 0 0 1 9 4 8 8 0 1 0 20 15Z"/></svg></button>
+      </div>
     </div>
   </header>
+  <main id="project-entry" class="project-entry">
+    <section id="hero" class="project-hero" aria-labelledby="project-title">
+      <div class="hero-copy">
+        <a class="hero-eyebrow" href="#project-story">Context is not free <span aria-hidden="true">&rarr;</span></a>
+        <h1 id="project-title">VulnAssess<span class="hero-period">.</span></h1>
+        <p class="hero-statement">The same weakness.<br>Not the same priority.</p>
+        <p class="hero-subtitle">A security warning is only part of the story. Where it lives helps explain what needs attention first.</p>
+        <a class="hero-cta" href="#project-story">See why context matters <span aria-hidden="true">&rarr;</span></a>
+      </div>
+      <a class="hero-next" href="#project-story"><span>01 / THE IDEA</span><span>What changes when the surroundings change?</span><span aria-hidden="true">&darr;</span></a>
+    </section>
+    <div id="project-story-slot"></div>
+    <div id="project-doors-slot"></div>
+    <section id="project-workflow" class="project-section" aria-labelledby="project-workflow-title">
+      <div class="project-section-heading"><span class="eyebrow">03 / HOW IT WORKS</span><h2 id="project-workflow-title">From a warning to a reason.</h2><p>Each step adds something you can check. Nothing silently changes the evidence.</p></div>
+      <ol class="project-path">
+        <li><span>01</span><h3>Observe</h3><p>Start with recorded findings from an authorised lab.</p><a data-project-workflow data-workflow-node="canonical" href="/workflow#node=canonical">View the findings <span aria-hidden="true">&rarr;</span></a></li>
+        <li><span>02</span><h3>Understand</h3><p>Look for clues about the system's role, exposure and observed protections.</p><a data-project-workflow data-workflow-node="context" href="/workflow#node=context">Follow the clues <span aria-hidden="true">&rarr;</span></a></li>
+        <li><span>03</span><h3>Prioritise</h3><p>Combine that context with vulnerability information using a published formula.</p><a data-project-workflow data-workflow-node="score" href="/workflow#node=score">See the reasoning <span aria-hidden="true">&rarr;</span></a></li>
+        <li><span>04</span><h3>Explain</h3><p>Follow the evidence behind a priority. Ask the local model for an explanation when needed.</p><a data-project-workflow data-workflow-node="analyst" href="/workflow#node=analyst">Open the local analyst <span aria-hidden="true">&rarr;</span></a></li>
+      </ol>
+      <div class="project-workflow-actions"><a class="hero-cta" data-project-workflow href="/workflow">Explore the workflow <span aria-hidden="true">&rarr;</span></a><p class="project-boundary">The model explains. The formula scores.</p></div>
+      <p id="project-offline" class="project-boundary" hidden>Offline snapshot. The interactive workflow and local model are available in the running application.</p>
+    </section>
+    <section id="project-analyst" class="project-section project-analyst" aria-labelledby="project-analyst-title">
+      <div class="analyst-introduction"><span class="eyebrow">04 / THE LOCAL ANALYST</span><h2 id="project-analyst-title">An explanation.<br>Not another score.</h2><p>An optional local model brings the findings together and suggests next steps, with references to the records behind its answer.</p><p class="analyst-boundary">You decide when it runs. Its answer does not change the recorded risk.</p>
+        <div class="analyst-launch"><label for="project-analyst-target">Recorded system</label><select id="project-analyst-target" disabled><option value="">No target attached</option></select><a id="project-analyst-open" class="hero-cta" data-project-workflow data-workflow-node="analyst" data-requires-host="true" href="/workflow#node=analyst">Meet the local analyst <span aria-hidden="true">&rarr;</span></a><p id="project-analyst-note" class="project-boundary">Opening the workflow does not run the model.</p></div>
+      </div>
+      <div class="analyst-evidence-path" aria-label="What the analyst works with">
+        <div class="analyst-path-heading"><span class="eyebrow">EVIDENCE / EXPLANATION</span><span class="analyst-local-status">On this machine</span></div>
+        <ol><li><span class="analyst-path-index">01</span><div><h3>The recorded picture</h3><p>One system's findings, deployment context and existing scores.</p></div></li><li><span class="analyst-path-index">02</span><div><h3>A grounded explanation</h3><p>What may matter, what is uncertain, and which actions deserve review.</p></div></li><li><span class="analyst-path-index">03</span><div><h3>References, not blind trust</h3><p>Follow the cited evidence and check the suggestion before acting.</p></div></li></ol>
+        <div class="analyst-path-foot"><span>Scoring stays separate</span><span>Human judgement stays essential</span></div>
+      </div>
+    </section>
+    <section id="project-run" class="project-section project-run" aria-labelledby="project-run-title">
+      <div class="project-section-heading"><span class="eyebrow">05 / RUN THE LOCAL ANALYSIS</span><h2 id="project-run-title">Bring the evidence together.</h2><p>Ask the local analyst to review one system, or every recorded system in this assessment. Findings, context, intelligence and stored scores travel together.</p></div>
+      <div class="run-layout">
+        <form id="project-run-form" class="run-setup">
+          <p id="project-run-assessment" class="run-assessment">No assessment selected.</p>
+          <fieldset class="run-scope"><legend>Analysis scope</legend><label><input class="sr-only" type="radio" name="analysis-scope" value="selected" checked><span>Selected system</span></label><label><input class="sr-only" type="radio" name="analysis-scope" value="all"><span>All systems</span></label></fieldset>
+          <label class="project-host-choice" for="project-run-target">Recorded system<select id="project-run-target" data-project-host disabled><option value="">No target attached</option></select></label>
+          <dl class="run-inputs" aria-label="Recorded inputs for this request"><div><dt>Systems</dt><dd id="run-system-count">Unavailable</dd></div><div><dt>Findings</dt><dd id="run-finding-count">Unavailable</dd></div><div><dt>Stored scores</dt><dd id="run-score-count">Unavailable</dd></div></dl>
+          <button id="project-run-review" class="hero-cta" type="submit" disabled>Review and run <span aria-hidden="true">&rarr;</span></button>
+          <p id="project-run-note" class="project-boundary">Model availability is checked when a request starts.</p>
+          <p class="run-boundary">Existing records only. This does not launch scanners, refresh feeds or recalculate scores.</p>
+          <a class="run-workflow-link" data-project-workflow data-workflow-node="analyst" data-requires-host="true" href="/workflow#node=analyst">Inspect the analyst's inputs <span aria-hidden="true">&rarr;</span></a>
+        </form>
+        <div class="run-session" aria-label="Local analysis requests">
+          <div class="run-session-heading"><div><span class="eyebrow">LOCAL ANALYSIS / THIS TAB</span><p id="project-run-status" role="status" aria-live="polite">Not requested</p></div><button id="project-run-stop" class="text-button" type="button" hidden>Stop after current</button></div>
+          <div id="project-run-results"><p class="run-empty">No local analysis has been requested.</p></div>
+          <p class="run-footnote">Model responses are advisory. Results remain in this tab and are not saved to the assessment.</p>
+        </div>
+      </div>
+    </section>
+    <dialog id="project-run-confirm" class="run-confirm" aria-labelledby="run-confirm-title" aria-describedby="run-confirm-boundary">
+      <span class="eyebrow">CONFIRM LOCAL MODEL REQUEST</span><h2 id="run-confirm-title">Analyze these recorded systems?</h2><p id="run-confirm-assessment"></p><ul id="run-confirm-targets"></ul><p id="run-confirm-boundary">Requests run one at a time on this machine. Scores stay unchanged. Stopping prevents the next request; it does not cancel inference already running.</p>
+      <div class="run-confirm-actions"><button id="run-confirm-cancel" class="text-button" type="button">Cancel</button><button id="run-confirm-start" class="hero-cta" type="button">Start local analysis <span aria-hidden="true">&rarr;</span></button></div>
+    </dialog>
+    <section id="project-outcomes" class="project-section project-outcomes" aria-labelledby="project-outcomes-title">
+      <div class="project-section-heading"><span class="eyebrow">06 / WHAT YOU GET</span><h2 id="project-outcomes-title">A place to start.<br>A reason to look closer.</h2><p>The result is a reviewable assessment, not a promise that a system is secure.</p></div>
+      <div class="project-outcome-list">
+        <a data-project-workflow data-workflow-node="queue" href="/workflow#node=queue"><span class="outcome-number">01</span><div><h3>A priority to investigate</h3><p>See which recorded findings come first in the queue.</p></div><span class="outcome-arrow" aria-hidden="true">&rarr;</span></a>
+        <a data-project-workflow data-workflow-node="rationale" href="/workflow#node=rationale"><span class="outcome-number">02</span><div><h3>A reason you can examine</h3><p>Follow the recorded explanation and the context behind it.</p></div><span class="outcome-arrow" aria-hidden="true">&rarr;</span></a>
+        <a data-project-workflow data-workflow-node="canonical" href="/workflow#node=canonical"><span class="outcome-number">03</span><div><h3>A route back to the source</h3><p>Inspect the original finding, its scanner and its provenance.</p></div><span class="outcome-arrow" aria-hidden="true">&rarr;</span></a>
+      </div>
+      <p class="project-boundary" data-offline-note hidden>Workflow exploration is available in the running application. This file preserves the assessment snapshot.</p>
+    </section>
+    <section class="project-research project-section" aria-labelledby="project-research-title"><span class="eyebrow">THE RESEARCH QUESTION</span><h2 id="project-research-title">Does context make the priorities better?</h2><p>That is what this project tests against independent expert judgement. A demonstration is not proof that the method works.</p><a href="#stage-priorities">Inspect the recorded assessment <span aria-hidden="true">&rarr;</span></a></section>
+    <section id="project-questions" class="project-section project-questions" aria-labelledby="project-questions-title">
+      <div class="project-section-heading"><span class="eyebrow">BEFORE YOU EXPLORE</span><h2 id="project-questions-title">A few things worth knowing.</h2><p>The boundaries are part of the project.</p></div>
+      <div class="project-faq">
+        <details><summary>Does opening this site scan anything?<span class="faq-mark" aria-hidden="true"></span></summary><p>No. The site reads existing assessment records. Capturing scan evidence is a separate, authorised lab activity.</p></details>
+        <details><summary>Does the AI decide what is most urgent?<span class="faq-mark" aria-hidden="true"></span></summary><p>No. A published, deterministic formula produces the scores. The optional local model explains the recorded findings and offers suggestions for human review.</p></details>
+        <details><summary>Are the example results real?<span class="faq-mark" aria-hidden="true"></span></summary><p>Check the label beside the example. Synthetic examples illustrate the method; they are not findings about real systems. Recorded examples are only as strong as their source evidence.</p></details>
+        <details><summary>Does a high score mean the system was hacked?<span class="faq-mark" aria-hidden="true"></span></summary><p>No. A priority score is a reason to investigate a weakness, not evidence of a successful attack.</p></details>
+        <details><summary>Does this prove context gives better priorities?<span class="faq-mark" aria-hidden="true"></span></summary><p>Not by itself. The research compares rankings with independent expert judgement. A demonstration or a working interface does not establish that result.</p></details>
+      </div>
+    </section>
+    <footer class="project-footer"><span>VulnAssess / Context Is Not Free</span><span>Authorised lab research. Local evidence.</span></footer>
+  </main>
   <div id="run-strip-slot"></div>
   <div class="workspace">
     <aside class="stage-rail">
-      <p class="rail-eyebrow">ONE ASSESSMENT</p>
       <nav aria-label="Assessment stages">
-        <a class="stage-link active" href="#stage-evidence" data-stage="evidence" aria-current="page"><span class="stage-index">01</span><span><strong>Evidence</strong><small>What was observed</small></span></a>
-        <a class="stage-link" href="#stage-context" data-stage="context"><span class="stage-index">02</span><span><strong>Context</strong><small>What the clues imply</small></span></a>
-        <a class="stage-link" href="#stage-risk" data-stage="risk"><span class="stage-index">03</span><span><strong>Risk</strong><small>Why urgency changes</small></span></a>
-        <a class="stage-link" href="#stage-priorities" data-stage="priorities"><span class="stage-index">04</span><span><strong>Priorities</strong><small>What to examine first</small></span></a>
+        <a class="stage-link active" href="#stage-evidence" data-stage="evidence" aria-current="page" title="Evidence and assets"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9M12 7a5 5 0 1 0 5 5M12 12l7-7M12 3v9h9"/></svg><strong>Evidence</strong></a>
+        <a class="stage-link" href="#stage-context" data-stage="context" title="Deployment context"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m12 3 10 5-10 5L2 8 10-5Zm-10 9 10 5 10-5M2 16l10 5 10-5"/></svg><strong>Context</strong></a>
+        <a class="stage-link" href="#stage-risk" data-stage="risk" title="Risk and context comparison"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 4v16h17M8 16v-4m5 4V8m5 8V5"/></svg><strong>Risk</strong></a>
+        <a class="stage-link" href="#stage-priorities" data-stage="priorities" title="Ranked findings"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M8 5h13M8 12h9M8 19h5M3 5h.1M3 12h.1M3 19h.1"/></svg><strong>Findings</strong></a>
       </nav>
-      <div class="rail-bottom"><span class="read-only-mark" aria-hidden="true"></span>LOCAL &amp; READ ONLY<p>Same weakness.<br>Different urgency.</p></div>
     </aside>
     <main id="notebook"></main>
   </div>
@@ -45,9 +129,9 @@
       <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.6-3.6"/></svg>
       <input id="palette-input" type="search" autocomplete="off" spellcheck="false" placeholder="Findings, hosts, CVEs, stages" aria-label="Search findings, hosts, CVEs and stages" role="combobox" aria-expanded="true" aria-controls="palette-results" aria-autocomplete="list">
       <span id="palette-count" class="palette-count" aria-live="polite"></span>
+      <button id="close-palette" type="button" class="icon-button" title="Close search" aria-label="Close search"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
     </div>
     <ul id="palette-results" class="palette-results" role="listbox" aria-label="Search results"></ul>
-    <p class="palette-hint"><kbd>&uarr;</kbd><kbd>&darr;</kbd> move<span>&middot;</span><kbd>Enter</kbd> open<span>&middot;</span><kbd>Esc</kbd> close<span>&middot;</span>reads stored records only</p>
   </dialog>
   <p id="app-status" role="status" class="sr-only"></p>
 </body>

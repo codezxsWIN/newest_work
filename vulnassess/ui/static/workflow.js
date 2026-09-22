@@ -1,24 +1,36 @@
-import {currentSlice, evidenceKind, queueRows, traceLayers, diffFields} from './workflow-data.js';
+import {SIZE, EDGES, ICONS, buildNodes, connectedNodeIds, nodeDetails, evidenceKind} from './workflow-data.js';
+import {requestAnalyst} from './analyst-client.js';
 
 const runSelect = document.getElementById('workflow-run');
 const hostSelect = document.getElementById('workflow-host');
-const compareToggle = document.getElementById('toggle-compare');
-const rail = document.getElementById('queue-rail');
-const stack = document.getElementById('trace-stack');
-const compareStack = document.getElementById('compare-stack');
-const loading = document.getElementById('loading-state');
-const view = {assessment: null, scope: null, weights: null, host: '', finding: '', layer: 'priority', compare: '', load: 0, analyses: new Map()};
+const findingSelect = document.getElementById('workflow-finding');
+const viewport = document.getElementById('viewport');
+const graph = document.getElementById('graph');
+const message = document.getElementById('loading-state');
+const inspector = document.getElementById('node-inspector');
+const content = document.getElementById('node-content');
+const svgNamespace = 'http://www.w3.org/2000/svg';
+const narrowViewport = matchMedia('(max-width: 960px)');
+const view = {assessment: null, scope: null, weights: null, host: '', finding: '', node: '', mode: narrowViewport.matches ? 'stages' : 'canvas', modeChosen: false, scale: 1, panX: 0, panY: 0, load: 0, analyses: new Map()};
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
-  if (text !== undefined) node.textContent = text === null || text === undefined || text === '' ? 'Not recorded' : String(text);
+  if (text !== undefined) node.textContent = String(text);
   return node;
 }
 
-function show(node, on = true) { node.hidden = !on; }
+function svgElement(name, attributes = {}) {
+  const node = document.createElementNS(svgNamespace, name);
+  for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
+  return node;
+}
 
-function announce(text) { document.getElementById('workflow-announcement').textContent = text; }
+function icon(name) {
+  const svg = svgElement('svg', {viewBox: '0 0 24 24', 'aria-hidden': 'true'});
+  for (const path of ICONS[name] || ICONS.report) svg.append(svgElement('path', {d: path}));
+  return svg;
+}
 
 async function getRecord(path) {
   const response = await fetch(path, {cache: 'no-store', credentials: 'same-origin'});
@@ -27,230 +39,279 @@ async function getRecord(path) {
   return payload;
 }
 
-function updateLocation() {
-  const parameters = new URLSearchParams();
-  if (view.finding) parameters.set('finding', view.finding);
-  if (view.layer !== 'priority') parameters.set('layer', view.layer);
-  if (view.compare) parameters.set('compare', view.compare);
-  history.replaceState(null, '', `${location.pathname}${location.search}${parameters.size ? `#${parameters}` : ''}`);
+function currentAnalysis() {
+  return view.assessment ? view.analyses.get(`${view.assessment.run.run_id}/${view.host}`) : null;
 }
 
-function analysisFor(runId, hostIp) { return view.analyses.get(`${runId}/${hostIp}`) || null; }
+function selection() { return {host: view.host, finding: view.finding}; }
+function transform() {
+  graph.style.transform = view.mode === 'stages' ? 'none' : `translate(${view.panX}px, ${view.panY}px) scale(${view.scale})`;
+  document.getElementById('zoom-level').textContent = `${Math.round(view.scale * 100)}%`;
+}
 
-function rowsList(rows, diffs = null, otherRows = null) {
-  const list = element('dl', 'trace-rows');
-  const otherValue = label => otherRows?.find(item => item.label === label)?.value;
-  for (const row of rows) {
-    const diverges = Boolean(diffs) && Boolean(otherRows)
-      && String(row.value ?? 'Not recorded') !== String(otherValue(row.label) ?? 'Not recorded');
-    list.append(element('dt', 'trace-label', row.label));
-    const value = element('dd', diverges ? 'trace-value differs' : 'trace-value', row.value);
-    if (diverges) value.title = 'Differs between the two traces';
-    list.append(value);
+function setViewMode(mode) {
+  view.mode = mode;
+  viewport.dataset.view = mode;
+  viewport.setAttribute('aria-label', mode === 'canvas' ? 'Assessment workflow canvas' : 'Assessment workflow stages');
+  for (const button of document.querySelectorAll('[data-view-mode]')) button.setAttribute('aria-pressed', String(button.dataset.viewMode === mode));
+  viewport.scrollTop = 0;
+  fit();
+}
+
+function fit() {
+  if (!view.assessment) return;
+  const width = viewport.clientWidth;
+  const height = viewport.clientHeight;
+  const top = document.querySelector('.trace-controls').offsetHeight + 44;
+  const bottom = document.querySelector('.canvas-footer').offsetHeight + 40;
+  const availableHeight = height - top - bottom;
+  view.scale = Math.max(0.18, Math.min(1, (width - 52) / SIZE.width, availableHeight / SIZE.height));
+  view.panX = (width - SIZE.width * view.scale) / 2;
+  view.panY = top + Math.max(0, (availableHeight - SIZE.height * view.scale) / 2);
+  transform();
+}
+
+function zoom(factor, point = {x: viewport.clientWidth / 2, y: viewport.clientHeight / 2}) {
+  const previous = view.scale;
+  view.scale = Math.max(.18, Math.min(2.2, previous * factor));
+  view.panX = point.x - (point.x - view.panX) * view.scale / previous;
+  view.panY = point.y - (point.y - view.panY) * view.scale / previous;
+  transform();
+}
+
+function edgePath(from, to) {
+  const horizontal = Math.abs(to.x - from.x) > Math.abs(to.y - from.y) * .75;
+  if (horizontal) {
+    const direction = Math.sign(to.x - from.x) || 1;
+    const start = {x: from.x + 50 * direction, y: from.y};
+    const end = {x: to.x - 50 * direction, y: to.y};
+    const middle = (start.x + end.x) / 2;
+    return `M${start.x},${start.y} C${middle},${start.y} ${middle},${end.y} ${end.x},${end.y}`;
   }
+  const side = Math.max(from.x, to.x) + 105;
+  const start = {x: from.x + 50, y: from.y};
+  const end = {x: to.x + 50, y: to.y};
+  return `M${start.x},${start.y} C${side},${start.y} ${side},${end.y} ${end.x},${end.y}`;
+}
+
+function renderGraph() {
+  if (!view.assessment) return;
+  const nodes = buildNodes(view.assessment, view.scope, selection(), currentAnalysis());
+  const nodeMap = new Map(nodes.map(node => [node.id, node]));
+  const connected = view.node ? connectedNodeIds(view.node) : null;
+  const paths = document.getElementById('connections');
+  paths.setAttribute('viewBox', `0 0 ${SIZE.width} ${SIZE.height}`);
+  paths.replaceChildren();
+  const definitions = svgElement('defs');
+  const arrow = svgElement('marker', {id: 'flow-arrow', markerWidth: 6, markerHeight: 6, refX: 5, refY: 3, orient: 'auto', markerUnits: 'strokeWidth'});
+  arrow.append(svgElement('path', {d: 'M0,0 L6,3 L0,6', class: 'arrow-fill'}));
+  definitions.append(arrow);
+  paths.append(definitions);
+  for (const edge of EDGES) {
+    const from = nodeMap.get(edge.from);
+    const to = nodeMap.get(edge.to);
+    const missing = edge.optional || ['missing', 'optional'].includes(from.state) || ['missing', 'optional'].includes(to.state);
+    const active = view.node === edge.from || view.node === edge.to;
+    paths.append(svgElement('path', {d: edgePath(from, to), class: `connection${missing ? ' optional' : ''}${active ? ' highlighted' : ''}${view.node && !active ? ' faded' : ''}`, 'marker-end': 'url(#flow-arrow)', 'data-edge': `${edge.from}:${edge.to}`}));
+    if (active) paths.append(svgElement('path', {d: edgePath(from, to), class: 'connection-trace', pathLength: 100}));
+  }
+  const list = document.getElementById('node-list');
+  list.replaceChildren();
+  for (const node of nodes) {
+    const button = element('button', `flow-node group-${node.group} state-${node.state}`);
+    button.type = 'button';
+    button.dataset.node = node.id;
+    button.style.left = `${node.x}px`;
+    button.style.top = `${node.y}px`;
+    button.setAttribute('aria-label', `${node.title}: ${node.status}`);
+    button.title = `${node.title} / ${node.subtitle} / ${node.status}`;
+    button.setAttribute('aria-pressed', String(view.node === node.id));
+    if (view.node && !connected.has(node.id)) button.classList.add('muted-node');
+    const disc = element('span', 'node-disc');
+    disc.append(icon(node.icon));
+    const stateMark = element('span', 'node-state-mark');
+    stateMark.setAttribute('aria-hidden', 'true');
+    stateMark.textContent = node.state === 'error' ? '!' : '';
+    disc.append(stateMark);
+    button.append(disc, element('strong', 'node-title', node.title), element('span', 'node-subtitle', node.subtitle), element('span', 'node-status', node.status));
+    button.addEventListener('click', () => selectNode(node.id));
+    list.append(button);
+  }
+  const lanes = document.getElementById('lanes');
+  if (!lanes.children.length) {
+    const labels = [
+      {text: '01 / EVIDENCE', x: 65, y: 30}, {text: '02 / INTELLIGENCE', x: 585, y: 0},
+      {text: '03 / RISK & PRIORITY', x: 945, y: 245}, {text: '04 / OUTPUTS', x: 1320, y: 30},
+    ];
+    for (const label of labels) {
+      const item = element('span', 'lane-label', label.text);
+      item.style.left = `${label.x}px`;
+      item.style.top = `${label.y}px`;
+      lanes.append(item);
+    }
+  }
+}
+
+function rows(items) {
+  const list = element('dl', 'detail-rows');
+  for (const item of items) list.append(element('dt', '', item.label), element('dd', 'evidence', item.value === null || item.value === undefined ? 'Not recorded' : String(item.value)));
   return list;
 }
 
-function layerFigure(layer, diffs = null) {
-  const details = document.createElement('details');
-  details.className = `trace-layer layer-${layer.id}${layer.present ? '' : ' layer-missing'}`;
-  details.open = layer.id === view.layer;
-  const summary = element('summary', 'layer-summary');
-  summary.append(
-    element('span', 'layer-index', String(layer.order)),
-    element('span', 'layer-name', layer.title),
-    element('span', 'layer-state', layer.present ? 'Stored' : 'Absent — named, not zero'),
-  );
-  details.append(summary);
-  const body = element('div', 'layer-body');
-  body.append(element('p', 'layer-operation', layer.operation));
-  if (!layer.present) {
-    body.append(element('p', 'layer-missing-note', layer.missing));
-    details.append(body);
-    return details;
+function appendQuotes(parent, items) {
+  for (const item of items) {
+    const group = element('div', 'evidence-item');
+    group.append(element('span', 'detail-label', item.label));
+    if (Object.hasOwn(item, 'value')) group.append(element('strong', 'feature-label', String(item.value).replaceAll('_', ' ')));
+    if (item.confidence !== undefined) group.append(element('small', 'detail-hint', `Confidence ${item.confidence} · ${item.source}`));
+    group.append(element('blockquote', 'evidence', item.quote));
+    if (item.source) group.append(element('small', 'evidence-source', item.source));
+    parent.append(group);
   }
-  if (layer.rows.length) body.append(rowsList(layer.rows, diffs));
-  if (layer.vector) body.append(element('p', 'trace-vector', layer.vector));
-  if (layer.outputs) {
-    body.append(element('p', 'layer-eyebrow', 'DOWNSTREAM ARTIFACTS'));
-    body.append(rowsList(layer.outputs));
-  }
-  if (layer.groups) {
-    for (const group of layer.groups) {
-      const block = element('div', 'intel-group');
-      block.append(element('h3', 'intel-title', group.title));
-      body.append(block);
-      if (group.rows.length) block.append(rowsList(group.rows));
-      if (group.quote) {
-        block.append(element('span', 'trace-label', group.quote.label));
-        block.append(element('blockquote', 'trace-quote', group.quote.text));
-      }
-    }
-  }
-  if (layer.features) {
-    for (const feature of layer.features) {
-      const item = element('div', 'context-feature');
-      item.append(element('span', 'trace-label', feature.label));
-      item.append(element('strong', 'feature-value', String(feature.value).replaceAll('_', ' ')));
-      item.append(element('small', 'feature-meta', `Confidence ${feature.confidence} · ${feature.source}`));
-      item.append(element('blockquote', 'trace-quote', feature.quote));
-    }
-  }
-  if (layer.quote) {
-    body.append(element('span', 'trace-label', layer.quote.label));
-    body.append(element('blockquote', 'trace-quote', layer.quote.text));
-  }
-  details.append(body);
-  return details;
 }
 
-function sourcesLine(sources) {
-  const line = element('p', 'trace-sources');
-  line.append(element('span', 'trace-label', 'IMPORTS PRESENT'));
-  for (const source of sources) {
-    line.append(element('span', `source-stamp${source.recorded ? ' recorded' : ' absent'}`, source.recorded ? source.tool.toUpperCase() : `${source.tool.toUpperCase()} — NO IMPORT`));
-  }
-  return line;
+function updateProjectLink() {
+  if (!view.assessment) return;
+  const parameters = new URLSearchParams();
+  if (view.host) parameters.set('asset', view.host);
+  if (view.finding) parameters.set('finding', view.finding);
+  const section = view.finding ? 'project-doors' : 'project-workflow';
+  document.getElementById('assessment-link').href = `/?run=${encodeURIComponent(view.assessment.run.run_id)}#${section}${parameters.size ? `?${parameters}` : ''}`;
 }
 
-function analystPanel(trace) {
-  const holder = element('section', 'analyst-layer');
-  holder.append(element('p', 'layer-eyebrow', 'LOCAL AI ANALYST — ADVISORY ONLY'));
-  const analysis = trace.analysis;
-  const status = analysis?.status;
-  const button = element('button', 'analyze-button', status === 'running' ? 'Request in progress…' : 'Analyze this target');
+function updateLocation() {
+  const parameters = new URLSearchParams();
+  if (view.node) parameters.set('node', view.node);
+  if (view.host) parameters.set('host', view.host);
+  if (view.finding) parameters.set('finding', view.finding);
+  history.replaceState(null, '', `${location.pathname}${location.search}${parameters.size ? `#${parameters}` : ''}`);
+  updateProjectLink();
+}
+
+function selectNode(identity) {
+  view.node = identity;
+  updateLocation();
+  inspector.hidden = false;
+  renderGraph();
+  renderInspector();
+  fit();
+  content.querySelector('h2').focus({preventScroll: true});
+  document.getElementById('workflow-announcement').textContent = `${content.querySelector('h2').textContent} selected`;
+}
+
+function renderInspector() {
+  if (!view.node || !view.assessment) return;
+  const nodes = buildNodes(view.assessment, view.scope, selection(), currentAnalysis());
+  const node = nodes.find(item => item.id === view.node);
+  const details = nodeDetails(view.node, view.assessment, view.scope, view.weights, selection(), currentAnalysis());
+  content.replaceChildren();
+  const heading = element('div', 'node-detail-title');
+  const glyph = element('span', `inspector-glyph group-${node.group}`);
+  glyph.append(icon(node.icon));
+  const title = element('h2', '', node.title);
+  title.tabIndex = -1;
+  heading.append(glyph, title);
+  content.append(heading, element('p', 'node-description', node.subtitle), element('span', `detail-status state-${node.state}`, node.status));
+  const logic = element('div', 'node-operation');
+  for (const [label, value] of [['INPUT', details.input], ['OPERATION', details.operation], ['OUTPUT', details.output]]) {
+    const section = element('div', 'operation-row');
+    section.append(element('span', 'detail-label', label), element('p', '', value));
+    logic.append(section);
+  }
+  content.append(logic);
+  if (details.rows.length) content.append(rows(details.rows));
+  appendQuotes(content, details.quotes);
+  if (view.node === 'analyst') renderAnalyst();
+  if (details.message) content.append(element('p', 'boundary-note', details.message));
+  if (details.records.length) {
+    const disclosure = element('details', 'raw-records');
+    disclosure.append(element('summary', '', 'Raw records'), element('pre', 'evidence', JSON.stringify(details.records, null, 2)));
+    content.append(disclosure);
+  }
+  const module = element('div', 'module-path');
+  module.append(element('span', 'detail-label', 'IMPLEMENTATION'), element('span', 'evidence', details.provenance));
+  content.append(module);
+  const links = element('div', 'node-neighbours');
+  for (const edge of EDGES.filter(edge => edge.from === view.node || edge.to === view.node)) {
+    const other = nodes.find(item => item.id === (edge.from === view.node ? edge.to : edge.from));
+    const button = element('button', 'neighbour-link', `${edge.from === view.node ? 'To' : 'From'} ${other.title}`);
+    button.type = 'button';
+    button.addEventListener('click', () => selectNode(other.id));
+    links.append(button);
+  }
+  content.append(links);
+}
+
+function renderAnalyst() {
+  const holder = element('section', 'analyst-action');
+  holder.append(element('p', 'analyst-scope', view.host ? `Target: ${view.host}` : 'Select a target above to analyze its stored evidence.'));
+  const button = element('button', 'analyze-button', currentAnalysis()?.status === 'running' ? 'Request in progress' : 'Analyze target');
   button.type = 'button';
-  button.disabled = !trace.finding || status === 'running';
-  button.addEventListener('click', () => analyzeTarget(trace.finding.host_ip));
+  button.id = 'workflow-analyze';
+  button.disabled = !view.host || currentAnalysis()?.status === 'running';
+  button.addEventListener('click', analyzeTarget);
   holder.append(button);
-  holder.append(element('p', 'analyst-note', trace.finding
-    ? `One explicit request runs local Ollama over every stored record for ${trace.finding.host_ip}. It never changes the scores above.`
-    : 'Select a finding to enable a local analysis request.'));
-  if (status === 'running') holder.append(element('p', 'analyst-note', 'Waiting for the local model. CPU inference can take minutes; nothing is replayed or faked here.'));
-  if (status === 'error') holder.append(element('p', 'analyst-error', analysis.error));
-  if (status === 'complete') {
-    const result = analysis.result;
-    holder.append(element('p', 'analyst-summary', result.analysis.summary));
+  const live = currentAnalysis();
+  if (live?.status === 'running') holder.append(element('p', 'analysis-wait', 'Waiting for the local model response. No pipeline step is being replayed.'));
+  if (live?.status === 'error') holder.append(element('p', 'analysis-error', live.error));
+  if (live?.result) {
+    const result = live.result;
+    holder.append(element('p', 'analysis-summary', result.analysis.summary));
     const evidenceMap = new Map(result.evidence.map(item => [item.id, item]));
     for (const action of result.analysis.recommended_actions) {
-      const record = element('div', 'analyst-action');
-      record.append(element('strong', '', action.action), element('p', '', action.reason));
-      for (const citation of action.evidence_ids) {
-        const chip = element('button', 'citation-chip', citation);
-        chip.type = 'button';
-        chip.title = evidenceMap.get(citation)?.text || 'Citation record';
-        chip.addEventListener('click', () => {
-          document.querySelector('.trace-layer.layer-evidence')?.scrollIntoView({block: 'start'});
-          announce(`Citation ${citation}: ${evidenceMap.get(citation)?.text || 'record text unavailable'}`);
-        });
-        record.append(chip);
-      }
+      const record = element('div', 'analysis-action');
+      record.append(element('h3', '', action.action), element('p', '', action.reason));
+      appendQuotes(record, action.evidence_ids.map(identity => ({label: `Citation ${identity}`, quote: evidenceMap.get(identity)?.text || 'Citation not present in response', source: result.model})));
       holder.append(record);
     }
-    for (const uncertainty of result.analysis.uncertainties || []) holder.append(element('p', 'analyst-uncertainty', uncertainty));
-    holder.append(element('p', 'analyst-note', `Model ${result.model} · advisory confidence ${result.analysis.confidence} · stored scores unchanged.`));
+    for (const correlation of result.analysis.correlations || []) {
+      const record = element('div', 'analysis-action');
+      record.append(element('h3', '', 'Correlated evidence'), element('p', '', correlation.observation));
+      appendQuotes(record, correlation.evidence_ids.map(identity => ({label: `Citation ${identity}`, quote: evidenceMap.get(identity)?.text || 'Citation not present in response', source: result.model})));
+      holder.append(record);
+    }
+    for (const uncertainty of result.analysis.uncertainties) holder.append(element('p', 'boundary-note', uncertainty));
   }
-  return holder;
+  content.append(holder);
 }
 
-function renderTrace(targetStack, findingId, diffs = null) {
-  targetStack.replaceChildren();
-  if (!view.assessment) return;
-  const selection = {host: view.host, finding: findingId};
-  const trace = traceLayers(view.assessment, view.scope, view.weights, selection, null);
-  if (!trace.finding) {
-    targetStack.append(element('p', 'trace-state', 'This finding is not stored in the selected assessment.'));
-    return;
-  }
-  const header = element('header', 'trace-head');
-  header.append(
-    element('p', 'layer-eyebrow', `TRACE ${trace.position ? `· QUEUE POSITION ${trace.position}` : '· UNSCORED'}`),
-    element('h2', 'trace-title', trace.finding.title),
-    element('p', 'trace-endpoint', `${trace.finding.host_ip}${trace.finding.port ? ` : ${trace.finding.port}` : ''} · ${trace.finding.tool} · ${trace.finding.cve_ids.join(', ') || trace.finding.tool_native_id}`),
-  );
-  targetStack.append(header);
-  targetStack.append(sourcesLine(trace.sources));
-  let order = 0;
-  for (const layer of trace.layers) {
-    layer.order = ++order;
-    const figure = layerFigure(layer, diffs);
-    figure.dataset.layer = layer.id;
-    figure.addEventListener('toggle', () => {
-      if (figure.open) { view.layer = layer.id; updateLocation(); }
-    });
-    targetStack.append(figure);
-  }
-  targetStack.append(analystPanel(trace));
-}
-
-function renderRail() {
-  rail.replaceChildren();
-  if (!view.assessment) return;
-  const rows = queueRows(view.assessment, view.host);
-  for (const row of rows) {
-    const button = element('button', `queue-mark band-${String(row.band).toLowerCase()}`);
-    button.type = 'button';
-    button.dataset.finding = row.finding_id;
-    button.setAttribute('aria-pressed', String(row.finding_id === view.finding));
-    button.setAttribute('aria-label', `Position ${row.position}: ${row.title} on ${row.host_ip}, risk ${row.risk}, band ${row.band}`);
-    button.append(
-      element('span', 'mark-position', String(row.position)),
-      element('span', 'mark-risk', String(row.risk)),
-      element('span', 'mark-band', String(row.band)),
-      element('span', 'mark-label', `${row.cve_id || row.title}`),
-      element('span', 'mark-host', `${row.host_ip}${row.port ? `:${row.port}` : ''}`),
-    );
-    button.addEventListener('click', () => selectFinding(row.finding_id));
-    rail.append(button);
-  }
-  const unscored = view.assessment.findings.filter(finding => !view.assessment.scores.some(score => score.finding_id === finding.id) && (!view.host || finding.host_ip === view.host));
-  if (unscored.length) {
-    rail.append(element('p', 'rail-note', `${unscored.length} imported finding(s) have no stored score and appear nowhere above.`));
-  }
-}
-
-function renderCompare() {
-  show(compareStack, Boolean(view.compare));
-  compareToggle.setAttribute('aria-pressed', String(Boolean(view.compare)));
-  if (!view.compare) return;
-  const base = view.assessment.scores.find(score => score.finding_id === view.finding) || null;
-  const other = view.assessment.scores.find(score => score.finding_id === view.compare) || null;
-  const diffs = diffFields(base, other);
-  renderTrace(compareStack, view.compare, diffs);
-}
-
-function renderAll() {
-  renderRail();
-  renderTrace(stack, view.finding);
-  renderCompare();
-}
-
-function selectFinding(findingId) {
-  view.finding = findingId;
-  updateLocation();
-  renderAll();
-  announce(`Tracing ${view.assessment?.findings.find(finding => finding.id === findingId)?.title || 'selected finding'}`);
-}
-
-async function analyzeTarget(hostIp) {
-  if (!view.assessment) return;
+async function analyzeTarget() {
+  if (!view.host || !view.assessment) return;
   const runId = view.assessment.run.run_id;
+  const hostIp = view.host;
   const key = `${runId}/${hostIp}`;
   if (view.analyses.get(key)?.status === 'running') return;
   view.analyses.set(key, {runId, hostIp, status: 'running'});
-  renderAll();
+  renderGraph();
+  renderInspector();
   try {
-    const response = await getRecord(`/api/analyst/${encodeURIComponent(runId)}/${encodeURIComponent(hostIp)}`);
-    if (response.run_id !== runId || response.host_ip !== hostIp || response.canonical_scores_changed !== false) throw new Error('Analyst response does not match the score boundary.');
+    const response = await requestAnalyst(runId, hostIp);
     view.analyses.set(key, {runId, hostIp, status: 'complete', result: response});
   } catch (error) {
     view.analyses.set(key, {runId, hostIp, status: 'error', error: error.message});
   }
-  if (view.assessment?.run.run_id === runId) renderAll();
-  announce(view.analyses.get(key).status === 'complete' ? 'Local analyst response received. Stored scores unchanged.' : 'Local analysis failed. No result substituted.');
+  if (view.assessment?.run.run_id === runId && view.host === hostIp) {
+    renderGraph();
+    renderInspector();
+    document.getElementById('workflow-announcement').textContent = view.analyses.get(key).status === 'complete' ? 'Local analyst response received. Stored scores unchanged.' : 'Local analysis failed. No result substituted.';
+  }
 }
 
-function populateHosts() {
+function populateFindings() {
+  const findings = view.assessment.findings.filter(finding => !view.host || finding.host_ip === view.host);
+  findingSelect.replaceChildren(element('option', '', 'All findings'));
+  findingSelect.options[0].value = '';
+  for (const finding of findings) {
+    const option = element('option', '', `${finding.host_ip} / ${finding.title}`);
+    option.value = finding.id;
+    findingSelect.append(option);
+  }
+  if (!findings.some(finding => finding.id === view.finding)) view.finding = '';
+  findingSelect.value = view.finding;
+  findingSelect.disabled = false;
+}
+
+function populateSelection() {
   hostSelect.replaceChildren(element('option', '', 'All recorded hosts'));
   hostSelect.options[0].value = '';
   for (const host of view.assessment.hosts) {
@@ -261,24 +322,21 @@ function populateHosts() {
   if (!view.assessment.hosts.some(host => host.ip === view.host)) view.host = '';
   hostSelect.value = view.host;
   hostSelect.disabled = false;
+  populateFindings();
 }
 
-async function loadTraceback() {
+async function loadWorkflow() {
   const sequence = ++view.load;
-  show(loading, true);
-  loading.querySelector('strong').textContent = 'Opening the assessment';
-  loading.querySelector('p').textContent = 'Reading local records.';
-  show(document.querySelector('.trace-shell'), false);
+  message.hidden = false;
+  message.querySelector('strong').textContent = 'Opening the assessment';
+  message.querySelector('p').textContent = 'Reading local records.';
+  graph.hidden = true;
   document.getElementById('refresh-workflow').disabled = true;
   try {
     const index = await getRecord('/api/runs');
     if (!index.runs.length) throw new Error('No stored runs. Import an authorized capture through the CLI, then refresh.');
     const requested = new URLSearchParams(location.search).get('run') || index.selected_run || index.runs[0].run_id;
-    const [assessment, scope, weights] = await Promise.all([
-      getRecord(`/api/run/${encodeURIComponent(requested)}`),
-      getRecord('/api/scope'),
-      getRecord('/api/weights'),
-    ]);
+    const [assessment, scope, weights] = await Promise.all([getRecord(`/api/run/${encodeURIComponent(requested)}`), getRecord('/api/scope'), getRecord('/api/weights')]);
     if (sequence !== view.load) return;
     view.assessment = assessment;
     view.scope = scope;
@@ -289,61 +347,96 @@ async function loadTraceback() {
     const parameters = new URLSearchParams(location.hash.slice(1));
     view.host = parameters.get('host') || '';
     view.finding = parameters.get('finding') || '';
-    view.layer = parameters.get('layer') || 'priority';
-    view.compare = parameters.get('compare') || '';
-    if (!view.assessment.scores.some(score => score.finding_id === view.finding)) {
-      const first = queueRows(view.assessment, view.host)[0];
-      view.finding = first?.finding_id || '';
-    }
-    populateHosts();
-    document.getElementById('trace-caption').textContent = `Recorded assessment / ${assessment.run.run_id} / config ${assessment.run.config_hash.slice(0, 12)}`;
+    populateSelection();
+    document.getElementById('canvas-caption').textContent = `Recorded assessment / ${assessment.run.run_id}`;
+    document.getElementById('record-summary').textContent = `${assessment.hosts.length} assets / ${assessment.findings.length} findings / ${assessment.scores.length} scored`;
+    document.getElementById('run-hash').textContent = `config ${assessment.run.config_hash}`;
     document.getElementById('data-kind').textContent = evidenceKind(assessment);
-    document.getElementById('assessment-link').href = `/?run=${encodeURIComponent(requested)}`;
-    compareToggle.disabled = view.assessment.scores.length < 2;
-    show(document.querySelector('.trace-shell'), true);
-    show(loading, false);
-    renderAll();
+    updateProjectLink();
+    graph.hidden = false;
+    message.hidden = true;
+    renderGraph();
+    if (buildNodes(assessment, scope).some(node => node.id === parameters.get('node'))) selectNode(parameters.get('node'));
+    fit();
   } catch (error) {
     if (sequence !== view.load) return;
     view.assessment = null;
-    loading.querySelector('strong').textContent = 'Records unavailable';
-    loading.querySelector('p').textContent = error.message;
+    inspector.hidden = true;
+    hostSelect.disabled = true;
+    findingSelect.disabled = true;
+    message.querySelector('strong').textContent = 'Records unavailable';
+    message.querySelector('p').textContent = error.message;
+    document.getElementById('canvas-caption').textContent = 'The stored assessment could not be loaded.';
+    document.getElementById('record-summary').textContent = '';
   } finally {
     if (sequence === view.load) document.getElementById('refresh-workflow').disabled = false;
   }
 }
 
+document.getElementById('refresh-workflow').addEventListener('click', loadWorkflow);
 runSelect.addEventListener('change', () => { location.href = `/workflow?run=${encodeURIComponent(runSelect.value)}`; });
-hostSelect.addEventListener('change', () => { view.host = hostSelect.value; view.finding = ''; loadHostRerender(); updateLocation(); });
-function loadHostRerender() {
-  if (!view.assessment) return;
-  const first = queueRows(view.assessment, view.host)[0];
-  view.finding = first?.finding_id || '';
-  renderAll();
-}
-compareToggle.addEventListener('click', () => {
-  if (view.compare) { view.compare = ''; }
-  else {
-    const shareHost = view.assessment.scores.find(score => score.finding_id === view.finding);
-    const candidate = view.assessment.scores.find(score => score.finding_id !== view.finding && score.cve_id && score.cve_id === shareHost?.cve_id)
-      || view.assessment.scores.find(score => score.finding_id !== view.finding);
-    view.compare = candidate?.finding_id || '';
+hostSelect.addEventListener('change', () => { view.host = hostSelect.value; view.finding = ''; populateFindings(); updateLocation(); renderGraph(); renderInspector(); });
+findingSelect.addEventListener('change', () => {
+  view.finding = findingSelect.value;
+  if (view.finding) {
+    view.host = view.assessment.findings.find(finding => finding.id === view.finding).host_ip;
+    hostSelect.value = view.host;
+    populateFindings();
   }
   updateLocation();
-  renderCompare();
-  announce(view.compare ? 'Comparison trace opened beside the selected trace.' : 'Comparison closed.');
+  renderGraph();
+  renderInspector();
 });
-document.getElementById('refresh-workflow').addEventListener('click', loadTraceback);
-document.addEventListener('keydown', event => {
-  if (event.target.closest('input, select, textarea')) return;
-  if (event.key === 'Escape' && view.compare) { compareToggle.click(); return; }
-  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-  const rows = [...rail.querySelectorAll('.queue-mark')];
-  if (!rows.length) return;
+document.getElementById('close-node').addEventListener('click', () => {
+  const identity = view.node;
+  view.node = '';
+  inspector.hidden = true;
+  updateLocation();
+  renderGraph();
+  fit();
+  document.querySelector(`[data-node="${identity}"]`)?.focus({preventScroll: true});
+});
+for (const button of document.querySelectorAll('[data-view-mode]')) button.addEventListener('click', () => {
+  view.modeChosen = true;
+  setViewMode(button.dataset.viewMode);
+});
+narrowViewport.addEventListener('change', event => { if (!view.modeChosen) setViewMode(event.matches ? 'stages' : 'canvas'); });
+document.getElementById('fit-workflow').addEventListener('click', fit);
+document.getElementById('zoom-in').addEventListener('click', () => zoom(1.2));
+document.getElementById('zoom-out').addEventListener('click', () => zoom(1 / 1.2));
+let drag = null;
+viewport.addEventListener('pointerdown', event => {
+  if (view.mode !== 'canvas' || event.button !== 0 || event.target.closest('button, a, select, input')) return;
+  drag = {pointer: event.pointerId, x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY};
+  viewport.setPointerCapture(event.pointerId);
+  viewport.classList.add('panning');
+});
+viewport.addEventListener('pointermove', event => {
+  if (!drag || drag.pointer !== event.pointerId) return;
+  view.panX = drag.panX + event.clientX - drag.x;
+  view.panY = drag.panY + event.clientY - drag.y;
+  transform();
+});
+function stopDrag() { drag = null; viewport.classList.remove('panning'); }
+viewport.addEventListener('pointerup', stopDrag);
+viewport.addEventListener('pointercancel', stopDrag);
+viewport.addEventListener('wheel', event => {
+  if (view.mode !== 'canvas' || event.target.closest('select')) return;
   event.preventDefault();
-  const index = rows.findIndex(row => row.dataset.finding === view.finding);
-  const next = rows[Math.min(rows.length - 1, Math.max(0, (index < 0 ? 0 : index + (event.key === 'ArrowDown' ? 1 : -1))))];
-  next.click();
-  next.focus();
+  if (event.ctrlKey || event.metaKey) {
+    const rect = viewport.getBoundingClientRect();
+    zoom(event.deltaY < 0 ? 1.1 : 1 / 1.1, {x: event.clientX - rect.left, y: event.clientY - rect.top});
+  } else { view.panX -= event.deltaX; view.panY -= event.deltaY; transform(); }
+}, {passive: false});
+viewport.addEventListener('keydown', event => {
+  if (view.mode !== 'canvas' || event.target !== viewport) return;
+  const offsets = {ArrowLeft: [60, 0], ArrowRight: [-60, 0], ArrowUp: [0, 60], ArrowDown: [0, -60]};
+  if (offsets[event.key]) { event.preventDefault(); view.panX += offsets[event.key][0]; view.panY += offsets[event.key][1]; transform(); }
+  if (event.key === '+' || event.key === '=') { event.preventDefault(); zoom(1.2); }
+  if (event.key === '-') { event.preventDefault(); zoom(1 / 1.2); }
+  if (event.key === '0') { event.preventDefault(); fit(); }
 });
-loadTraceback();
+document.addEventListener('keydown', event => { if (event.key === 'Escape' && !inspector.hidden) document.getElementById('close-node').click(); });
+window.addEventListener('resize', fit);
+setViewMode(view.mode);
+loadWorkflow();

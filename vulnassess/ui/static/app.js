@@ -1,4 +1,5 @@
 import { scoreVector, sandbox } from './cvss31.js';
+import { createAnalysisQueue } from './analyst-client.js';
 
 const embedded = document.getElementById('assessment-data');
 const bootstrap = JSON.parse(embedded.textContent);
@@ -7,11 +8,113 @@ if (workflowLink && !bootstrap.offline) {
   workflowLink.hidden = false;
   workflowLink.href = bootstrap.assessment ? `/workflow?run=${encodeURIComponent(bootstrap.assessment.run.run_id)}` : '/workflow';
 }
+const projectTarget = document.getElementById('project-analyst-target');
+if (projectTarget && bootstrap.assessment?.hosts.length) {
+  const profiles = new Map(bootstrap.assessment.context.map(profile => [profile.host_ip, profile]));
+  projectTarget.replaceChildren(...bootstrap.assessment.hosts.map(host => {
+    const option = document.createElement('option');
+    const role = profiles.get(host.ip)?.role?.value;
+    option.value = host.ip;
+    option.textContent = `${host.ip}${role ? ` / ${String(role).replaceAll('_', ' ')}` : ''}`;
+    return option;
+  }));
+  projectTarget.value = bootstrap.assessment.scores[0]?.host_ip || bootstrap.assessment.hosts[0].ip;
+  projectTarget.disabled = Boolean(bootstrap.offline);
+}
+const projectRunTarget = document.getElementById('project-run-target');
+if (projectRunTarget && projectTarget) projectRunTarget.replaceChildren(...[...projectTarget.options].map(option => option.cloneNode(true)));
+function showProjectDoor(identity) {
+  const panel = [...document.querySelectorAll('[data-project-door-host]')].find(item => !item.hidden);
+  if (!panel) return;
+  const buttons = [...panel.querySelectorAll('[data-project-door]')];
+  const selected = buttons.find(button => button.dataset.projectDoor === identity)
+    || buttons.find(button => button.getAttribute('aria-pressed') === 'true') || buttons[0];
+  for (const button of buttons) button.setAttribute('aria-pressed', String(button === selected));
+  for (const detail of panel.querySelectorAll('[data-project-door-detail]')) detail.hidden = detail.dataset.projectDoorDetail !== selected?.dataset.projectDoor;
+}
+
+function updateProjectLinks() {
+  const host = projectTarget?.value || bootstrap.assessment?.scores[0]?.host_ip || bootstrap.assessment?.hosts[0]?.ip;
+  for (const control of document.querySelectorAll('[data-project-host]')) control.value = host || '';
+  for (const panel of document.querySelectorAll('[data-project-door-host]')) panel.hidden = panel.dataset.projectDoorHost !== host;
+  showProjectDoor();
+  for (const link of document.querySelectorAll('[data-project-workflow]')) {
+    link.hidden = Boolean(bootstrap.offline || (link.dataset.requiresHost === 'true' && !host));
+    if (!bootstrap.offline) {
+      const parameters = new URLSearchParams();
+      if (link.dataset.workflowNode) parameters.set('node', link.dataset.workflowNode);
+      if (host) parameters.set('host', host);
+      if (link.dataset.workflowFinding) parameters.set('finding', link.dataset.workflowFinding);
+      const run = bootstrap.assessment ? `?run=${encodeURIComponent(bootstrap.assessment.run.run_id)}` : '';
+      link.href = `/workflow${run}${parameters.size ? `#${parameters}` : ''}`;
+    }
+  }
+}
+updateProjectLinks();
+projectTarget?.addEventListener('change', () => {
+  updateProjectLinks();
+  const section = location.hash.slice(1).split('?')[0] || 'project-analyst';
+  const parameters = new URLSearchParams({asset: projectTarget.value});
+  history.replaceState(null, '', `${location.pathname}${location.search}#${section}?${parameters}`);
+});
+for (const control of document.querySelectorAll('[data-project-host]')) control.addEventListener('change', () => {
+  projectTarget.value = control.value;
+  updateProjectLinks();
+  const parameters = new URLSearchParams({asset: control.value});
+  history.replaceState(null, '', `${location.pathname}${location.search}#${control.closest('section').id}?${parameters}`);
+});
+for (const button of document.querySelectorAll('[data-project-door]')) button.addEventListener('click', () => {
+  showProjectDoor(button.dataset.projectDoor);
+  const parameters = new URLSearchParams({asset: projectTarget.value, finding: button.dataset.projectDoor});
+  history.replaceState(null, '', `${location.pathname}${location.search}#project-doors?${parameters}`);
+});
+const projectAnalystNote = document.getElementById('project-analyst-note');
+if (projectAnalystNote) {
+  if (bootstrap.offline) projectAnalystNote.textContent = 'Offline snapshot. Local model requests are unavailable here.';
+  else if (!bootstrap.assessment?.hosts.length) projectAnalystNote.textContent = 'No recorded system is attached to this view.';
+}
+for (const note of document.querySelectorAll('[data-offline-note]')) note.hidden = !bootstrap.offline;
+document.getElementById('project-offline').hidden = !bootstrap.offline;
 const panels = [...document.querySelectorAll('[data-panel]')];
 const dialog = document.getElementById('inspector');
 const stageNames = new Set(['evidence', 'context', 'risk', 'priorities']);
+const assetAddresses = (bootstrap.assessment?.hosts || []).map(host => host.ip);
+let selectedAsset = bootstrap.assessment?.scores[0]?.host_ip || assetAddresses[0] || '';
 let lastTrigger = null;
 let tourStep = -1;
+
+function showAsset(address) {
+  if (!assetAddresses.includes(address)) address = assetAddresses[0] || '';
+  selectedAsset = address;
+  const index = assetAddresses.indexOf(address);
+  for (const control of document.querySelectorAll('[data-asset-select]')) {
+    control.setAttribute('aria-pressed', String(control.dataset.assetSelect === address));
+  }
+  for (const panel of document.querySelectorAll('[data-asset-panel]')) panel.hidden = panel.dataset.assetPanel !== address;
+  const contextPanels = [...document.querySelectorAll('[data-context-panel]')];
+  for (const panel of contextPanels) panel.hidden = panel.dataset.contextPanel !== address;
+  const missing = document.getElementById('context-empty');
+  if (missing) missing.hidden = contextPanels.some(panel => !panel.hidden);
+  const position = document.getElementById('deck-position');
+  if (position) position.textContent = `${index + 1} / ${assetAddresses.length}`;
+  for (const button of document.querySelectorAll('[data-deck-step]')) button.disabled = assetAddresses.length < 2;
+}
+
+function chooseAsset(address, stage = state().stage) {
+  const parameters = state().parameters;
+  parameters.set('asset', address);
+  parameters.delete('finding');
+  setState(stage, parameters);
+  showAsset(address);
+}
+
+for (const control of document.querySelectorAll('[data-asset-select]')) control.addEventListener('click', () => chooseAsset(control.dataset.assetSelect));
+for (const button of document.querySelectorAll('[data-deck-step]')) button.addEventListener('click', () => {
+  if (!assetAddresses.length) return;
+  const index = (assetAddresses.indexOf(selectedAsset) + Number(button.dataset.deckStep) + assetAddresses.length) % assetAddresses.length;
+  chooseAsset(assetAddresses[index]);
+});
+for (const button of document.querySelectorAll('[data-context-asset]')) button.addEventListener('click', () => chooseAsset(button.dataset.contextAsset, 'context'));
 
 function state() {
   const [section, query = ''] = location.hash.slice(1).split('?');
@@ -37,6 +140,17 @@ function openInspector(identity, trigger = null) {
 
 function restoreView() {
   const current = state();
+  const projectView = !location.hash.startsWith('#stage-');
+  document.body.classList.toggle('project-view', projectView);
+  document.getElementById('project-entry').hidden = !projectView;
+  const projectHost = current.parameters.get('asset');
+  if (projectView && projectHost && assetAddresses.includes(projectHost) && projectTarget) {
+    projectTarget.value = projectHost;
+    updateProjectLinks();
+    document.getElementById(location.hash.slice(1).split('?')[0])?.scrollIntoView({block: 'start', behavior: 'instant'});
+  }
+  if (projectView) showProjectDoor(current.parameters.get('finding'));
+  showAsset(current.parameters.get('asset') || selectedAsset);
   for (const panel of panels) panel.hidden = panel.dataset.panel !== current.stage;
   for (const link of document.querySelectorAll('[data-stage]')) {
     const active = link.dataset.stage === current.stage;
@@ -57,16 +171,19 @@ function restoreView() {
   const empty = document.getElementById('no-results');
   if (empty) empty.hidden = visible;
   const identity = current.parameters.get('finding');
-  if (identity) openInspector(identity);
+  if (identity && !projectView) openInspector(identity);
   else if (dialog?.open) dialog.close();
-  document.title = `VulnAssess / ${current.stage[0].toUpperCase()}${current.stage.slice(1)}`;
+  document.title = projectView ? 'VulnAssess / Context Is Not Free' : `VulnAssess / ${current.stage[0].toUpperCase()}${current.stage.slice(1)}`;
+  refreshAnalysisPlan();
 }
 
 for (const link of document.querySelectorAll('[data-stage]')) {
   link.addEventListener('click', event => {
     event.preventDefault();
     if (dialog?.open) dialog.close();
-    setState(link.dataset.stage);
+    const parameters = new URLSearchParams();
+    if (selectedAsset) parameters.set('asset', selectedAsset);
+    setState(link.dataset.stage, parameters);
   });
 }
 for (const button of document.querySelectorAll('[data-inspect]')) {
@@ -80,6 +197,7 @@ for (const button of document.querySelectorAll('[data-inspect]')) {
 }
 document.getElementById('close-inspector')?.addEventListener('click', () => dialog.close());
 dialog?.addEventListener('close', () => {
+  if (!location.hash.startsWith('#stage-')) return;
   const current = state();
   current.parameters.delete('finding');
   history.replaceState(null, '', `#stage-${current.stage}${current.parameters.size ? `?${current.parameters}` : ''}`);
@@ -108,11 +226,34 @@ document.getElementById('refresh').addEventListener('click', async () => {
   } catch (error) { document.getElementById('app-status').textContent = `Refresh failed: ${error.message}`; }
 });
 document.getElementById('select-run')?.addEventListener('change', event => {
+  if (bootstrap.offline) return;
   if (event.target.value) location.href = `/?run=${encodeURIComponent(event.target.value)}`;
+});
+document.getElementById('select-project-run')?.addEventListener('change', event => {
+  if (!bootstrap.offline && event.target.value) location.href = `/?run=${encodeURIComponent(event.target.value)}#project-story`;
+});
+if (bootstrap.offline && document.getElementById('select-run')) document.getElementById('select-run').disabled = true;
+
+let storyStep = 0;
+function setStoryStep(step) {
+  storyStep = Math.max(0, Math.min(2, step));
+  const example = document.getElementById('story-example');
+  if (!example) return;
+  example.dataset.step = String(storyStep);
+  for (const button of document.querySelectorAll('[data-story-step]')) button.setAttribute('aria-pressed', String(Number(button.dataset.storyStep) === storyStep));
+  for (const copy of document.querySelectorAll('[data-story-copy]')) copy.hidden = Number(copy.dataset.storyCopy) !== storyStep;
+  document.getElementById('story-back').disabled = storyStep === 0;
+  document.getElementById('story-position').textContent = `${storyStep + 1} of 3`;
+  document.getElementById('story-next').textContent = ['Add the context', 'See the priorities', 'Follow the workflow'][storyStep];
+}
+for (const button of document.querySelectorAll('[data-story-step]')) button.addEventListener('click', () => setStoryStep(Number(button.dataset.storyStep)));
+document.getElementById('story-back')?.addEventListener('click', () => setStoryStep(storyStep - 1));
+document.getElementById('story-next')?.addEventListener('click', () => {
+  if (storyStep < 2) setStoryStep(storyStep + 1);
+  else { location.hash = 'project-workflow'; document.getElementById('project-workflow').scrollIntoView({block: 'start'}); }
 });
 
 const modelHost = document.getElementById('model-host');
-const modelOutput = document.getElementById('model-output');
 const runModel = document.getElementById('run-model');
 
 function analystSection(label, items, render) {
@@ -127,96 +268,204 @@ function analystSection(label, items, render) {
   return section;
 }
 
+function renderAnalystResult(result, output) {
+  const analysis = result.analysis;
+  const evidence = new Map(result.evidence.map(item => [item.id, item]));
+  const header = document.createElement('div');
+  header.className = 'analyst-header';
+  const title = document.createElement('div');
+  const eyebrow = document.createElement('span');
+  eyebrow.className = 'eyebrow';
+  eyebrow.textContent = `${result.model} / LOCAL OLLAMA`;
+  const summary = document.createElement('strong');
+  summary.textContent = analysis.summary;
+  title.append(eyebrow, summary);
+  const confidence = document.createElement('div');
+  confidence.className = 'analyst-confidence';
+  const confidenceLabel = document.createElement('span');
+  confidenceLabel.textContent = 'Model-reported confidence';
+  const confidenceValue = document.createElement('strong');
+  confidenceValue.textContent = analysis.confidence;
+  confidence.append(confidenceLabel, confidenceValue);
+  header.append(title, confidence);
+  output.append(header);
+  output.append(analystSection('Suggested remediation sequence', analysis.recommended_actions, item => {
+    const row = document.createElement('li');
+    const action = document.createElement('strong');
+    action.textContent = `${item.order}. ${item.action}`;
+    const reason = document.createElement('p');
+    reason.textContent = item.reason;
+    const citations = document.createElement('small');
+    citations.textContent = item.evidence_ids.map(identity => `${identity}: ${evidence.get(identity).text}`).join(' / ');
+    row.append(action, reason, citations);
+    return row;
+  }));
+  if (analysis.correlations.length) output.append(analystSection('Correlated evidence', analysis.correlations, item => {
+    const row = document.createElement('li');
+    const observation = document.createElement('p');
+    observation.textContent = item.observation;
+    const citations = document.createElement('small');
+    citations.textContent = item.evidence_ids.map(identity => `${identity}: ${evidence.get(identity).text}`).join(' / ');
+    row.append(observation, citations);
+    return row;
+  }));
+  if (analysis.uncertainties.length) output.append(analystSection('What is still unknown', analysis.uncertainties, item => {
+    const row = document.createElement('li');
+    row.textContent = item;
+    return row;
+  }));
+}
+
+const projectRunForm = document.getElementById('project-run-form');
+const projectRunResults = document.getElementById('project-run-results');
+const projectRunStatus = document.getElementById('project-run-status');
+const projectRunStop = document.getElementById('project-run-stop');
+const projectRunConfirm = document.getElementById('project-run-confirm');
+const recordedHosts = (bootstrap.assessment?.hosts || []).map(host => host.ip);
+let pendingAnalysisHosts = [];
+
+function analysisTargets() {
+  if (projectRunForm.elements['analysis-scope'].value === 'all') return [...recordedHosts];
+  return recordedHosts.includes(projectRunTarget.value) ? [projectRunTarget.value] : [];
+}
+
+function setAnalysisControls(busy) {
+  const unavailable = Boolean(bootstrap.offline || !recordedHosts.length);
+  for (const control of projectRunForm.querySelectorAll('input, select, button')) control.disabled = busy || unavailable;
+  projectRunTarget.disabled ||= projectRunForm.elements['analysis-scope'].value === 'all';
+  if (runModel) runModel.disabled = busy || unavailable;
+}
+
+function analysisEntry(hostIp, status, label) {
+  const entry = document.createElement('article');
+  entry.className = 'run-entry';
+  entry.dataset.host = hostIp;
+  entry.dataset.status = status;
+  const heading = document.createElement('div');
+  heading.className = 'run-entry-heading';
+  const host = document.createElement('strong');
+  host.textContent = hostIp;
+  const badge = document.createElement('span');
+  badge.className = 'run-entry-status';
+  badge.textContent = label;
+  heading.append(host, badge);
+  entry.append(heading);
+  return entry;
+}
+
+function renderAnalysisQueue(state) {
+  setAnalysisControls(state.busy);
+  projectRunStop.hidden = !state.busy || state.entries.length < 2;
+  projectRunStop.disabled = state.stopRequested;
+  const complete = state.entries.filter(entry => entry.status === 'complete').length;
+  const failed = state.entries.filter(entry => entry.status === 'error').length;
+  const notRun = state.entries.filter(entry => entry.status === 'not-run').length;
+  const running = state.entries.find(entry => entry.status === 'running');
+  projectRunStatus.textContent = state.busy
+    ? `${state.stopRequested ? 'Stopping after' : 'Analyzing'} ${running?.hostIp || 'current request'} / ${complete} responses received`
+    : `${complete} responses received / ${failed} failed / ${notRun} not started`;
+  const labels = {queued: 'Queued', running: 'Waiting for model', complete: 'Response received', error: 'Request failed', 'not-run': 'Not started'};
+  for (const item of state.entries) {
+    const existing = [...projectRunResults.children].find(child => child.dataset.host === item.hostIp);
+    if (existing?.dataset.status === item.status) continue;
+    const entry = analysisEntry(item.hostIp, item.status, labels[item.status]);
+    if (item.error) {
+      const error = document.createElement('p');
+      error.className = 'run-entry-error';
+      error.textContent = item.error;
+      if (item.status === 'error') error.setAttribute('role', 'alert');
+      entry.append(error);
+    }
+    if (item.result) {
+      const disclosure = document.createElement('details');
+      disclosure.className = 'run-response';
+      disclosure.open = state.entries.length === 1;
+      const summary = document.createElement('summary');
+      summary.textContent = 'Cited response and uncertainties';
+      disclosure.append(summary);
+      renderAnalystResult(item.result, disclosure);
+      entry.append(disclosure);
+    }
+    if (existing) existing.replaceWith(entry);
+    else projectRunResults.append(entry);
+  }
+}
+
+const projectAnalysisQueue = createAnalysisQueue({onChange: renderAnalysisQueue});
+
+function refreshAnalysisPlan() {
+  const targets = analysisTargets();
+  const assessment = bootstrap.assessment;
+  document.getElementById('project-run-assessment').textContent = assessment ? `Recorded assessment / ${assessment.run.run_id}` : 'No assessment selected.';
+  document.getElementById('run-system-count').textContent = assessment ? String(targets.length) : 'Unavailable';
+  document.getElementById('run-finding-count').textContent = assessment ? String(assessment.findings.filter(item => targets.includes(item.host_ip)).length) : 'Unavailable';
+  document.getElementById('run-score-count').textContent = assessment ? String(assessment.scores.filter(item => targets.includes(item.host_ip)).length) : 'Unavailable';
+  const current = projectAnalysisQueue.snapshot();
+  setAnalysisControls(current.busy);
+  if (!current.entries.length && targets.length) projectRunResults.replaceChildren(...targets.map(host => analysisEntry(host, 'not-requested', 'Not requested')));
+  const note = document.getElementById('project-run-note');
+  if (bootstrap.offline) note.textContent = 'Offline snapshot. Local model requests are unavailable here.';
+  else if (!recordedHosts.length) note.textContent = 'A stored assessment with recorded systems is required.';
+}
+
+function reviewAnalysis() {
+  if (bootstrap.offline || projectAnalysisQueue.snapshot().busy || !bootstrap.assessment) return;
+  pendingAnalysisHosts = analysisTargets();
+  if (!pendingAnalysisHosts.length) return;
+  document.getElementById('run-confirm-title').textContent = `Analyze ${pendingAnalysisHosts.length} recorded ${pendingAnalysisHosts.length === 1 ? 'system' : 'systems'}?`;
+  document.getElementById('run-confirm-assessment').textContent = `Assessment ${bootstrap.assessment.run.run_id} / existing evidence only`;
+  document.getElementById('run-confirm-targets').replaceChildren(...pendingAnalysisHosts.map(host => {
+    const item = document.createElement('li');
+    item.textContent = host;
+    return item;
+  }));
+  projectRunConfirm.showModal();
+  document.getElementById('run-confirm-cancel').focus();
+}
+
+projectRunForm.addEventListener('submit', event => { event.preventDefault(); reviewAnalysis(); });
+projectRunForm.addEventListener('change', refreshAnalysisPlan);
+projectTarget?.addEventListener('change', refreshAnalysisPlan);
+for (const control of document.querySelectorAll('[data-project-host]')) control.addEventListener('change', refreshAnalysisPlan);
+document.getElementById('run-confirm-cancel').addEventListener('click', () => projectRunConfirm.close());
+projectRunConfirm.addEventListener('close', () => { pendingAnalysisHosts = []; document.getElementById('project-run-review').focus(); });
+document.getElementById('run-confirm-start').addEventListener('click', async () => {
+  if (!projectRunConfirm.open || bootstrap.offline || projectAnalysisQueue.snapshot().busy || !bootstrap.assessment || !pendingAnalysisHosts.length) return;
+  const targets = [...pendingAnalysisHosts];
+  projectRunConfirm.close();
+  projectRunResults.replaceChildren();
+  try { await projectAnalysisQueue.start(bootstrap.assessment.run.run_id, targets); }
+  catch (error) { projectRunStatus.textContent = error.message; setAnalysisControls(false); }
+});
+projectRunStop.addEventListener('click', () => projectAnalysisQueue.stopAfterCurrent());
+window.addEventListener('beforeunload', event => {
+  if (projectAnalysisQueue.snapshot().busy) { event.preventDefault(); event.returnValue = ''; }
+});
 runModel?.addEventListener('click', () => {
-  const host = bootstrap.assessment?.context?.find(item => item.host_ip === modelHost?.value);
-  if (!host || !modelOutput) return;
-  runModel.disabled = true;
-  modelOutput.replaceChildren();
-  const progress = document.createElement('div');
-  progress.className = 'analyst-progress';
-  progress.setAttribute('role', 'status');
-  const pulse = document.createElement('span');
-  pulse.className = 'analyst-pulse';
-  const progressCopy = document.createElement('div');
-  const progressTitle = document.createElement('strong');
-  progressTitle.textContent = 'Local model is analyzing the complete target';
-  const progressDetail = document.createElement('p');
-  progressDetail.textContent = 'Correlating services, scanner findings, context, CVSS, EPSS and KEV locally. CPU inference can take one to three minutes.';
-  progressCopy.append(progressTitle, progressDetail);
-  progress.append(pulse, progressCopy);
-  modelOutput.append(progress);
-  fetch(`/api/analyst/${encodeURIComponent(bootstrap.assessment.run.run_id)}/${encodeURIComponent(host.host_ip)}`)
-    .then(async response => {
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error?.message || 'Local analyst request failed.');
-      return body;
-    })
-    .then(result => {
-      const analysis = result.analysis;
-      const evidence = new Map(result.evidence.map(item => [item.id, item]));
-      modelOutput.replaceChildren();
-      const header = document.createElement('div');
-      header.className = 'analyst-header';
-      const title = document.createElement('div');
-      const eyebrow = document.createElement('span');
-      eyebrow.className = 'eyebrow';
-      eyebrow.textContent = `${result.model} · LOCAL OLLAMA`;
-      const summary = document.createElement('strong');
-      summary.textContent = analysis.summary;
-      title.append(eyebrow, summary);
-      const confidence = document.createElement('div');
-      confidence.className = 'analyst-confidence';
-      const confidenceLabel = document.createElement('span');
-      confidenceLabel.textContent = 'Analysis confidence';
-      const confidenceValue = document.createElement('strong');
-      confidenceValue.textContent = analysis.confidence;
-      confidence.append(confidenceLabel, confidenceValue);
-      header.append(title, confidence);
-      modelOutput.append(header);
-
-      modelOutput.append(analystSection('Recommended remediation sequence', analysis.recommended_actions, item => {
-        const row = document.createElement('li');
-        const action = document.createElement('strong');
-        action.textContent = `${item.order}. ${item.action}`;
-        const reason = document.createElement('p');
-        reason.textContent = item.reason;
-        const citations = document.createElement('small');
-        citations.textContent = item.evidence_ids.map(id => `${id}: ${evidence.get(id)?.text || 'validated record'}`).join(' · ');
-        row.append(action, reason, citations);
-        return row;
-      }));
-
-      if (analysis.correlations.length) modelOutput.append(analystSection('Correlations', analysis.correlations, item => {
-        const row = document.createElement('li');
-        const observation = document.createElement('p');
-        observation.textContent = item.observation;
-        const citations = document.createElement('small');
-        citations.textContent = item.evidence_ids.join(', ');
-        row.append(observation, citations);
-        return row;
-      }));
-
-      if (analysis.uncertainties.length) modelOutput.append(analystSection('What is still unknown', analysis.uncertainties, item => {
-        const row = document.createElement('li');
-        row.textContent = item;
-        return row;
-      }));
-    })
-    .catch(error => { modelOutput.textContent = error.message; })
-    .finally(() => { runModel.disabled = false; });
+  if (!recordedHosts.includes(modelHost?.value) || bootstrap.offline || projectAnalysisQueue.snapshot().busy) return;
+  projectTarget.value = modelHost.value;
+  updateProjectLinks();
+  projectRunForm.elements['analysis-scope'].value = 'selected';
+  history.replaceState(null, '', `${location.pathname}${location.search}#project-run?${new URLSearchParams({asset: modelHost.value})}`);
+  restoreView();
+  reviewAnalysis();
 });
 
+const systemTheme = matchMedia('(prefers-color-scheme: dark)');
+let themePreference = 'dark';
 function setTheme(theme) {
-  document.documentElement.dataset.theme = theme;
-  document.getElementById('theme').setAttribute('aria-pressed', String(theme === 'dark'));
-  try { localStorage.setItem('vulnassess-theme', theme); } catch { document.getElementById('app-status').textContent = 'Theme preference applies to this page only.'; }
+  themePreference = ['system', 'light', 'dark'].includes(theme) ? theme : 'dark';
+  document.documentElement.dataset.theme = themePreference === 'system' ? (systemTheme.matches ? 'dark' : 'light') : themePreference;
+  for (const button of document.querySelectorAll('[data-theme-choice]')) button.setAttribute('aria-pressed', String(button.dataset.themeChoice === themePreference));
+  try { localStorage.setItem('vulnassess-theme', themePreference); } catch { document.getElementById('app-status').textContent = 'Theme preference applies to this page only.'; }
 }
-let theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+let theme = 'dark';
 try { theme = localStorage.getItem('vulnassess-theme') || theme; } catch { theme = 'light'; }
 const requestedTheme = state().parameters.get('theme');
 if (requestedTheme === 'light' || requestedTheme === 'dark') theme = requestedTheme;
-setTheme(theme === 'dark' ? 'dark' : 'light');
-document.getElementById('theme').addEventListener('click', () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'));
+setTheme(theme);
+for (const button of document.querySelectorAll('[data-theme-choice]')) button.addEventListener('click', () => setTheme(button.dataset.themeChoice));
+systemTheme.addEventListener('change', () => { if (themePreference === 'system') setTheme('system'); });
 
 const tourSteps = [
   {stage: 'evidence', target: '.asset-grid', title: 'Begin with the scanner.', copy: 'These are the hosts in this recorded assessment. Select a finding to see its original evidence and recorded score.'},
@@ -251,7 +500,11 @@ function showTour() {
   document.getElementById('tour-back').disabled = tourStep === 0;
   document.getElementById('tour-next').textContent = tourStep === tourSteps.length - 1 ? 'Finish' : 'Next';
   const target = document.querySelector(step.target);
-  if (target) { target.classList.add('tour-target'); target.scrollIntoView({block: 'nearest', behavior: 'instant'}); }
+  if (target) {
+    const address = target.dataset.assetPanel || target.dataset.contextPanel;
+    if (address) showAsset(address);
+    target.classList.add('tour-target'); target.scrollIntoView({block: 'nearest', behavior: 'instant'});
+  }
 }
 document.getElementById('start-tour').disabled = !bootstrap.assessment;
 document.getElementById('start-tour').addEventListener('click', () => { tourStep = 0; showTour(); });
@@ -452,7 +705,11 @@ function choosePalette(entry) {
   }
   setState(entry.stage);
   restoreView();
-  if (entry.anchor) document.getElementById(entry.anchor)?.scrollIntoView({block: 'start'});
+  if (entry.anchor) {
+    const target = document.getElementById(entry.anchor);
+    if (target?.dataset.assetPanel) chooseAsset(target.dataset.assetPanel, entry.stage);
+    target?.scrollIntoView({block: 'nearest'});
+  }
 }
 
 function renderPalette() {
@@ -500,6 +757,8 @@ function openPalette() {
 if (palette) {
   buildPalette();
   document.getElementById('open-palette').addEventListener('click', openPalette);
+  document.getElementById('close-palette').addEventListener('click', () => palette.close());
+  palette.addEventListener('close', () => document.getElementById('open-palette').focus({preventScroll: true}));
   paletteInput.addEventListener('input', () => { paletteActive = 0; renderPalette(); });
   paletteInput.addEventListener('keydown', event => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {

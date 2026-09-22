@@ -1,5 +1,63 @@
-/* TRACEBACK data layer. Every value a layer shows is copied from stored records;
- * nothing here computes a score, infers a state, or invents feed freshness. */
+export const SIZE = Object.freeze({width: 1500, height: 740});
+
+export const NODE_SPECS = Object.freeze([
+  {id: 'scope', title: 'Target & scope', subtitle: 'Permission boundary', icon: 'target', x: 100, y: 365, group: 'source'},
+  {id: 'nmap', title: 'Nmap', subtitle: 'Ports & services', icon: 'radar', x: 270, y: 170, group: 'source'},
+  {id: 'zap', title: 'ZAP', subtitle: 'Web application findings', icon: 'browser', x: 270, y: 365, group: 'source'},
+  {id: 'nikto', title: 'Nikto', subtitle: 'Web server findings', icon: 'terminal', x: 270, y: 560, group: 'source'},
+  {id: 'canonical', title: 'Normalize & store', subtitle: 'Canonical finding records', icon: 'merge', x: 465, y: 365, group: 'transform'},
+  {id: 'nvd', title: 'NVD', subtitle: 'CVEs & CVSS vectors', icon: 'database', x: 600, y: 90, group: 'intel'},
+  {id: 'epss', title: 'EPSS', subtitle: 'Exploitation evidence', icon: 'chart', x: 770, y: 90, group: 'intel'},
+  {id: 'kev', title: 'CISA KEV', subtitle: 'Known exploitation', icon: 'flag', x: 940, y: 90, group: 'intel'},
+  {id: 'intel', title: 'Enrich findings', subtitle: 'CVE matches & feed dates', icon: 'link', x: 770, y: 275, group: 'transform'},
+  {id: 'context', title: 'Infer context', subtitle: 'Role · exposure · controls', icon: 'layers', x: 770, y: 550, group: 'transform'},
+  {id: 'shadow', title: 'Role classifier', subtitle: 'Optional learned evidence', icon: 'model', x: 465, y: 590, group: 'optional'},
+  {id: 'score', title: 'Calculate risk', subtitle: 'CVSS Environmental + threat', icon: 'formula', x: 985, y: 365, group: 'decision'},
+  {id: 'queue', title: 'Prioritize', subtitle: 'Stored risk order', icon: 'queue', x: 1175, y: 365, group: 'decision'},
+  {id: 'rationale', title: 'Explain the score', subtitle: 'Recorded reason & rationale', icon: 'text', x: 1175, y: 165, group: 'output'},
+  {id: 'report', title: 'Assessment report', subtitle: 'Findings & provenance', icon: 'report', x: 1390, y: 165, group: 'output'},
+  {id: 'analyst', title: 'Local AI analyst', subtitle: 'Cited target assessment', icon: 'model', x: 1175, y: 590, group: 'optional'},
+  {id: 'evaluation', title: 'Expert evaluation', subtitle: 'Agreement & critical queue', icon: 'compare', x: 1390, y: 365, group: 'optional'},
+  {id: 'rescan', title: 'Re-scan comparison', subtitle: 'Comparable evidence required', icon: 'repeat', x: 1390, y: 590, group: 'optional'},
+]);
+
+export const EDGES = Object.freeze([
+  {from: 'scope', to: 'nmap'}, {from: 'scope', to: 'zap'}, {from: 'scope', to: 'nikto'},
+  {from: 'nmap', to: 'canonical'}, {from: 'zap', to: 'canonical'}, {from: 'nikto', to: 'canonical'},
+  {from: 'canonical', to: 'intel'}, {from: 'canonical', to: 'context'},
+  {from: 'nvd', to: 'intel'}, {from: 'epss', to: 'intel'}, {from: 'kev', to: 'intel'},
+  {from: 'canonical', to: 'shadow', optional: true}, {from: 'shadow', to: 'context', optional: true},
+  {from: 'intel', to: 'score'}, {from: 'context', to: 'score'},
+  {from: 'score', to: 'queue'}, {from: 'score', to: 'rationale'},
+  {from: 'rationale', to: 'report'}, {from: 'queue', to: 'report'},
+  {from: 'queue', to: 'evaluation', optional: true},
+  {from: 'queue', to: 'analyst', optional: true},
+  {from: 'queue', to: 'rescan', optional: true},
+]);
+
+export const ICONS = Object.freeze({
+  target: ['M12 3v4m0 10v4M3 12h4m10 0h4', 'M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14', 'M12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6'],
+  radar: ['M12 3a9 9 0 1 0 9 9M12 7a5 5 0 1 0 5 5M12 12l7-7', 'M12 3v9h9'],
+  browser: ['M3 5h18v15H3ZM3 9h18M6 7h.1M9 7h.1M8 13l-2 2 2 2m8-4 2 2-2 2'],
+  terminal: ['M3 5h18v15H3ZM7 10l3 3-3 3m6 0h4'],
+  merge: ['M3 5h4l5 7 5-7h4M3 19h4l5-7h9M18 9l3 3-3 3'],
+  database: ['M4 6c0-4 16-4 16 0s-16 4-16 0Zm0 0v12c0 4 16 4 16 0V6M4 12c0 4 16 4 16 0'],
+  chart: ['M4 4v16h17M8 16v-4m5 4V8m5 8V5'],
+  flag: ['M5 21V3h13l-3 5 3 5H5'],
+  link: ['m10 8 3-3a4 4 0 0 1 6 6l-3 3m-2 2-3 3a4 4 0 0 1-6-6l3-3m1 5 6-6'],
+  layers: ['m12 3 10 5-10 5L2 8 10-5Zm-10 9 10 5 10-5M2 16l10 5 10-5'],
+  model: ['M8 4h8l4 8-4 8H8l-4-8 4-8ZM8 4l8 16M16 4 8 20M4 12h16'],
+  formula: ['M6 4h12M6 20h12M17 4 8 12l9 8'],
+  queue: ['M8 5h13M8 12h9M8 19h5M3 5h.1M3 12h.1M3 19h.1'],
+  text: ['M4 4h16v13H9l-5 4V4Zm4 5h8M8 13h5'],
+  report: ['M6 2h9l4 4v16H6V2Zm8 0v5h5M9 11h7m-7 4h7m-7 4h4'],
+  compare: ['M5 4v16M19 4v16M8 8h8m-3-3 3 3-3 3M16 16H8m3-3-3 3 3 3'],
+  repeat: ['M20 9a8 8 0 0 0-14-3L3 9m0-6v6h6M4 15a8 8 0 0 0 14 3l3-3m0 6v-6h-6'],
+});
+
+function recordState(records, yes = 'Stored records') {
+  return records.length ? {state: 'stored', status: yes} : {state: 'missing', status: 'No stored output'};
+}
 
 export function currentSlice(assessment, hostIp = '', findingId = '') {
   const selectedHost = hostIp || assessment.findings.find(finding => finding.id === findingId)?.host_ip || '';
@@ -16,162 +74,97 @@ export function currentSlice(assessment, hostIp = '', findingId = '') {
   };
 }
 
+export function buildNodes(assessment, scope, selection = {}, analysis = null) {
+  const slice = currentSlice(assessment, selection.host, selection.finding);
+  const contextHasLearnedSource = slice.profiles.some(profile => profile.role?.source === 'llm');
+  const hasSource = tool => slice.findings.some(finding => finding.tool === tool)
+    || (assessment.run.summary.imports || []).some(item => (!selection.host || item.target_ip === selection.host) && Object.hasOwn(item.findings || {}, tool));
+  const states = {
+    scope: scope ? {state: 'configured', status: 'Current configuration'} : {state: 'missing', status: 'Configuration missing'},
+    canonical: recordState(slice.findings), intel: recordState(slice.enrichments, 'Matches stored'),
+    context: recordState(slice.profiles, 'Context stored'),
+    shadow: {state: 'optional', status: contextHasLearnedSource ? 'Learned role recorded' : 'Not run in viewer'},
+    score: recordState(slice.scores, 'Scores stored'), queue: recordState(slice.scores, 'Stored order'),
+    rationale: recordState(slice.rationales.length ? slice.rationales : slice.scores.filter(item => item.reason), 'Reasons stored'),
+    report: {state: 'optional', status: 'Artifact not attached'}, analyst: {state: 'optional', status: 'Not run'},
+    evaluation: {state: 'optional', status: 'No result attached'}, rescan: {state: 'optional', status: 'No comparison attached'},
+  };
+  for (const tool of ['nmap', 'zap', 'nikto']) states[tool] = hasSource(tool) ? {state: 'stored', status: 'Import recorded'} : {state: 'missing', status: 'No import recorded'};
+  for (const feed of ['nvd', 'epss', 'kev']) states[feed] = recordState(assessment.feeds_meta.filter(item => item.feed === feed), 'Snapshot loaded');
+  if (analysis && analysis.runId === assessment.run.run_id && analysis.hostIp === selection.host) {
+    states.analyst = analysis.status === 'complete' ? {state: 'live', status: 'Response received'}
+      : analysis.status === 'running' ? {state: 'running', status: 'Request in progress'} : {state: 'error', status: 'Request failed'};
+  }
+  return NODE_SPECS.map(spec => ({...spec, ...states[spec.id]}));
+}
+
+export function connectedNodeIds(identity) {
+  return new Set([identity, ...EDGES.filter(edge => edge.from === identity || edge.to === identity).flatMap(edge => [edge.from, edge.to])]);
+}
+
+function quotesFromFeatures(profile) {
+  return [['Role', profile.role], ['Exposure', profile.exposure], ...Object.entries(profile.controls || {}), ...Object.entries(profile.manual || {})]
+    .filter(([, feature]) => feature).map(([name, feature]) => ({label: name.replaceAll('_', ' '), value: feature.value, confidence: feature.confidence, source: feature.source, quote: feature.evidence}));
+}
+
+export function nodeDetails(identity, assessment, scope, weights, selection = {}, analysis = null) {
+  const slice = currentSlice(assessment, selection.host, selection.finding);
+  const base = {rows: [], quotes: [], records: [], message: '', provenance: ''};
+  const findingQuotes = slice.findings.map(finding => ({label: `${finding.tool} / ${finding.title}`, quote: finding.evidence, source: finding.provenance.raw_path}));
+  if (identity === 'scope') return {...base, input: 'Target addresses', operation: 'Check current lab configuration before any import or scanner command.', output: 'Explicit target boundary',
+    rows: (scope?.values.lab_targets || []).map(target => ({label: target.name, value: target.ip})), records: scope ? [scope] : [],
+    message: 'This shows configuration, not proof of a past safety check or canary request count.', provenance: 'config/scope.yaml'};
+  if (['nmap', 'zap', 'nikto'].includes(identity)) {
+    const imports = (assessment.run.summary.imports || []).filter(item => (!selection.host || item.target_ip === selection.host) && Object.hasOwn(item.findings || {}, identity));
+    const findings = slice.findings.filter(finding => finding.tool === identity);
+    return {...base, input: 'Human-provided scanner artifact', operation: 'Scope-checked import; retain the native identity and original evidence.', output: 'Imported observations',
+      rows: imports.flatMap(item => [{label: 'Recorded target', value: item.target_ip}, {label: 'Stored import counter', value: item.findings[identity]}]),
+      quotes: findings.map(finding => ({label: finding.title, quote: finding.evidence, source: finding.provenance.raw_path})), records: findings,
+      message: 'No scanner is launched here. An import record is not evidence that this viewer performed a scan.', provenance: `readers/${identity === 'nmap' ? 'nmap_xml' : `${identity}_json`}.py`};
+  }
+  if (identity === 'canonical') return {...base, input: 'Scanner-native findings', operation: 'Normalize identities and provenance into the canonical schema, then persist records in SQLite.', output: 'One inspectable record per finding',
+    rows: slice.findings.map(finding => ({label: finding.tool_native_id, value: finding.id})), quotes: findingQuotes, records: slice.findings,
+    message: 'Exact finding identity is retained. Preview grouping does not silently merge the ranking queue.', provenance: 'schema.py / store.py'};
+  if (['nvd', 'epss', 'kev'].includes(identity)) {
+    const metadata = assessment.feeds_meta.find(feed => feed.feed === identity);
+    const labels = {nvd: ['Vulnerability catalog', 'CVEs and CVSS vectors'], epss: ['Exploitation predictions', 'Per-CVE probability and percentile'], kev: ['Known exploitation catalog', 'CVE membership and recorded date']};
+    return {...base, input: labels[identity][0], operation: 'Read a human-provided local feed snapshot.', output: labels[identity][1],
+      rows: metadata ? [{label: 'Snapshot date', value: metadata.file_date}, {label: 'Rows stored', value: metadata.rows}, {label: 'SHA-256', value: metadata.sha256}, {label: 'Local path', value: metadata.path}] : [],
+      records: metadata ? [metadata] : [], message: 'Feed metadata is current store state, not a frozen per-run snapshot. Nothing is downloaded.', provenance: 'intel.py / feeds_meta'};
+  }
+  if (identity === 'intel') return {...base, input: 'Finding identity + dated feed facts', operation: 'Match explicit CVEs or supported CPE version ranges. Preserve unmatched findings.', output: 'Stored enrichment records',
+    rows: slice.enrichments.flatMap(item => [{label: 'CVE', value: item.cve_id}, {label: 'Match method', value: item.match_method}, {label: 'Match confidence', value: item.match_confidence}, {label: 'EPSS percentile', value: item.epss_percentile}, {label: 'KEV', value: item.kev}]), records: slice.enrichments,
+    message: slice.enrichments.length ? 'These are stored matches; loading this diagram does not rematch records.' : 'No enrichment stored for this selection. A native-severity fallback may still be recorded.', provenance: 'intel.py / enrichments'};
+  if (identity === 'context') return {...base, input: 'Services, scanner evidence and scope tags', operation: 'Retain the role, exposure and controls that the context pipeline recorded, including their source and confidence.', output: 'Deployment context',
+    quotes: slice.profiles.flatMap(profile => quotesFromFeatures(profile).map(item => ({...item, label: `${profile.host_ip} / ${item.label}`}))), records: slice.profiles,
+    message: 'Source labels show rule, manual or learned provenance. Confidence and severity remain separate.', provenance: 'context.py / context_profiles'};
+  if (identity === 'shadow') return {...base, input: 'Host service features', operation: 'The optional local role classifier predicts a role from scan-derived features. Its use belongs to pipeline configuration.', output: 'Optional learned role evidence', records: slice.profiles.filter(profile => profile.role?.source === 'llm'),
+    message: 'The graph does not run this classifier. A recorded learned-source role is shown as recorded, not claimed to be a fresh prediction.', provenance: 'role_model.py / context.py'};
+  if (identity === 'score') return {...base, input: 'Context + CVSS + EPSS + KEV', operation: 'Apply the published deterministic formula and configuration. This is arithmetic, not an LLM judgment.', output: 'Stored score breakdown',
+    rows: slice.scores.flatMap(score => [{label: 'Host', value: score.host_ip}, {label: 'Base score', value: score.base_score}, {label: 'Environmental', value: score.env_score}, {label: 'Threat multiplier', value: score.threat_multiplier}, {label: 'Risk', value: score.risk}, {label: 'Band', value: score.band}, {label: 'Weights hash', value: score.weights_hash}]),
+    quotes: slice.scores.filter(score => score.env_vector).map(score => ({label: 'Environmental vector', quote: score.env_vector, source: score.finding_id})), records: slice.scores,
+    message: 'Values are copied from stored scores. The current config may differ from the historical score inputs.', provenance: 'scoring.py / cvss31.py'};
+  if (identity === 'queue') return {...base, input: 'Stored score rows', operation: 'Use the risk-descending order and stable finding identity already returned by the store.', output: 'Prioritized findings',
+    rows: slice.scores.map(score => ({label: `${score.host_ip} / ${score.cve_id || score.finding_id}`, value: `${score.risk} · ${score.band}`})), records: slice.scores,
+    message: 'Risk is not model confidence. The diagram does not alter the order.', provenance: 'store.py / scores'};
+  if (identity === 'rationale') return {...base, input: 'Validated score inputs and context', operation: 'Read the deterministic reason and any separately stored rationale with its provenance.', output: 'Recorded explanation',
+    quotes: [...slice.scores.filter(score => score.reason).map(score => ({label: 'Deterministic reason', quote: score.reason, source: score.finding_id})), ...slice.rationales.map(item => ({label: item.source, quote: item.text, source: item.finding_id}))], records: slice.rationales,
+    message: 'The optional live target analyst below is a different operation, not the scorer.', provenance: 'scoring.describe / explain.py'};
+  if (identity === 'analyst') {
+    const response = analysis?.runId === assessment.run.run_id && analysis?.hostIp === selection.host ? analysis : null;
+    return {...base, input: 'Selected host, findings, context, scores and cited evidence', operation: 'An explicit Analyze target request calls the existing local Ollama endpoint and validates its structured response.', output: 'Model-written assessment with citations',
+      rows: response?.result ? [{label: 'Model', value: response.result.model}, {label: 'Response source', value: response.result.source}, {label: 'Advisory confidence', value: response.result.analysis?.confidence}, {label: 'Scores changed', value: response.result.canonical_scores_changed}] : [], records: response?.result ? [response.result] : [],
+      message: response?.status === 'error' ? response.error : 'No model runs when this page opens or when nodes are selected. An AI response never feeds back into risk scoring.', provenance: 'analyst.analyze_target / local Ollama'};
+  }
+  if (identity === 'report') return {...base, input: 'Priorities, explanations and provenance', operation: 'The CLI can produce a report or an offline viewer export from these records.', output: 'Shareable assessment artifact',
+    rows: [{label: 'Selected run', value: assessment.run.run_id}], message: 'A report artifact is not attached to this API payload; its existence is not inferred from a scored run.', provenance: 'pipeline.do_report / report.py / ui export'};
+  if (identity === 'evaluation') return {...base, input: 'Stored rankings + independently supplied expert judgments', operation: 'Compare with CVSS-only and CVSS+EPSS baselines using the research harness.', output: 'Agreement and critical-queue results',
+    message: 'No persisted evaluation is attached. Tau-b, NDCG and Kendall\'s W are not calculated or invented by this visualization.', provenance: 'evaluate.py / cohort.py / experiments.py'};
+  return {...base, input: 'Two comparable recorded observations', operation: 'Compare coverage and finding identity; missing evidence alone is not a confirmed fix.', output: 'Candidate change states for human review',
+    message: 'No re-scan observation artifacts are attached. This node is not a scanner command or proof of remediation.', provenance: 'diff.py / rescan.py'};
+}
+
 export function evidenceKind(assessment) {
   const paths = [...assessment.feeds_meta.map(feed => feed.path), ...assessment.findings.map(finding => finding.provenance.raw_path)];
-  return paths.some(path => String(path).toLowerCase().includes('synthetic')) ? 'SYNTHETIC INPUTS' : 'SOURCE UNLABELLED';
-}
-
-export function sourceStamps(assessment) {
-  const tools = ['nmap', 'zap', 'nikto'];
-  return tools.map(tool => ({
-    tool,
-    recorded: assessment.findings.some(finding => finding.tool === tool)
-      || (assessment.run.summary.imports || []).some(item => Object.hasOwn(item.findings || {}, tool)),
-  }));
-}
-
-function featureRows(profile) {
-  if (!profile) return [];
-  return [['Role', profile.role], ['Exposure', profile.exposure], ...Object.entries(profile.controls || {}), ...Object.entries(profile.manual || {})]
-    .filter(([, feature]) => feature)
-    .map(([name, feature]) => ({
-      label: name.replaceAll('_', ' '),
-      value: feature.value,
-      confidence: feature.confidence,
-      source: feature.source,
-      quote: feature.evidence,
-    }));
-}
-
-export function queueRows(assessment, hostIp = '') {
-  const titles = new Map(assessment.findings.map(finding => [finding.id, finding]));
-  return assessment.scores
-    .filter(score => !hostIp || score.host_ip === hostIp)
-    .map((score, index) => {
-      const finding = titles.get(score.finding_id);
-      return {
-        position: index + 1,
-        finding_id: score.finding_id,
-        host_ip: score.host_ip,
-        port: finding?.port ?? null,
-        cve_id: score.cve_id,
-        tool: finding?.tool || 'unknown',
-        title: finding?.title || score.finding_id,
-        risk: score.risk,
-        band: score.band,
-      };
-    });
-}
-
-/* The five stored layers of one stored score. Missing layers stay in the trace
- * with their absence named; absence is never rendered as zero or as a blank. */
-export function traceLayers(assessment, scope, weights, selection = {}, analysis = null) {
-  const findingId = selection.finding || '';
-  const finding = assessment.findings.find(item => item.id === findingId) || null;
-  const score = assessment.scores.find(item => item.finding_id === findingId) || null;
-  const enrichments = assessment.enrichments.filter(item => item.finding_id === findingId);
-  const profile = finding ? assessment.context.find(item => item.host_ip === finding.host_ip) || null : null;
-  const position = queueRows(assessment, finding?.host_ip || '').find(row => row.finding_id === findingId)?.position || null;
-  const runId = assessment.run.run_id;
-  const analysisForThisRun = analysis && analysis.runId === runId && analysis.hostIp === (finding?.host_ip || selection.host) ? analysis : null;
-  const layers = [
-    {
-      id: 'priority',
-      title: 'PRIORITY',
-      operation: 'The stored risk order, exactly as the deterministic run recorded it.',
-      present: Boolean(score),
-      missing: 'This finding has no stored score. It was imported but never scored; no band is inferred here.',
-      rows: score ? [
-        {label: 'Stored risk', value: score.risk},
-        {label: 'Band', value: score.band},
-        {label: 'Queue position', value: position},
-        {label: 'Recorded reason', value: score.reason},
-        {label: 'Weights hash', value: score.weights_hash},
-        {label: 'Config hash', value: assessment.run.config_hash},
-      ] : [],
-      outputs: [
-        {label: 'Report artifact', value: 'Not attached'},
-        {label: 'Expert evaluation', value: 'No result attached'},
-        {label: 'Re-scan comparison', value: 'No comparison attached'},
-      ],
-    },
-    {
-      id: 'calculation',
-      title: 'CALCULATION',
-      operation: 'Deterministic arithmetic over the stored inputs. No model participates.',
-      present: Boolean(score),
-      missing: 'No calculation is stored for this finding.',
-      rows: score ? [
-        {label: 'CVSS version used', value: score.cvss_version_used},
-        {label: 'Base score', value: score.base_score},
-        {label: 'Base vector', value: score.base_vector},
-        {label: 'Environmental score', value: score.env_score},
-        {label: 'Environmental vector', value: score.env_vector},
-        {label: 'Threat multiplier', value: score.threat_multiplier === null ? 'Unscored — EPSS missing' : score.threat_multiplier},
-        {label: 'EPSS percentile used', value: score.epss_percentile},
-        {label: 'KEV applied', value: score.kev},
-        {label: 'Native fallback', value: score.native_fallback},
-      ] : [],
-      vector: score?.env_vector || score?.base_vector || null,
-    },
-    {
-      id: 'intelligence',
-      title: 'INTELLIGENCE',
-      operation: 'Stored NVD / EPSS / KEV matches for this finding, with their match provenance.',
-      present: enrichments.length > 0,
-      missing: 'No enrichment stored for this finding. A native-severity fallback may still have been scored.',
-      groups: enrichments.map(item => ({
-        title: item.cve_id,
-        rows: [
-          {label: 'Match method', value: item.match_method},
-          {label: 'Match confidence', value: item.match_confidence},
-          {label: 'CVSS 3.1 base', value: item.cvss31_base},
-          {label: 'CVSS 3.1 vector', value: item.cvss31_vector},
-          {label: 'CVSS 4.0 base', value: item.cvss40_base},
-          {label: 'EPSS probability', value: item.epss},
-          {label: 'EPSS percentile', value: item.epss_percentile},
-          {label: 'KEV member', value: item.kev},
-          {label: 'KEV date added', value: item.kev_date_added},
-          {label: 'Version boundary', value: item.version_end},
-        ],
-        quote: item.description ? {label: 'Intel description', text: item.description} : null,
-      })),
-    },
-    {
-      id: 'context',
-      title: 'CONTEXT',
-      operation: 'The evidence-backed role, exposure and controls recorded for this host.',
-      present: Boolean(profile),
-      missing: 'No context profile stored for this host.',
-      features: featureRows(profile),
-      rows: profile?.segment ? [{label: 'Segment', value: profile.segment}] : [],
-    },
-    {
-      id: 'evidence',
-      title: 'RAW EVIDENCE',
-      operation: 'The verbatim scanner record this finding was built from. Not paraphrased.',
-      present: Boolean(finding),
-      missing: 'No stored finding record for this selection.',
-      rows: finding ? [
-        {label: 'Scanner', value: finding.tool},
-        {label: 'Native identifier', value: finding.tool_native_id},
-        {label: 'Endpoint', value: finding.url || (finding.port ? `${finding.host_ip}:${finding.port}/${finding.protocol || ''}` : finding.host_ip)},
-        {label: 'CVEs', value: finding.cve_ids.join(', ') || null},
-        {label: 'CWEs', value: finding.cwe_ids.join(', ') || null},
-        {label: 'Native severity', value: finding.native_severity},
-        {label: 'First seen', value: finding.first_seen},
-        {label: 'Raw artifact', value: finding.provenance.raw_path},
-        {label: 'Record index', value: finding.provenance.record_index},
-      ] : [],
-      quote: finding ? {label: 'Verbatim evidence', text: finding.evidence} : null,
-    },
-  ];
-  return {finding, score, position, layers, sources: sourceStamps(assessment), analysis: analysisForThisRun};
-}
-
-/* Values the compare view marks as diverging between two stored scores. */
-export function diffFields(scoreA, scoreB) {
-  if (!scoreA || !scoreB) return new Set();
-  const fields = ['risk', 'band', 'base_score', 'env_score', 'threat_multiplier', 'epss_percentile', 'kev'];
-  return new Set(fields.filter(field => String(scoreA[field]) !== String(scoreB[field])));
+  return paths.some(path => String(path).toLowerCase().includes('synthetic')) ? 'SYNTHETIC INPUTS' : 'STORED ASSESSMENT';
 }

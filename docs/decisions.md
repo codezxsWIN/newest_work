@@ -372,3 +372,164 @@ Source artifact: `demo-report-synthetic.html`, supplied on 2026-09-06. It is a l
 **WF-01. USER-DIRECTED - Make-style canvas over the real project flow:** the user requested a complete node-and-connection visualization independent of the current notebook UI. Add `/workflow` and isolated local HTML/CSS/ES modules, sharing the existing record APIs. Cover authorized targets, scanner ingestion, normalization/storage, local feeds, enrichment, context, optional learned roles, deterministic risk, priority, rationale, reports, analyst output, expert evaluation and re-scan comparison. This serves PROJECT.md Stage 7 and cross-cutting ranking/evaluation auditability: the viewer can trace the inputs behind a priority rather than reading a wall of tables. Conflict / resolution / why: UI-20's sole-interface statement predates the explicit request for a distinct visualization; retain its shared backend/assessment renderer but add a new view, not a second pipeline. The independent circle-node visual vocabulary uses new scoped neutral tokens and local SVG paths, not external libraries, downloaded imagery or copied Make assets. Alternatives: restyle the four-stage page or animate a replay; rejected because the user explicitly rejected the existing UI style and needs real dependency relationships.
 
 **WF-02. DECIDED - dependencies are not execution evidence:** nodes say stored records, current configuration, no attached output or transient analyst-request state. They never become complete merely because selected; no timers, fake throughput, made-up counts or automatic model calls. Target/finding selections filter existing records and preserve stored score values. The local analyst is downstream of evidence and ranking with no edge back to scoring; its button reuses the existing AI-01 endpoint, with run/host-bound transient state, text-only output and explicit errors. Testing uses mocked analyst failures; no real Ollama request or scanner is run for this change. Optional report, evaluation and re-scan nodes remain visibly unattached rather than deriving metrics or asserting fixes. Alternatives: infer artifact existence from scores, execute the whole pipeline from the canvas or recalculate metrics; rejected under the remaining data, scoring and execution boundaries. The project venv lacked pytest, so full tests used the already-installed system interpreter; no provisioning or dependency change occurred. Validation and screenshots are recorded in docs/ui.md.
+
+## Workflow design review - 2026-09-22
+
+**WF-03. USER-DIRECTED - Integration Card visual reference, directional workflow:**
+the user selected ShadcnSpace's Integration Card at
+[its 21st.dev preview](https://21st.dev/@shadcnspace/components/integration-card), requested dark styling
+close to the reference, and delegated the layout choice after comparison. This
+serves PROJECT.md Stage 7 and cross-cutting context/ranking auditability: larger
+readable nodes and a selected evidence path make the inputs behind a priority
+inspectable. Retain the 18 existing stage identities and dependency edges. Adopt
+dark raised icon tiles, compact navigation, scoped color tokens and selected-edge
+tracing, with a Canvas / Stages switch and a readable list by default below
+961 CSS pixels. Keep node details, native scrolling, keyboard focus return,
+target/finding filtering and the existing explicit analyst boundary. Motion
+indicates the selected dependency only, never execution, and respects reduced
+motion. The run summary counts existing arrays, not completed stages.
+
+Conflict / resolution / why: WF-01's pale circular presentation is superseded
+only for this independent workflow by the user's approved dark reference. The
+assessment renderer, APIs, model fields, scores, scope and offline export remain
+outside this redesign. A literal single-hub copy was rejected because it erases
+pipeline direction; hiding optional stages was rejected because missing outputs
+must remain visible. Installing the React component and its dependencies was
+rejected in favor of the existing offline modules and local icons. No template
+source or brand assets are copied. Reference installation commands were
+**not run by the agent**. Other templates still require separate user review.
+
+TESTED WITH MOCKS: the available regression suite passed; VERIFIED: browser and
+loopback smoke evidence is quoted in docs/ui.md. MISSING: Ruff, Pyright and
+pytest-cov; this decision does not assert a complete quality gate.
+
+**WF-04. USER-DIRECTED - soften the workflow palette, retain the accepted layout
+(2026-09-22):** the user found the background too dark and accepted the rest of
+the workflow. Lift the near-black canvas to neutral charcoal, lighten tile faces
+and connectors, and reduce shadow opacity through workflow-scoped tokens only.
+This serves PROJECT.md Stage 7 by improving readability of the existing evidence
+path; it makes no research-performance claim. Alternatives: switch to a full
+light theme or redesign the graph again; rejected because the request is a small
+appearance refinement, not a new layout or mode. No HTML, JavaScript, scoring,
+record, dependency or assessment-theme change belongs to this follow-up.
+VERIFIED: live color/contrast and viewport measurements are quoted in docs/ui.md.
+TESTED WITH MOCKS: nine existing UI asset tests passed. The required gate remains
+blocked by the previously named missing tools.
+
+## Project-first explanation website - 2026-09-22
+
+**UI-23. USER-DIRECTED - explain the project before exposing its records:** the
+user identified the visitor's task as understanding and exploring the project,
+explicitly dropped the Doors direction, supplied
+[Hero by Berat](https://21st.dev/@beratberkayg/components/hero-1), and requested
+desktop-first work. This serves PROJECT.md Stage 7 and cross-cutting ranking
+auditability: explain why deployment context matters, then let the visitor
+inspect the evidence behind an existing priority. Use a project introduction,
+a guided comparison and links into the accepted workflow. Preserve the detailed
+assessment behind explicit `#stage-*` links and in print.
+
+Conflict / resolution / why: UI-20 and UI-21's operational-first entry predates
+the user's explicit explanatory-website request. Change the default presentation,
+not the pipeline, scoring model, stored records or approved workflow. Repeating
+the Doors/orbit/card-stack composition was rejected because it obscured the
+project's purpose. A separate React/shadcn application was rejected because it
+would add a second frontend and require unapproved provisioning. Adapt the supplied
+hero composition in the existing offline HTML/CSS/JavaScript, with original
+decorative bitmap artwork embedded in exports. Reference installation commands
+were **not run by the agent**; no new dependency is requested by this decision.
+
+**UI-24. DECIDED - a guided example must come from existing records:** compare
+two different hosts only when stored CVE, base vector, base score, EPSS percentile
+and KEV membership match. Reveal the recorded context and priorities in three
+user-controlled steps; never calculate new scores for the story. Label synthetic
+provenance and distinguish equal stored values from a controlled historical-feed
+experiment. Preserve source evidence in disclosures. No suitable pair means an
+explicit unavailable message, not an invented example. Alternatives: fixed
+demonstration numbers or picking a visually dramatic pair with different threat
+inputs; rejected because either would undermine the context-attribution research
+question. This display does not establish inference accuracy or ranking quality.
+
+**UI-25. USER-DIRECTED - explanation sections connect to the existing analyst:**
+add plain-language local-analyst, priority/reason/source and questions sections.
+Let visitors select only hosts in the current stored assessment; link that host
+to the workflow's existing analyst node. Opening the link must not execute the
+model. The existing explicit AI-01 action remains advisory, transient and separate
+from deterministic scoring. Offline exports disable these live actions and retain
+the explanation. Use native select/disclosure controls, visible keyboard focus,
+restrained button depth and reduced-motion-aware arrow movement.
+
+Control-level reference review considered
+[Interactive Hover Button](https://21st.dev/@dillionverma/components/interactive-hover-button)
+and [Accordion Space](https://21st.dev/@shadcnspace/components/accordion-space).
+Use the interaction ideas, not their component code, dependencies or a new page
+template. The hover-button embedded preview was blank during capture; exact
+reference behavior is not claimed. Alternatives: automatic analysis on navigation
+or a fabricated answer preview; rejected because they would blur execution and
+evidence boundaries. This decision extends presentation only, not AI-01's scope.
+
+**UI-26. USER-DIRECTED - defer the globe only:** the user selected option 2 after
+the local COBE renderer/provisioning blocker was reported: continue the useful
+website sections and leave the globe for a separately approved artifact. A remote
+CDN, sibling-package copy or imitation renderer is not a provisioning workaround.
+Decorative geography is not needed to inspect context or evaluate ranking, so this
+deferral does not block the research question. MISSING: approved local renderer
+bundle with exact dependency versions, provenance, license, independently approved
+hashes and dated vulnerability review. No globe installation or model execution
+was performed for this increment; verification and remaining gates are recorded
+in docs/ui.md.
+
+## Doors as a section and explicit analysis - 2026-09-22
+
+**UI-27. USER-DIRECTED - restore the useful doors metaphor as one section:** the
+user now requests parts of Doors with a clear depiction, not the previous whole
+interface. This serves PROJECT.md Stage 7 and context/ranking auditability: one
+selected recorded system, its stored role/exposure, and one selectable door per
+finding lead to the exact source and stored priority. Reuse the existing local
+building/door drawings and band mapping. Unknown context and absent findings stay
+explicit. Synthetic records remain labelled; a door does not establish an
+exploitable entrance and an unknown role does not imply low importance.
+
+Conflict / resolution / why: UI-23 dropped Doors as the organizing interface;
+the latest user request permits the metaphor inside the explanatory website.
+Keep the project-first hero and approved workflow, not the old Doors page, orbit
+or a second dashboard. A decorative collection of invented buildings/findings
+was rejected because it would break the connection to evidence. The drawings
+depict existing records; they do not score, infer context or establish research
+performance.
+
+**UI-28. DECIDED - preserve selection through the workflow round trip:** all
+project workflow links retain the selected recorded host, and a door link also
+retains its finding ID. The return link restores that host/finding in the doors
+section, or the host in the workflow section when no finding is selected. Shared
+host controls and input summaries follow the restored selection. Use fragment
+state only; no assessment query shape or API fields change. Alternatives:
+unfiltered links or independent unsynchronized selectors; rejected because they
+can show a different system's evidence after a visitor follows a priority.
+
+**UI-29. DECIDED - run the existing analyst explicitly, not an invented pipeline:**
+interpret the request for a model-running section within the existing AI-01
+boundary. Offer the existing local analyst for a selected system or all systems
+in the stored assessment, using the same endpoint sequentially. Review the exact
+target list before starting. Reject duplicate starts and mismatched responses;
+stop later requests after a failure, and let the user stop after the current
+request without claiming to cancel inference already running. Responses remain
+transient, cited and rendered as text; stored scores and model code stay untouched.
+The earlier Context-stage action now opens this same review flow. A small shared
+client supplies validation to both the project and workflow; offline exports
+embed it but disable every execution control.
+
+Alternatives: automatic execution when visiting a section, parallel inference,
+a new backend batch route, or training/running a second ranking model; rejected
+because none is needed to explain existing evidence, and these would expand the
+execution/interface boundary. This choice does not authorize scanner orchestration,
+feed refresh, rescoring, training or additional model types. Those are not hidden
+behind an "all models" control. No dependency or fixed schema change is made.
+
+TESTED WITH MOCKS: sequential, duplicate, stop, failure, response-identity and
+citation cases are covered by the existing synthetic workflow check. Browser
+execution checks ultimately used an in-page fetch fake. VERIFIED: an earlier
+browser-route interception failed and one local analyst request returned an
+Ollama-unavailable error; that request is not described as mocked or successful
+inference. The incident, missing service and quality prerequisites are recorded
+in docs/ui.md. Future browser model checks must use in-page fakes, not rely on
+route interception being retained through a timed-out check.
