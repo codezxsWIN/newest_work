@@ -12,7 +12,7 @@
   <a class="skip-link" href="#project-story">Skip to project explanation</a>
   <header class="app-header">
     <a class="brand" href="#hero" aria-label="VulnAssess home"><span class="brand-mark" aria-hidden="true">v/a</span><span>VulnAssess<small>Context Is Not Free</small></span></a>
-    <nav class="project-nav" aria-label="Project navigation"><a href="#project-story">The idea</a><a href="#project-doors">The systems</a><a href="#project-workflow">Workflow</a><a href="#project-run">Run analysis</a><a href="#project-questions">Questions</a></nav>
+    <nav class="project-nav" aria-label="Project navigation"><a href="#project-story">The idea</a><a href="#project-doors">The systems</a><a href="#project-model">Models</a><a href="#project-workflow">Workflow</a><a href="#project-run">Run analysis</a><a href="#project-questions">Questions</a></nav>
     <div class="header-note">LOCAL / READ ONLY</div>
     <div id="run-choice-slot"></div>
     <div class="header-actions">
@@ -31,12 +31,58 @@
     <section id="hero" class="project-hero" aria-labelledby="project-title">
       <div class="hero-copy">
         <a class="hero-eyebrow" href="#project-story">Context is not free <span aria-hidden="true">&rarr;</span></a>
-        <h1 id="project-title">VulnAssess<span class="hero-period">.</span></h1>
-        <p class="hero-statement">The same weakness.<br>Not the same priority.</p>
+        <h1 id="project-title">Vuln<em>Assess</em><span class="hero-period">.</span></h1>
+        <p class="hero-statement">The same weakness.<br>Not the same <em>priority.</em></p>
         <p class="hero-subtitle">A security warning is only part of the story. Where it lives helps explain what needs attention first.</p>
         <a class="hero-cta" href="#project-story">See why context matters <span aria-hidden="true">&rarr;</span></a>
       </div>
       <a class="hero-next" href="#project-story"><span>01 / THE IDEA</span><span>What changes when the surroundings change?</span><span aria-hidden="true">&darr;</span></a>
+    </section>
+    <section id="project-showcase" class="project-showcase" aria-labelledby="project-showcase-title">
+      <div class="showcase-copy">
+        <span class="eyebrow">SHOWCASE / CONTEXT IN MOTION</span>
+        <h2 id="project-showcase-title">One network.<br><em>Many surroundings.</em></h2>
+        <p>Risk travels through systems, regions and relationships. Scroll into the project to see how the same weakness changes meaning when its surroundings change.</p>
+        <a class="showcase-link" href="#project-story">Continue into the idea <span aria-hidden="true">&darr;</span></a>
+      </div>
+      <div class="showcase-orbit" aria-label="Interactive globe with connected network regions">
+        <div id="showcase-globe" class="cobe-globe" data-cobe-globe>
+          <canvas aria-label="Interactive network globe. Drag to rotate."></canvas>
+        </div>
+        <p class="showcase-readout"><span>INTERACTIVE / DRAG TO ROTATE</span><strong>Evidence stays local.</strong></p>
+      </div>
+    </section>
+    <section id="project-model" class="project-model" aria-labelledby="project-model-title">
+      <div class="model-introduction">
+        <p class="model-kicker">MODEL EVIDENCE</p>
+        <h2 id="project-model-title">The models are visible.<br><em>The decision stays traceable.</em></h2>
+        <p>VulnAssess uses two separate models for different jobs. Neither one silently changes the recorded risk score.</p>
+      </div>
+      <div class="model-stage" aria-label="VulnAssess model architecture">
+        <article class="model-role-panel">
+          <div class="model-panel-topline"><span class="model-panel-index">01</span><span>ROLE CLASSIFIER</span><span class="model-panel-status">SHADOW MODE</span></div>
+          <div class="model-role-body">
+            <div class="model-signal" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span></div>
+            <div>
+              <h3>What kind of system is this?</h3>
+              <p>Trained on labelled synthetic host records, it identifies likely system roles such as database, web frontend, workstation and mail server.</p>
+            </div>
+          </div>
+          <dl class="model-evidence-list">
+            <div><dt>Inputs</dt><dd>Services and scanner evidence</dd></div>
+            <div><dt>Output</dt><dd>Role label and confidence</dd></div>
+            <div><dt>Boundary</dt><dd>Visible evidence, no score changes</dd></div>
+          </dl>
+        </article>
+        <article class="model-analyst-panel">
+          <div class="model-panel-topline"><span class="model-panel-index">02</span><span>LOCAL AI ANALYST</span></div>
+          <h3>What should a reviewer inspect next?</h3>
+          <p>The local model reads stored findings, context, CVSS, EPSS, KEV and existing scores for one selected system. Its response must cite the evidence it used.</p>
+          <div class="model-analysis-boundary"><span>EXPLICIT REQUEST ONLY</span><strong>Malformed or uncited output is rejected.</strong></div>
+          <a class="model-open-link" data-project-workflow data-workflow-node="analyst" href="/workflow#node=analyst">Inspect the live analyst <span aria-hidden="true">&rarr;</span></a>
+        </article>
+      </div>
+      <div class="model-proof"><span>Human review remains essential</span><span>Published formula calculates risk</span><span>Models explain and classify evidence</span></div>
     </section>
     <div id="project-story-slot"></div>
     <div id="project-doors-slot"></div>

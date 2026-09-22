@@ -1,3 +1,28 @@
+/* Bundled locally so the interface remains identical without a font CDN. */
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("/static/vendor/fonts/InstrumentSans-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Instrument Sans";
+  src: url("/static/vendor/fonts/InstrumentSans-VariableItalic.woff2") format("woff2");
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/static/vendor/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 :root {
   color-scheme: light;
 
@@ -13,9 +38,9 @@
   --medium: #006ba0;
   --low: #5e6563;
 
-  --font-prose: "Segoe UI", system-ui, sans-serif;
-  --font-display: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
-  --font-evidence: Consolas, "Liberation Mono", monospace;
+  --font-prose: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --font-evidence: "Geist Mono", Consolas, "Liberation Mono", monospace;
   --text-small: 0.8125rem;
   --text-body: 1rem;
   --text-section: 1.25rem;
@@ -58,6 +83,7 @@
   --hero-muted: #454547;
   --hero-line: #77777855;
   --hero-glass: #ffffff44;
+  font-synthesis: none;
 }
 
 :root[data-theme="dark"] {
@@ -154,7 +180,7 @@
   --flow-line-strong: #9aa09a;
   --flow-accent: #0e5a46;
   --flow-soft: #edeeea;
-  --flow-mono: Consolas, "Liberation Mono", monospace;
-  --flow-display: "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
-  font-family: "Segoe UI", system-ui, sans-serif;
+  --flow-mono: "Geist Mono", Consolas, "Liberation Mono", monospace;
+  --flow-display: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  font-family: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
 }

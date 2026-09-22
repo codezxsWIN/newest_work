@@ -1,8 +1,8 @@
 :root.workflow-theme {
   color-scheme: dark;
-  --flow-font: "Aptos", "Segoe UI", sans-serif;
-  --flow-display: "Aptos Display", "Bahnschrift", "Segoe UI", sans-serif;
-  --flow-mono: "Cascadia Code", Consolas, monospace;
+  --flow-font: "Instrument Sans", "Segoe UI", sans-serif;
+  --flow-display: "Instrument Sans", "Segoe UI", sans-serif;
+  --flow-mono: "Geist Mono", Consolas, monospace;
   font-family: var(--flow-font);
   color: var(--flow-ink);
   background: var(--flow-bg);

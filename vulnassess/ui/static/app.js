@@ -1,8 +1,10 @@
 import { scoreVector, sandbox } from './cvss31.js';
 import { createAnalysisQueue } from './analyst-client.js';
+import { initialiseCobeGlobe } from './cobe-globe.js';
 
 const embedded = document.getElementById('assessment-data');
 const bootstrap = JSON.parse(embedded.textContent);
+initialiseCobeGlobe();
 const workflowLink = document.getElementById('open-workflow');
 if (workflowLink && !bootstrap.offline) {
   workflowLink.hidden = false;

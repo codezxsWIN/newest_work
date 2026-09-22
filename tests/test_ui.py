@@ -1180,11 +1180,24 @@ class TestUiAssets(unittest.TestCase):
         static = ROOT / "vulnassess" / "ui" / "static"
         tokens = (static / "tokens.css").read_text(encoding="utf-8")
         stylesheet = (static / "entry.css").read_text(encoding="utf-8")
-        self.assertIn('--font-prose: "Segoe UI", system-ui, sans-serif;', tokens)
-        self.assertIn('--font-evidence: Consolas, "Liberation Mono", monospace;', tokens)
+        self.assertIn('--font-prose: "Instrument Sans", "Segoe UI", system-ui, sans-serif;', tokens)
+        self.assertIn('--font-evidence: "Geist Mono", Consolas, "Liberation Mono", monospace;', tokens)
         self.assertRegex(stylesheet, r"\.evidence\s*\{[^}]*font-family:\s*var\(--font-evidence\)")
         self.assertRegex(stylesheet, r"\.inferred\s*\{[^}]*font-family:\s*var\(--font-prose\)")
-        self.assertNotIn("@font-face", tokens + stylesheet)
+        self.assertRegex(tokens, r'@font-face\s*\{\s*font-family: "Instrument Sans";')
+        self.assertRegex(tokens, r'@font-face\s*\{\s*font-family: "Geist Mono";')
+
+    def test_model_evidence_section_makes_boundaries_explicit(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        document = (static / "index.html").read_text(encoding="utf-8")
+        stylesheet = (static / "workbench.css").read_text(encoding="utf-8")
+        self.assertIn('href="#project-model">Models</a>', document)
+        self.assertIn('id="project-model"', document)
+        self.assertIn("Neither one silently changes the recorded risk score.", document)
+        self.assertIn("Malformed or uncited output is rejected.", document)
+        self.assertIn('data-workflow-node="analyst"', document)
+        self.assertIn(".project-model", stylesheet)
+        self.assertIn("@media (max-width: 800px)", stylesheet)
 
     def test_no_hardcoded_colours_outside_tokens(self) -> None:
         static = ROOT / "vulnassess" / "ui" / "static"
