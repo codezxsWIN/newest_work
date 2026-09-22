@@ -1194,6 +1194,9 @@ class TestUiAssets(unittest.TestCase):
         self.assertIn('href="#project-model">Models</a>', document)
         self.assertIn('id="project-model"', document)
         self.assertIn("Neither one silently changes the recorded risk score.", document)
+        self.assertIn(
+            "Recorded evidence flows through a model boundary to a human review decision.", document
+        )
         self.assertIn("Malformed or uncited output is rejected.", document)
         self.assertIn('data-workflow-node="analyst"', document)
         self.assertIn(".project-model", stylesheet)

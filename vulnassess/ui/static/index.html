@@ -53,10 +53,22 @@
       </div>
     </section>
     <section id="project-model" class="project-model" aria-labelledby="project-model-title">
-      <div class="model-introduction">
-        <p class="model-kicker">MODEL EVIDENCE</p>
-        <h2 id="project-model-title">The models are visible.<br><em>The decision stays traceable.</em></h2>
-        <p>VulnAssess uses two separate models for different jobs. Neither one silently changes the recorded risk score.</p>
+      <div class="model-intro-layout">
+        <div class="model-introduction">
+          <p class="model-kicker">MODEL EVIDENCE</p>
+          <h2 id="project-model-title">The models are visible.<br><em>The decision stays traceable.</em></h2>
+          <p>VulnAssess uses two separate models for different jobs. Neither one silently changes the recorded risk score.</p>
+        </div>
+        <div class="model-route" role="img" aria-label="Recorded evidence flows through a model boundary to a human review decision.">
+          <p class="model-route-label">A REVIEWABLE ROUTE</p>
+          <div class="model-route-track" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div class="model-route-nodes">
+            <div><span class="model-route-number">01</span><strong>Recorded<br>evidence</strong></div>
+            <div><span class="model-route-number">02</span><strong>Model<br>output</strong></div>
+            <div><span class="model-route-number">03</span><strong>Human<br>review</strong></div>
+          </div>
+          <p class="model-route-caption">The model can add context. It cannot hide the route back to the source.</p>
+        </div>
       </div>
       <div class="model-stage" aria-label="VulnAssess model architecture">
         <article class="model-role-panel">
