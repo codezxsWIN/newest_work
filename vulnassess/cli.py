@@ -748,7 +748,7 @@ def _register_role_model_run(
     config_hash = sha256(config_payload.encode("utf-8")).hexdigest()[:16]
     data_kind = (
         "synthetic"
-        if all(example.label_source == "synthetic" for example in examples)
+        if any(example.label_source == "synthetic" for example in examples)
         else "real_authorised"
     )
     reviewers = sorted({example.reviewer for example in examples if example.reviewer})
@@ -804,6 +804,10 @@ def _register_role_model_run(
 def cmd_model_ablate(args: argparse.Namespace) -> int:
     examples = role_model.load_examples(args.data)
     _reject_synthetic_labels(examples, args.allow_synthetic)
+    options = _training_options(args)
+    families = options.pop("feature_families")
+    if families is not None and args.subsets:
+        raise ConfigError("model ablate accepts --families or --subsets, not both")
     subsets = None
     if args.subsets:
         subsets = [
@@ -812,7 +816,9 @@ def cmd_model_ablate(args: argparse.Namespace) -> int:
             else [family.strip() for family in subset.split(",") if family.strip()]
             for subset in args.subsets.split(";")
         ]
-    result = role_model.ablate_features(examples, folds=args.folds, subsets=subsets)
+    elif families is not None:
+        subsets = [families]
+    result = role_model.ablate_features(examples, folds=args.folds, subsets=subsets, **options)
     lines = [f"feature-family ablation over {result['examples']} labelled host(s):"]
     for entry in result["results"]:
         aggregate = entry["aggregate"]

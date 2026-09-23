@@ -787,11 +787,11 @@ the last validation run.
 
 **Evaluation infrastructure exists, but research evidence is still missing.**
 
-### Final verification and publication boundary
+### Pre-integration verification and publication boundary
 
 TESTED WITH MOCKS: current source and tests were copied to an owned temporary
 directory; its working directory, database and generated reports were isolated
-from the workspace assessment. The final command was:
+from the workspace assessment. The pre-integration command was:
 
 ```text
 python -m pytest -q --tb=no -ra -p no:cacheprovider
@@ -842,3 +842,49 @@ prevent live/research certification, not the demonstrated local code-path repair
 NEXT: supply the reviewed runtime/research artifacts and explicit contract
 approvals in J, resolve the four retained failures, and run a witnessed new-target
 assessment plus the full quality gate before claiming the project is complete.
+
+### Remote model-work integration - 2026-09-23
+
+VERIFIED: `git fetch privwork audit-no-assumptions` reported
+`b3e5dae..5b13059`. The incoming b5c4565/b436104/f16e59b changes add feature-family
+filtering, grouped family ablations, a model-ablation CLI and optional dataset/
+training-run registration. The local unpublished recheck was rebased on top;
+no remote commits were dropped and no force push was used.
+
+TESTED WITH MOCKS: the first combined isolated suite returned
+`4 failed, 337 passed, 388 subtests passed in 55.07s`, retaining the same four
+UI/export failures. Two additional integration regressions then reproduced
+`None != 7` for ignored ablation epochs and `real_authorised != synthetic` for
+mixed-label provenance. Both were repaired; conflicting family selectors now
+fail explicitly. `python -m pytest -q --tb=short -p no:cacheprovider
+tests/test_role_training.py tests/test_role_model.py tests/test_model_governance.py`
+returned `34 passed, 10 subtests passed in 24.91s`.
+
+The A-J verdict remains NO. The incoming work improves research infrastructure,
+not the missing new-target lifecycle, real datasets or live inference. Registered
+validation metrics are not an untouched test-set evaluation, and family-ablation
+results still require interpretation under the model's abstention/coverage policy.
+RECHECK-08 records the integration choice; final combined totals follow below.
+
+TESTED WITH MOCKS: after the incoming-work repairs, the final isolated command
+`python -m pytest -q --tb=no -ra -p no:cacheprovider` returned:
+
+```text
+4 failed, 340 passed, 388 subtests passed in 58.09s
+PUBLISHABLE_SUITE_EXIT 1
+```
+
+There are zero skips; the same four UI/export failures listed above remain.
+MISSING: the integrated `python scripts/check.py` run again reported Ruff lint,
+Ruff format, Pyright and pytest-cov unavailable, ending with `GATE INCOMPLETE`.
+No coverage percentage is claimed. This supersedes the earlier test totals, not
+the recorded failures or the A-J acceptance verdict.
+
+STATUS: recheck checkpoint ready to publish, live acceptance blocked.
+BRANCH / COMMIT: `audit-no-assumptions`, integrating remote 5b13059; final hashes
+are checked after push. GATE: 340 passed / 4 failed / 0 skipped; required tools
+missing. BUILT / CHANGED: the full backend/research repairs above plus the incoming
+model-infrastructure corrections. DECIDED / DECISIONS: preserve incoming work and
+honest provenance; RECHECK-01 through RECHECK-08. EVIDENCE: the quoted combined
+suite and gate executions. DEFERRED / NEXT: resolve the recorded acceptance,
+approval, runtime, research-input and UI/export blockers before certification.

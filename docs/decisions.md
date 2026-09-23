@@ -788,3 +788,13 @@ or unseen-environment result is implied. The complete evidence, remaining failur
 and both prompts' acceptance checks are recorded in HANDOFF.md. Concurrent commits
 6f51bb5/b3e5dae were preserved; the removed offline-export bundling is reported as
 a regression, not silently restored during this backend-focused pass.
+
+**RECHECK-08. DECIDED - preserve and validate incoming model infrastructure:**
+Remote checkpoint 5b13059 added feature-family ablation and optional training-run
+registration. These were retained when rebasing the unpublished recheck. The
+ablation CLI now forwards its declared training options and rejects conflicting
+family selectors. Any synthetic labels classify the registered dataset as
+synthetic, rather than allowing one human-tagged row to label a mixed dataset
+`real_authorised`. Rejected: silently ignoring hyperparameters, overstating data
+provenance, or dropping the incoming work. Registration remains draft metadata;
+it is not independent test evidence, authorization verification or model promotion.
