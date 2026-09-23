@@ -24,6 +24,7 @@ DEFAULT_MODEL = "llama3.2:3b"
 MAX_FACT_CHARS = 600
 MAX_SENTENCE_CHARS = 240
 MAX_RESPONSE_BYTES = 64 * 1024
+MAX_STREAM_BYTES = 16 * MAX_RESPONSE_BYTES
 MAX_TIMEOUT_SECONDS = 2400.0
 FENCE = "-----"
 UNTRUSTED_PREFIX = "untrusted data follows"
@@ -141,6 +142,8 @@ def validate(sentence: str, facts: dict[str, str]) -> tuple[bool, dict[str, obje
 class OllamaClient:
     """A thin local Ollama caller. Absence is reported, never worked around."""
 
+    source = "local_ollama_grounded_analysis"
+
     def __init__(
         self, host: str = DEFAULT_HOST, model: str = DEFAULT_MODEL, timeout: float = 30.0
     ) -> None:
@@ -222,7 +225,7 @@ class OllamaClient:
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": True,
-            "format": "json",
+            "format": schema,
             "options": {
                 "temperature": 0,
                 "seed": 0,
@@ -237,24 +240,47 @@ class OllamaClient:
         )
         deadline = time.monotonic() + self.timeout
         parts: list[str] = []
+        received_bytes = 0
+        content_bytes = 0
+        completed = False
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                for line in response:
+                while line := response.readline(MAX_RESPONSE_BYTES + 1):
+                    received_bytes += len(line)
+                    if len(line) > MAX_RESPONSE_BYTES or received_bytes > MAX_STREAM_BYTES:
+                        raise LLMUnavailable("Ollama stream exceeds the bounded response budget")
                     if time.monotonic() > deadline:
                         raise LLMUnavailable(
                             f"Ollama generation exceeded {self.timeout:g}s at {self.host}"
                         )
                     event = json.loads(line)
+                    if not isinstance(event, dict):
+                        raise LLMUnavailable("Ollama stream event must be a JSON object")
                     if event.get("error"):
-                        raise LLMUnavailable(f"Ollama error at {self.host}: {event['error']}")
-                    parts.append(str(event.get("message", {}).get("content", "")))
-                    if event.get("done"):
+                        detail = sanitise(str(event["error"]), MAX_SENTENCE_CHARS)
+                        raise LLMUnavailable(f"Ollama error at {self.host}: {detail}")
+                    message = event.get("message", {})
+                    if not isinstance(message, dict) or not isinstance(
+                        message.get("content", ""), str
+                    ):
+                        raise LLMUnavailable("Ollama stream message must contain text")
+                    content = message.get("content", "")
+                    content_bytes += len(content.encode("utf-8"))
+                    if content_bytes > MAX_RESPONSE_BYTES:
+                        raise LLMUnavailable(
+                            f"Ollama structured output exceeds {MAX_RESPONSE_BYTES} bytes"
+                        )
+                    parts.append(content)
+                    if event.get("done") is True:
+                        completed = True
                         break
-        except (urllib.error.URLError, OSError, json.JSONDecodeError) as error:
+        except (urllib.error.URLError, OSError, ValueError, TypeError) as error:
             raise LLMUnavailable(
                 f"Ollama did not answer at {self.host}/api/chat: {type(error).__name__}. "
                 f"A human must run: ollama serve   and   ollama pull {self.model}"
             ) from error
+        if not completed:
+            raise LLMUnavailable("Ollama stream ended before explicit completion")
         try:
             result = json.loads("".join(parts))
         except (json.JSONDecodeError, TypeError, ValueError) as error:

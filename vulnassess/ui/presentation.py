@@ -5,7 +5,7 @@ from html import escape
 from math import cos, radians, sin
 from typing import Any
 
-from vulnassess.ui.drawings import BAND_CLASSES, building
+from vulnassess.ui.drawings import BAND_CLASSES, building, door
 from vulnassess.ui.entry import evidence, evidence_items, pipeline_map, run_strip
 
 
@@ -255,14 +255,91 @@ def _finding_marker(finding: dict[str, Any], score: dict[str, Any]) -> str:
     )
 
 
+def _asset_orbit(payload: dict[str, Any]) -> str:
+    profiles = {profile["host_ip"]: profile for profile in payload["context"]}
+    selected = payload["scores"][0]["host_ip"] if payload["scores"] else None
+    nodes = []
+    for index, host in enumerate(payload["hosts"]):
+        address = host["ip"]
+        profile = profiles.get(address)
+        role = profile["role"]["value"] if profile else "unknown"
+        count = sum(finding["host_ip"] == address for finding in payload["findings"])
+        nodes.append(
+            f'<button type="button" class="asset-option" data-asset-select="{escape(address)}" '
+            f'aria-pressed="{str(address == selected if selected else index == 0).lower()}" '
+            f'aria-label="Select {escape(address)}, {count} stored findings">'
+            + f'<span class="asset-option-icon">{building(role)}</span>'
+            + f'<span class="asset-option-text">{escape(address)}'
+            + f'<small>{escape(str(role).replace("_", " "))}</small></span>'
+            + f'<span class="asset-option-count">{count}</span></button>'
+        )
+    return (
+        '<aside class="asset-browser" aria-label="Recorded assets in this assessment">'
+        '<div class="asset-browser-heading"><h2>Assets</h2>'
+        f'<span>{len(payload["hosts"]):02d}</span></div>'
+        '<nav class="asset-options" aria-label="Select an asset">'
+        + "".join(nodes)
+        + '</nav><div class="asset-browser-footer"><span class="eyebrow">RUN CONFIGURATION</span>'
+        + f'<pre class="ascii-field" aria-hidden="true">{escape(payload["run"]["config_hash"])}</pre></div></aside>'
+    )
+
+
+def _priority_focus(payload: dict[str, Any], address: str) -> str:
+    findings = {finding["id"]: finding for finding in payload["findings"]}
+    score = next(
+        (item for item in payload["scores"] if item["host_ip"] == address), None
+    )
+    if score is None or score["finding_id"] not in findings:
+        return '<p class="state-message">No scored finding recorded for this asset.</p>'
+    finding = findings[score["finding_id"]]
+    return (
+        f'<section class="priority-focus" data-priority-finding="{escape(score["finding_id"])}" '
+        'aria-label="Highest stored risk for this asset">'
+        '<div class="priority-heading"><div><span class="eyebrow">HIGHEST STORED RISK</span>'
+        f'<h2>{escape(finding["title"])}</h2>'
+        f'<p class="priority-identity">{escape(str(score.get("cve_id") or finding["tool_native_id"]))}'
+        f' / {escape(finding["tool"].upper())}</p></div>'
+        f'<div class="priority-number"><strong>{score["risk"]}</strong>'
+        f'{_band(score["band"])}<span>Stored risk / 100</span></div></div>'
+        '<div class="priority-reason"><h3>Why this matters</h3>'
+        f'<p>{escape(score.get("reason") or "No reason recorded.")}</p></div>'
+        '<dl class="priority-inputs"><div><dt>CVSS base</dt>'
+        f'<dd>{escape(_text(score.get("base_score")))}</dd></div>'
+        '<div><dt>Environmental</dt>'
+        f'<dd>{escape(_text(score.get("env_score")))}</dd></div>'
+        '<div><dt>EPSS percentile</dt>'
+        f'<dd>{escape(_text(score.get("epss_percentile")))}</dd></div>'
+        '<div><dt>In CISA KEV</dt>'
+        f'<dd>{escape(_text(score.get("kev")))}</dd></div></dl>'
+        '<div class="priority-evidence"><h3>Recorded evidence</h3>'
+        + evidence(finding["evidence"], f'{finding["tool"]} / verbatim finding evidence')
+        + '</div><details class="priority-guidance"><summary>Recorded next action</summary>'
+        + f'<p>{escape(score.get("fix") or "No remediation guidance recorded.")}</p></details>'
+        + '<div class="priority-actions">'
+        + _inspection_button(finding, 'Review finding <span aria-hidden="true">&rarr;</span>', 'primary-button')
+        + f'<button type="button" class="context-action" data-context-asset="{escape(address)}">'
+        + 'View context <span aria-hidden="true">&rarr;</span></button></div></section>'
+    )
+
+
 def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
     profiles = {profile["host_ip"]: profile for profile in payload["context"]}
     scores = {score["finding_id"]: score for score in payload["scores"]}
+    by_identity = {finding["id"]: finding for finding in payload["findings"]}
+    selected = payload["scores"][0]["host_ip"] if payload["scores"] else None
     hosts = []
-    for host in payload["hosts"]:
+    for index, host in enumerate(payload["hosts"]):
         profile = profiles.get(host["ip"])
         role = profile["role"]["value"] if profile else "unknown"
-        findings = [finding for finding in payload["findings"] if finding["host_ip"] == host["ip"]]
+        findings = [
+            by_identity[score["finding_id"]]
+            for score in payload["scores"]
+            if score["host_ip"] == host["ip"] and score["finding_id"] in by_identity
+        ]
+        findings += [
+            finding for finding in payload["findings"]
+            if finding["host_ip"] == host["ip"] and finding["id"] not in scores
+        ]
         finding_markers = "".join(
             _inspection_button(
                 finding,
@@ -277,11 +354,16 @@ def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
             if service.get("banner")
         )
         hosts.append(
-            f'<article class="asset" id="host-{escape(host["ip"])}">'
+            f'<article class="asset" id="host-{escape(host["ip"])}" '
+            f'data-asset-panel="{escape(host["ip"])}"'
+            + (" hidden" if (host["ip"] != selected if selected else index != 0) else "") + '>'
+            + '<div class="asset-cap"><span class="eyebrow">ASSET / '
+            + f'{index + 1:02d}</span><span class="asset-service-count">{len(host["services"])} services</span></div>'
             + evidence(host["ip"], "Scanner / host address", False)
-            + f'<div class="asset-illustration">{building(role)}</div>'
             + f'<h3 class="inferred">{escape(role.replace("_", " "))}</h3>'
             + f'<p class="asset-exposure">{escape(str(profile["exposure"]["value"]).replace("_", " ") if profile else "No context recorded")}</p>'
+            + _priority_focus(payload, host["ip"])
+            + f'<div class="section-head asset-findings-heading"><h2>All findings</h2><span>{len(findings)} recorded</span></div>'
             + f'<div class="asset-findings">{finding_markers or "No findings recorded"}</div>'
             + f'<details class="asset-evidence"><summary>Scanner evidence</summary>{banners or "No banner recorded"}</details>'
             + "</article>"
@@ -319,14 +401,20 @@ def _evidence_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
     return (
         '<section id="stage-evidence" class="stage-panel" data-panel="evidence" aria-labelledby="evidence-title">'
         + _heading(
-            "01 / EVIDENCE",
-            '<span id="evidence-title">Start with what was seen.</span>',
-            "The scanner's words. Preserved, not paraphrased.",
+            "01 / EVIDENCE / " + escape(payload["run"]["run_id"]),
+            '<span id="evidence-title">Vulnerability review<span class="heading-period">.</span></span>',
+            f'{len(payload["hosts"])} assets / {len(payload["findings"])} findings / {len(payload["scores"])} scored',
         )
-        + '<div class="section-head"><h2>Observed assets</h2><span>Select a finding to inspect its evidence and score</span></div>'
-        + f'<div class="asset-grid">{"".join(hosts)}</div>'
-        + fence
-        + _section_header("Intelligence has a date.", "Current store metadata; not frozen per run")
+        + '<div class="evidence-explorer">'
+        + _asset_orbit(payload)
+        + '<div class="asset-stack"><div class="deck-toolbar"><span class="eyebrow">SELECTED ASSET</span>'
+        + '<div class="deck-controls"><button type="button" class="icon-button" data-deck-step="-1" aria-label="Previous asset" title="Previous asset">&larr;</button>'
+        + f'<output id="deck-position" aria-live="polite">{1 if hosts else 0} / {len(hosts)}</output>'
+        + '<button type="button" class="icon-button" data-deck-step="1" aria-label="Next asset" title="Next asset">&rarr;</button></div></div>'
+        + f'<div class="asset-grid asset-deck">{"".join(hosts) or "No hosts recorded."}</div></div></div>'
+        + '<details class="archive scope-archive"><summary>Authorized scope and canary</summary>'
+        + fence + '</details>'
+        + _section_header("Intelligence snapshots", "Current store metadata; not frozen per run")
         + f'<div class="feed-grid">{feeds or "No feed metadata recorded"}</div>'
         + '<details class="archive"><summary>Recorded pipeline details</summary>'
         + pipeline_map(payload)
@@ -351,8 +439,9 @@ def _feature(feature: dict[str, Any], label: str, threshold: float | None = None
         f'<span class="eyebrow">{escape(label)}</span>{state}</div>'
         f'<div class="feature-value"><span class="inferred">{escape(_text(feature["value"]).replace("_", " "))}</span>'
         f'<span class="confidence" aria-label="Confidence {confidence}">{ring}{confidence}</span></div>'
+        + '<details class="feature-evidence"><summary>Source evidence</summary>'
         + evidence(feature["evidence"], f"{feature['source']} / {label} evidence")
-        + "</div>"
+        + "</details></div>"
     )
 
 
@@ -364,7 +453,14 @@ def _context_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         .get("min_confidence_to_apply")
     )
     profiles = []
+    selectors = []
     for profile in payload["context"]:
+        selectors.append(
+            f'<button type="button" class="context-tab" data-asset-select="{escape(profile["host_ip"])}" '
+            'aria-pressed="false">'
+            + building(profile["role"]["value"])
+            + f'<span>{escape(profile["host_ip"])}<small>{escape(str(profile["role"]["value"]).replace("_", " "))}</small></span></button>'
+        )
         features = _feature(profile["role"], "Role", threshold) + _feature(
             profile["exposure"], "Exposure", threshold
         )
@@ -375,36 +471,70 @@ def _context_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         features += "".join(
             _feature(feature, name.replace("_", " ")) for name, feature in profile["manual"].items()
         )
+        score_rows = "".join(
+            '<button type="button" class="context-score" '
+            f'data-inspect="{escape(score["finding_id"])}" aria-haspopup="dialog" aria-controls="inspector">'
+            f'<span>{escape(str(score.get("cve_id") or "Native finding"))}</span>'
+            f'<span class="context-score-chain">{_text(score.get("base_score"))} <i aria-hidden="true">&rarr;</i> '
+            f'{_text(score.get("env_score"))} <i aria-hidden="true">&rarr;</i> <strong>{score["risk"]}</strong></span>'
+            f'{_band(score["band"])}</button>'
+            for score in payload["scores"] if score["host_ip"] == profile["host_ip"]
+        )
         profiles.append(
-            f'<article class="context-column" id="context-{escape(profile["host_ip"])}">'
+            f'<article class="context-column" id="context-{escape(profile["host_ip"])}" '
+            f'data-context-panel="{escape(profile["host_ip"])}">'
+            + '<div class="context-profile"><div class="context-profile-heading">'
             + evidence(profile["host_ip"], "Stored context / host", False)
             + f'<div class="context-mark">{building(profile["role"]["value"])}</div>'
-            + features
-            + "</article>"
+            + f'</div><div class="context-features">{features}</div></div>'
+            + '<aside class="context-consequence"><span class="eyebrow">CONTEXT / PRIORITY</span>'
+            + '<h2>What changed?</h2><p class="quiet">Stored base &rarr; environmental &rarr; risk</p>'
+            + (score_rows or '<p class="state-message">No score recorded for this asset.</p>')
+            + '<a class="context-action" href="#stage-risk">Compare the risk inputs <span aria-hidden="true">&rarr;</span></a></aside>'
+            + '</article>'
         )
     return (
         '<section id="stage-context" class="stage-panel" data-panel="context" hidden>'
         + _heading(
             "02 / CONTEXT",
-            "Every inference needs a clue.",
-            "A role is a conclusion. The words beside it are the evidence.",
+            "The context behind the priority.",
+            "Recorded role, exposure, controls and their supporting evidence.",
         )
-        + '<p class="context-key"><span class="ring-key" aria-hidden="true"></span>Confidence is how sure, not how dangerous.</p>'
+        + f'<div class="context-selector" aria-label="Choose an asset">{"".join(selectors)}</div>'
+        + '<p id="context-empty" class="state-message" hidden>No context profile recorded for this asset.</p>'
         + f'<div class="context-grid">{"".join(profiles) or "No context profiles stored"}</div>'
-        + '<section class="model-workspace" aria-labelledby="model-title">'
+        + '<details class="model-workspace"><summary>Local analyst <span class="quiet">Advisory / explicit request only</span></summary>'
         + '<div class="section-head"><div><span class="eyebrow">LOCAL AI SECURITY ANALYST</span><h2 id="model-title">Analyze the complete target.</h2></div>'
         + '<span class="model-badge">Ollama / grounded evidence</span></div>'
         + '<p class="model-copy">The local model reads every stored service, finding, context inference, CVSS record, EPSS signal and KEV flag for one target. Its actions must cite records from this assessment.</p>'
         + '<div class="model-controls"><label for="model-host">Asset</label><select id="model-host">'
-        + "".join(
-            f'<option value="{escape(profile["host_ip"])}">{escape(profile["host_ip"])} · {escape(_text(profile["role"]["value"]).replace("_", " "))}</option>'
-            for profile in payload["context"]
-        )
-        + '</select><button id="run-model" class="primary-button" type="button">Analyze target</button></div>'
+        + _analyst_choices(payload)
+        + f'</select><button id="run-model" class="primary-button" type="button"{"" if _analyzable_hosts(payload) else " disabled"}>Review local analysis</button></div>'
         + '<div id="model-output" class="model-output" aria-live="polite"><span class="model-placeholder">Select an asset to ask the local analyst for correlations and an evidence-backed remediation sequence.</span></div>'
-        + "</section>"
+        + "</details>"
         + '<p class="stage-footnote">AI analysis is advisory. Canonical risk remains the transparent stored calculation; unknown citations or malformed model output are rejected.</p></section>'
     )
+
+
+def _analyzable_hosts(payload: dict[str, Any]) -> set[str]:
+    """Hosts whose stored finding set can form an analyst case."""
+    return {item["host_ip"] for item in payload["findings"]}
+
+
+def _analyst_choices(payload: dict[str, Any]) -> str:
+    """Analyst asset options; hosts without stored findings are disabled, not refused after the click."""
+    analyzable = _analyzable_hosts(payload)
+    options = []
+    for profile in payload["context"]:
+        host_ip = escape(profile["host_ip"])
+        role = escape(_text(profile["role"]["value"]).replace("_", " "))
+        if profile["host_ip"] in analyzable:
+            options.append(f'<option value="{host_ip}">{host_ip} · {role}</option>')
+        else:
+            options.append(
+                f'<option value="{host_ip}" disabled>{host_ip} · {role} — no stored findings</option>'
+            )
+    return "".join(options)
 
 
 def _pair(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1184,6 +1314,229 @@ def _inspector(payload: dict[str, Any]) -> str:
     )
 
 
+def _project_story(payload: dict[str, Any] | None, runs: list[dict[str, Any]]) -> str:
+    header = (
+        '<section id="project-story" class="project-section project-story" '
+        'aria-labelledby="project-story-title"><div class="project-section-heading">'
+        '<span class="eyebrow">01 / WHY CONTEXT MATTERS</span>'
+        '<h2 id="project-story-title">A warning needs its surroundings.</h2>'
+        '<p>The same weakness can appear on very different systems. '
+        'The question is where to look first.</p></div>'
+    )
+    if payload is None:
+        options = ''.join(
+            f'<option value="{escape(run["run_id"])}">{escape(run["run_id"])}</option>'
+            for run in runs
+        )
+        selection = (
+            '<label class="story-run-choice">Explore a recorded assessment'
+            '<select id="select-project-run"><option value="">Choose an assessment</option>'
+            + options + '</select></label>'
+            if runs else '<p class="story-absence">No assessment has been recorded here yet.</p>'
+        )
+        return header + selection + '</section>'
+
+    candidates = [score for score in payload['scores'] if score.get('cve_id')]
+    pair: list[dict[str, Any]] = []
+    for first in candidates:
+        match = next(
+            (
+                second for second in candidates
+                if first['host_ip'] != second['host_ip']
+                and first.get('base_vector')
+                and first.get('base_score') is not None
+                and all(
+                    first.get(key) == second.get(key)
+                    for key in ('cve_id', 'base_vector', 'base_score', 'epss_percentile', 'kev')
+                )
+            ), None,
+        )
+        if match is not None:
+            pair = sorted([first, match], key=lambda item: (item['risk'], item['finding_id']))
+            break
+    if not pair:
+        return (
+            header + '<div class="story-absence"><h3>No like-for-like example in this run.</h3>'
+            '<p>This assessment does not contain the same recorded vulnerability and threat '
+            'inputs on two different systems. Its findings are still available in the workflow.</p>'
+            '</div></section>'
+        )
+    synthetic = any('synthetic' in item['path'].lower() for item in payload['feeds_meta']) or any(
+        'synthetic' in item['provenance']['raw_path'].lower() for item in payload['findings']
+    )
+    kind = 'Synthetic example' if synthetic else 'Recorded example'
+    note = (
+        'Illustrative data, not findings about real systems.'
+        if synthetic else 'Stored records, not proof that context caused the difference.'
+    )
+    roles = {
+        'database': 'A database system', 'workstation': 'A workstation',
+        'web_frontend': 'A web-facing system', 'app_server': 'An application server',
+        'domain_controller': 'An identity server', 'mail': 'A mail server',
+        'file_share': 'A file-sharing system', 'network_device': 'A network device',
+        'iot_embedded': 'An embedded device', 'unknown': 'An unclassified system',
+    }
+    findings = {finding['id']: finding for finding in payload['findings']}
+    systems: list[str] = []
+    for index, score in enumerate(pair):
+        inputs = score.get('inputs') or {}
+        role = inputs.get('role') or {}
+        exposure = inputs.get('exposure') or {}
+        environment = (inputs.get('manual') or {}).get('environment') or {}
+        surroundings = {
+            'internal': 'Internal network', 'internet_facing': 'Internet-facing',
+        }.get(exposure.get('value'), 'Reachability not recorded')
+        usage = {'test': 'Test use', 'prod': 'Production use'}.get(
+            environment.get('value'), 'Use not recorded'
+        )
+        outcome = (
+            'Same recorded priority' if pair[0]['risk'] == pair[1]['risk']
+            else 'Later in this recorded queue' if index == 0
+            else 'Earlier in this recorded queue'
+        )
+        finding = findings.get(score['finding_id'])
+        quote = finding['evidence'] if finding else 'No finding record attached.'
+        systems.append(
+            f'<article class="story-system" data-story-finding="{escape(score["finding_id"])}">'
+            f'<span class="story-system-index">SYSTEM {index + 1:02d}</span>'
+            f'<h3>{escape(roles.get(role.get("value"), "A recorded system"))}</h3>'
+            '<p class="story-shared">Same recorded weakness</p>'
+            '<div class="story-surroundings"><span>Recorded surroundings</span>'
+            f'<strong>{escape(surroundings)}</strong><p>{escape(usage)}</p></div>'
+            f'<div class="story-outcome">{_band(score["band"])}<strong>{outcome}</strong></div>'
+            '<details class="story-source"><summary>Supporting records</summary>'
+            + evidence(score['host_ip'], 'Stored score / host', False)
+            + evidence(str(score['cve_id']), 'Stored score / shared vulnerability', False)
+            + evidence(str(score['risk']), 'Stored score / risk', False)
+            + evidence(str(role.get('evidence') or 'none observed'), 'Recorded role evidence')
+            + evidence(quote, 'Original finding evidence')
+            + '</details></article>'
+        )
+    return (
+        header + '<div class="story-provenance"><span class="stamp">' + kind + '</span>'
+        f'<span>{note}</span></div>'
+        '<div class="story-steps" role="group" aria-label="Example chapters">'
+        '<button type="button" data-story-step="0" aria-pressed="true">01 <span>The warning</span></button>'
+        '<button type="button" data-story-step="1" aria-pressed="false">02 <span>The setting</span></button>'
+        '<button type="button" data-story-step="2" aria-pressed="false">03 <span>The priority</span></button></div>'
+        '<div class="story-example" id="story-example" data-step="0">'
+        '<div class="story-explanation" aria-live="polite">'
+        '<div data-story-copy="0"><h3>One warning. Two different places.</h3>'
+        '<p>These two systems have the same recorded weakness and base severity. '
+        'A severity score alone does not describe their surroundings.</p></div>'
+        '<div data-story-copy="1" hidden><h3>Now look at the surroundings.</h3>'
+        '<p>What the system does, who can reach it, and observed protections add context. '
+        'No protection observed does not mean no protection exists.</p></div>'
+        '<div data-story-copy="2" hidden><h3>A priority should have a reason.</h3>'
+        '<p>These are the priorities already stored for the two findings. The published '
+        'formula scores them; the local model does not change their scores.</p></div></div>'
+        '<div class="story-systems">' + ''.join(systems) + '</div></div>'
+        '<div class="story-controls"><button type="button" id="story-back" class="text-button" disabled>Back</button>'
+        '<span id="story-position">1 of 3</span>'
+        '<button type="button" id="story-next" class="primary-button">Add the context <span aria-hidden="true">&rarr;</span></button></div>'
+        '<p class="story-caveat">This example explains the method. It is not an expert evaluation '
+        'or a controlled comparison of historical feed snapshots.</p></section>'
+    )
+
+
+def _project_doors(payload: dict[str, Any] | None) -> str:
+    header = (
+        '<section id="project-doors" class="project-section project-doors" '
+        'aria-labelledby="project-doors-title"><div class="doors-heading">'
+        '<div class="project-section-heading"><span class="eyebrow">02 / THE RECORDED SYSTEM</span>'
+        '<h2 id="project-doors-title">Every finding has a setting.</h2>'
+        '<p>A weakness is only one part of the picture. The system around it gives '
+        'the priority its meaning.</p></div>'
+    )
+    if payload is None or not payload['hosts']:
+        return header + '</div><p class="story-absence">No recorded systems in this assessment.</p></section>'
+    profiles = {profile['host_ip']: profile for profile in payload['context']}
+    scores = {score['finding_id']: score for score in payload['scores']}
+    score_order = {identity: index for index, identity in enumerate(scores)}
+    selected_host = payload['scores'][0]['host_ip'] if payload['scores'] else payload['hosts'][0]['ip']
+    options = ''.join(
+        f'<option value="{escape(host["ip"])}"'
+        + (' selected' if host['ip'] == selected_host else '')
+        + f'>{escape(host["ip"])}</option>'
+        for host in payload['hosts']
+    )
+    synthetic = any('synthetic' in item['path'].lower() for item in payload['feeds_meta']) or any(
+        'synthetic' in item['provenance']['raw_path'].lower() for item in payload['findings']
+    )
+    kind = 'Synthetic records / not real-system findings' if synthetic else 'Stored records / source evidence below'
+    panels: list[str] = []
+    for host in payload['hosts']:
+        address = host['ip']
+        profile = profiles.get(address)
+        role = profile['role']['value'] if profile else 'unknown'
+        exposure = profile['exposure']['value'] if profile else None
+        findings = sorted(
+            [finding for finding in payload['findings'] if finding['host_ip'] == address],
+            key=lambda finding: score_order.get(finding['id'], len(scores)),
+        )
+        doors: list[str] = []
+        details: list[str] = []
+        for index, finding in enumerate(findings):
+            identity = escape(finding['id'])
+            score = scores.get(finding['id'])
+            doors.append(
+                f'<button class="project-door" type="button" data-project-door="{identity}" '
+                f'aria-pressed="{str(index == 0).lower()}" aria-controls="door-record-{identity}" '
+                f'aria-label="Inspect recorded finding: {escape(finding["title"])}">'
+                + door(score['band'] if score else None, finding['id'])
+                + f'<span class="door-index">Finding {index + 1:02d}</span></button>'
+            )
+            provenance = finding['provenance']
+            details.append(
+                f'<article id="door-record-{identity}" class="door-record" '
+                f'data-project-door-detail="{identity}"' + (' hidden' if index else '') + '>'
+                '<span class="eyebrow">THE SELECTED FINDING</span>'
+                f'<h3>{escape(finding["title"])}</h3>'
+                '<div class="door-priority"><div><span>Recorded priority</span>'
+                + _band(score['band'] if score else None)
+                + '</div><div><strong>' + escape(_text(score['risk'] if score else None))
+                + '</strong><span>Stored risk / 100</span></div></div>'
+                f'<p>{escape(score["reason"] if score else "No score is recorded for this finding.")}</p>'
+                '<details class="door-source"><summary>Source evidence</summary>'
+                + evidence(finding['evidence'], f'{finding["tool"]} / verbatim finding')
+                + evidence(provenance['raw_path'], 'Raw artifact', False)
+                + evidence(str(provenance['record_index']), 'Record index', False)
+                + '</details><div class="door-links">'
+                f'<a data-project-workflow data-workflow-node="canonical" data-workflow-finding="{identity}" '
+                'href="/workflow#node=canonical">Trace this finding <span aria-hidden="true">&rarr;</span></a>'
+                f'<a data-project-workflow data-workflow-node="score" data-workflow-finding="{identity}" '
+                'href="/workflow#node=score">Inspect its score <span aria-hidden="true">&rarr;</span></a>'
+                '</div></article>'
+            )
+        role_source = (
+            f'{profile["role"]["source"]} / confidence {profile["role"]["confidence"]}'
+            if profile else 'No context profile recorded'
+        )
+        panels.append(
+            f'<div class="doors-layout" data-project-door-host="{escape(address)}"'
+            + (' hidden' if address != selected_host else '') + '>'
+            '<figure class="doors-scene"><div class="doors-system">'
+            + building(role)
+            + '<div class="doors-system-caption"><span class="eyebrow">RECORDED SYSTEM</span>'
+            f'<strong>{escape(str(role).replace("_", " "))}</strong>'
+            f'<span>{escape(address)}</span><small>{escape(role_source)}</small></div></div>'
+            '<div class="doors-setting"><span>Exposure</span>'
+            f'<strong>{escape(_text(exposure).replace("_", " "))}</strong>'
+            f'<span>{len(findings)} recorded {"finding" if len(findings) == 1 else "findings"}</span></div>'
+            '<div class="doors-findings" role="group" aria-label="Recorded finding doors">'
+            + (''.join(doors) or '<p class="story-absence">No findings recorded for this system.</p>')
+            + '</div><p class="doors-key">System = building. Finding = door. Colour = stored priority.</p>'
+            '</figure><div class="doors-records">' + ''.join(details) + '</div></div>'
+        )
+    return (
+        header + '<label class="project-host-choice" for="project-doors-target">Recorded system'
+        f'<select id="project-doors-target" data-project-host>{options}</select></label></div>'
+        f'<p class="doors-provenance">{kind}</p>' + ''.join(panels)
+        + '<p class="doors-caveat">The drawings are symbolic. A finding is not proof of an exploitable '
+        'entrance, and an unknown role does not mean an unimportant system.</p></section>'
+    )
+
+
 def render_workbench(
     template: str,
     payload: dict[str, Any] | None,
@@ -1248,7 +1601,22 @@ def render_workbench(
     document = template.replace(
         '<main id="notebook"></main>', f'<main id="notebook">{content}</main>'
     )
+    document = document.replace('<div id="project-story-slot"></div>', _project_story(payload, runs))
+    document = document.replace('<div id="project-doors-slot"></div>', _project_doors(payload))
     document = document.replace('<div id="run-strip-slot"></div>', strip)
+    run_choice = ""
+    if payload is not None:
+        run_options = "".join(
+            f'<option value="{escape(run["run_id"])}"'
+            + (" selected" if run["run_id"] == payload["run"]["run_id"] else "")
+            + f'>{escape(run["run_id"])}</option>'
+            for run in runs or [payload['run']]
+        )
+        run_choice = (
+            '<label class="header-run"><span>Assessment</span>'
+            f'<select id="select-run">{run_options}</select></label>'
+        )
+    document = document.replace('<div id="run-choice-slot"></div>', run_choice)
     return document.replace(
         "</body>",
         f'<script id="assessment-data" type="application/json">{serialized}</script></body>',

@@ -1,4 +1,5 @@
 import {SIZE, EDGES, ICONS, buildNodes, connectedNodeIds, nodeDetails, evidenceKind} from './workflow-data.js';
+import {requestAnalyst} from './analyst-client.js';
 
 const runSelect = document.getElementById('workflow-run');
 const hostSelect = document.getElementById('workflow-host');
@@ -9,7 +10,8 @@ const message = document.getElementById('loading-state');
 const inspector = document.getElementById('node-inspector');
 const content = document.getElementById('node-content');
 const svgNamespace = 'http://www.w3.org/2000/svg';
-const view = {assessment: null, scope: null, weights: null, host: '', finding: '', node: '', scale: 1, panX: 0, panY: 0, load: 0, analyses: new Map()};
+const narrowViewport = matchMedia('(max-width: 960px)');
+const view = {assessment: null, scope: null, weights: null, host: '', finding: '', node: '', mode: narrowViewport.matches ? 'stages' : 'canvas', modeChosen: false, scale: 1, panX: 0, panY: 0, load: 0, analyses: new Map()};
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -42,15 +44,30 @@ function currentAnalysis() {
 }
 
 function selection() { return {host: view.host, finding: view.finding}; }
-function transform() { graph.style.transform = `translate(${view.panX}px, ${view.panY}px) scale(${view.scale})`; }
+function transform() {
+  graph.style.transform = view.mode === 'stages' ? 'none' : `translate(${view.panX}px, ${view.panY}px) scale(${view.scale})`;
+  document.getElementById('zoom-level').textContent = `${Math.round(view.scale * 100)}%`;
+}
+
+function setViewMode(mode) {
+  view.mode = mode;
+  viewport.dataset.view = mode;
+  viewport.setAttribute('aria-label', mode === 'canvas' ? 'Assessment workflow canvas' : 'Assessment workflow stages');
+  for (const button of document.querySelectorAll('[data-view-mode]')) button.setAttribute('aria-pressed', String(button.dataset.viewMode === mode));
+  viewport.scrollTop = 0;
+  fit();
+}
 
 function fit() {
   if (!view.assessment) return;
   const width = viewport.clientWidth;
   const height = viewport.clientHeight;
-  view.scale = Math.max(0.18, Math.min(1, (width - 52) / SIZE.width, (height - 240) / SIZE.height));
+  const top = document.querySelector('.trace-controls').offsetHeight + 44;
+  const bottom = document.querySelector('.canvas-footer').offsetHeight + 40;
+  const availableHeight = height - top - bottom;
+  view.scale = Math.max(0.18, Math.min(1, (width - 52) / SIZE.width, availableHeight / SIZE.height));
   view.panX = (width - SIZE.width * view.scale) / 2;
-  view.panY = 150 + Math.max(0, (height - 250 - SIZE.height * view.scale) / 2);
+  view.panY = top + Math.max(0, (availableHeight - SIZE.height * view.scale) / 2);
   transform();
 }
 
@@ -96,6 +113,7 @@ function renderGraph() {
     const missing = edge.optional || ['missing', 'optional'].includes(from.state) || ['missing', 'optional'].includes(to.state);
     const active = view.node === edge.from || view.node === edge.to;
     paths.append(svgElement('path', {d: edgePath(from, to), class: `connection${missing ? ' optional' : ''}${active ? ' highlighted' : ''}${view.node && !active ? ' faded' : ''}`, 'marker-end': 'url(#flow-arrow)', 'data-edge': `${edge.from}:${edge.to}`}));
+    if (active) paths.append(svgElement('path', {d: edgePath(from, to), class: 'connection-trace', pathLength: 100}));
   }
   const list = document.getElementById('node-list');
   list.replaceChildren();
@@ -106,6 +124,7 @@ function renderGraph() {
     button.style.left = `${node.x}px`;
     button.style.top = `${node.y}px`;
     button.setAttribute('aria-label', `${node.title}: ${node.status}`);
+    button.title = `${node.title} / ${node.subtitle} / ${node.status}`;
     button.setAttribute('aria-pressed', String(view.node === node.id));
     if (view.node && !connected.has(node.id)) button.classList.add('muted-node');
     const disc = element('span', 'node-disc');
@@ -121,8 +140,8 @@ function renderGraph() {
   const lanes = document.getElementById('lanes');
   if (!lanes.children.length) {
     const labels = [
-      {text: 'AUTHORIZED INPUTS', x: 95, y: 75}, {text: 'LOCAL INTELLIGENCE', x: 725, y: -12},
-      {text: 'DETERMINISTIC DECISIONS', x: 1125, y: 75}, {text: 'OUTPUTS & RESEARCH', x: 1630, y: 35},
+      {text: '01 / EVIDENCE', x: 65, y: 30}, {text: '02 / INTELLIGENCE', x: 585, y: 0},
+      {text: '03 / RISK & PRIORITY', x: 945, y: 245}, {text: '04 / OUTPUTS', x: 1320, y: 30},
     ];
     for (const label of labels) {
       const item = element('span', 'lane-label', label.text);
@@ -151,12 +170,22 @@ function appendQuotes(parent, items) {
   }
 }
 
+function updateProjectLink() {
+  if (!view.assessment) return;
+  const parameters = new URLSearchParams();
+  if (view.host) parameters.set('asset', view.host);
+  if (view.finding) parameters.set('finding', view.finding);
+  const section = view.finding ? 'project-doors' : 'project-workflow';
+  document.getElementById('assessment-link').href = `/?run=${encodeURIComponent(view.assessment.run.run_id)}#${section}${parameters.size ? `?${parameters}` : ''}`;
+}
+
 function updateLocation() {
   const parameters = new URLSearchParams();
   if (view.node) parameters.set('node', view.node);
   if (view.host) parameters.set('host', view.host);
   if (view.finding) parameters.set('finding', view.finding);
   history.replaceState(null, '', `${location.pathname}${location.search}${parameters.size ? `#${parameters}` : ''}`);
+  updateProjectLink();
 }
 
 function selectNode(identity) {
@@ -165,6 +194,7 @@ function selectNode(identity) {
   inspector.hidden = false;
   renderGraph();
   renderInspector();
+  fit();
   content.querySelector('h2').focus({preventScroll: true});
   document.getElementById('workflow-announcement').textContent = `${content.querySelector('h2').textContent} selected`;
 }
@@ -181,7 +211,7 @@ function renderInspector() {
   const title = element('h2', '', node.title);
   title.tabIndex = -1;
   heading.append(glyph, title);
-  content.append(heading, element('span', `detail-status state-${node.state}`, node.status));
+  content.append(heading, element('p', 'node-description', node.subtitle), element('span', `detail-status state-${node.state}`, node.status));
   const logic = element('div', 'node-operation');
   for (const [label, value] of [['INPUT', details.input], ['OPERATION', details.operation], ['OUTPUT', details.output]]) {
     const section = element('div', 'operation-row');
@@ -255,8 +285,7 @@ async function analyzeTarget() {
   renderGraph();
   renderInspector();
   try {
-    const response = await getRecord(`/api/analyst/${encodeURIComponent(runId)}/${encodeURIComponent(hostIp)}`);
-    if (response.run_id !== runId || response.host_ip !== hostIp || response.canonical_scores_changed !== false || !Array.isArray(response.evidence) || !Array.isArray(response.analysis?.recommended_actions) || !Array.isArray(response.analysis?.uncertainties)) throw new Error('Analyst response does not match the selected assessment or score boundary.');
+    const response = await requestAnalyst(runId, hostIp);
     view.analyses.set(key, {runId, hostIp, status: 'complete', result: response});
   } catch (error) {
     view.analyses.set(key, {runId, hostIp, status: 'error', error: error.message});
@@ -320,9 +349,10 @@ async function loadWorkflow() {
     view.finding = parameters.get('finding') || '';
     populateSelection();
     document.getElementById('canvas-caption').textContent = `Recorded assessment / ${assessment.run.run_id}`;
+    document.getElementById('record-summary').textContent = `${assessment.hosts.length} assets / ${assessment.findings.length} findings / ${assessment.scores.length} scored`;
     document.getElementById('run-hash').textContent = `config ${assessment.run.config_hash}`;
     document.getElementById('data-kind').textContent = evidenceKind(assessment);
-    document.getElementById('assessment-link').href = `/?run=${encodeURIComponent(requested)}`;
+    updateProjectLink();
     graph.hidden = false;
     message.hidden = true;
     renderGraph();
@@ -337,6 +367,7 @@ async function loadWorkflow() {
     message.querySelector('strong').textContent = 'Records unavailable';
     message.querySelector('p').textContent = error.message;
     document.getElementById('canvas-caption').textContent = 'The stored assessment could not be loaded.';
+    document.getElementById('record-summary').textContent = '';
   } finally {
     if (sequence === view.load) document.getElementById('refresh-workflow').disabled = false;
   }
@@ -362,14 +393,20 @@ document.getElementById('close-node').addEventListener('click', () => {
   inspector.hidden = true;
   updateLocation();
   renderGraph();
+  fit();
   document.querySelector(`[data-node="${identity}"]`)?.focus({preventScroll: true});
 });
+for (const button of document.querySelectorAll('[data-view-mode]')) button.addEventListener('click', () => {
+  view.modeChosen = true;
+  setViewMode(button.dataset.viewMode);
+});
+narrowViewport.addEventListener('change', event => { if (!view.modeChosen) setViewMode(event.matches ? 'stages' : 'canvas'); });
 document.getElementById('fit-workflow').addEventListener('click', fit);
 document.getElementById('zoom-in').addEventListener('click', () => zoom(1.2));
 document.getElementById('zoom-out').addEventListener('click', () => zoom(1 / 1.2));
 let drag = null;
 viewport.addEventListener('pointerdown', event => {
-  if (event.button !== 0 || event.target.closest('button, a, select, input')) return;
+  if (view.mode !== 'canvas' || event.button !== 0 || event.target.closest('button, a, select, input')) return;
   drag = {pointer: event.pointerId, x: event.clientX, y: event.clientY, panX: view.panX, panY: view.panY};
   viewport.setPointerCapture(event.pointerId);
   viewport.classList.add('panning');
@@ -384,6 +421,7 @@ function stopDrag() { drag = null; viewport.classList.remove('panning'); }
 viewport.addEventListener('pointerup', stopDrag);
 viewport.addEventListener('pointercancel', stopDrag);
 viewport.addEventListener('wheel', event => {
+  if (view.mode !== 'canvas' || event.target.closest('select')) return;
   event.preventDefault();
   if (event.ctrlKey || event.metaKey) {
     const rect = viewport.getBoundingClientRect();
@@ -391,7 +429,7 @@ viewport.addEventListener('wheel', event => {
   } else { view.panX -= event.deltaX; view.panY -= event.deltaY; transform(); }
 }, {passive: false});
 viewport.addEventListener('keydown', event => {
-  if (event.target !== viewport) return;
+  if (view.mode !== 'canvas' || event.target !== viewport) return;
   const offsets = {ArrowLeft: [60, 0], ArrowRight: [-60, 0], ArrowUp: [0, 60], ArrowDown: [0, -60]};
   if (offsets[event.key]) { event.preventDefault(); view.panX += offsets[event.key][0]; view.panY += offsets[event.key][1]; transform(); }
   if (event.key === '+' || event.key === '=') { event.preventDefault(); zoom(1.2); }
@@ -400,4 +438,5 @@ viewport.addEventListener('keydown', event => {
 });
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && !inspector.hidden) document.getElementById('close-node').click(); });
 window.addEventListener('resize', fit);
+setViewMode(view.mode);
 loadWorkflow();

@@ -1,14 +1,12 @@
-"""Build the analyst fine-tune corpus from real stored cases.
+"""Build analyst fine-tune examples from stored cases and supplied supervision.
 
 Each corpus example pairs the exact prompt the product sends to the local model
 with a supervision assessment for the same case. Supervision assessments are
 authored offline (a human or a stronger reviewer) and stored under
 ``finetune/assessments/``. Before an example is written, the assessment is put
-through the same citation contract the product enforces at inference time
-(``analyst.validate_analysis``), so an example can only enter the corpus if
-every finding and evidence citation exists in the case and the output shape is
-exactly what the UI renders. Nothing is synthesized here; this module only
-packages and verifies.
+through the same citation, CVE and numeric-fact checks used at inference time.
+These checks do not establish human authorship, semantic truth, independent
+evaluation, or a completed training run. Nothing is synthesized here.
 
 Usage:
 
@@ -34,7 +32,7 @@ from vulnassess.ui.reader import ReadOnlyStore  # noqa: E402
 
 
 def build_example(db: str | Path, run_id: str, host_ip: str, assessment: dict) -> dict:
-    """Return one verified prompt/response pair for a stored real case."""
+    """Package one stored case with shape- and fact-checked supervision."""
     with ReadOnlyStore(db) as store:
         payload = store.run(run_id)
     case, evidence, alias_map = analyst.build_case(payload, host_ip)
@@ -43,6 +41,7 @@ def build_example(db: str | Path, run_id: str, host_ip: str, assessment: dict) -
         set(alias_map),
         {item["id"] for item in evidence},
     )
+    analyst.validate_grounding(validated, case)
     return {
         "prompt": analyst.build_prompt(case, evidence, len(alias_map)),
         "response": json.dumps(validated, separators=(",", ":"), ensure_ascii=True),

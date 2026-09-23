@@ -1,11 +1,5 @@
 # vulnassess — rank vulnerabilities by risk *to this network*, not by CVSS alone
 
-This repository is the shareable development copy of `privwork`. It contains the
-application, contributor-facing design and safety documentation, scanner fixture guides,
-and tests. Internal prompt sequences, agent instructions, handoff logs and duplicate
-starter-kit material are intentionally kept in the main repository only. Start with
-[CONTRIBUTING.md](CONTRIBUTING.md) before making changes.
-
 You already have scanner output. Two hosts can carry the same CVE with the same 9.8 base
 score, and they are **not** equally urgent: one is an internet-facing web frontend, the
 other an isolated test box behind a WAF. CVSS stops at the base score; this tool keeps

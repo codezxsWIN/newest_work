@@ -45,10 +45,15 @@ def main() -> int:
         action="store_true",
         help="capture the independent workflow canvas without running a model",
     )
+    parser.add_argument(
+        "--project",
+        action="store_true",
+        help="capture the project introduction on desktop",
+    )
     parser.add_argument("--run", help="existing assessment identifier")
     arguments = parser.parse_args()
-    if arguments.workflow and arguments.workbench:
-        parser.error("choose --workflow or --workbench, not both")
+    if sum((arguments.workflow, arguments.workbench, arguments.project)) > 1:
+        parser.error("choose only one of --workflow, --workbench or --project")
     executable = edge_path()
     if executable is None:
         print("NOT RUN: screenshot capture; MISSING msedge executable")
@@ -56,10 +61,14 @@ def main() -> int:
     sys.path.insert(0, str(ROOT))
     from vulnassess.ui.server import UiApplication, UiServer
 
-    run_id = arguments.run or ("demo" if arguments.workflow else "verify")
+    run_id = arguments.run or ("demo" if arguments.workflow or arguments.project else "verify")
     application = UiApplication(ROOT / "data" / "vulnassess.db", ROOT / "config", run_id)
     captures = [(filename, width, height, "") for filename, width, height in CAPTURES]
     page_path = "workflow" if arguments.workflow else ""
+    if arguments.project:
+        captures = [
+            ("project-introduction.png", 1600, 1000, ""),
+        ]
     if arguments.workflow:
         response = application.get("/api/run/" + run_id)
         if response.status != 200:

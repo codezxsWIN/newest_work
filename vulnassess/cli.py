@@ -219,6 +219,27 @@ def cmd_scan(args: argparse.Namespace) -> int:
     output = _write_json_payload(result, args.summary_out)
     if output is not None:
         result["summary_output"] = output
+    with _store(args) as store:
+        store.start_run(args.run_id, settings.config_hash())
+        existing = (store.run_info(args.run_id) or {}).get("summary") or {}
+        store.set_run_summary(
+            args.run_id,
+            {**existing, "scans": [*existing.get("scans", []), result]},
+        )
+        for outcome in result["outcomes"]:
+            if outcome["status"] != "success":
+                continue
+            tool = outcome["tool"]
+            raw_path = outcome["raw_path"]
+            pipeline.do_import(
+                settings,
+                store,
+                args.run_id,
+                args.target_ip,
+                nmap_path=raw_path if tool == "nmap" else None,
+                zap_path=raw_path if tool == "zap" else None,
+                nikto_path=raw_path if tool == "nikto" else None,
+            )
     _emit(
         result,
         f"scan outcomes: success={result['successful_tools']} failed={result['failed_tools']} "
@@ -641,11 +662,17 @@ def _reject_synthetic_labels(examples: Sequence[role_model.LabelledHost], allowe
 
 
 def _training_options(args: argparse.Namespace) -> dict[str, Any]:
+    families = getattr(args, "families", None)
     return {
         "epochs": args.epochs,
         "learning_rate": args.learning_rate,
         "l2": args.l2,
         "min_feature_count": args.min_feature_count,
+        "feature_families": (
+            None
+            if not families
+            else [family.strip() for family in families.split(",") if family.strip()]
+        ),
     }
 
 
@@ -684,6 +711,9 @@ def cmd_model_train(args: argparse.Namespace) -> int:
         "training": model.training,
         "validation": validation_metrics,
     }
+    if getattr(args, "register", False):
+        payload["registered"] = _register_role_model_run(args, model, examples, validation_metrics)
+        payload["registered_dataset"] = args.dataset_name
     text = (
         f"model {model.model_hash}: {len(model.classes)} classes, "
         f"{len(model.features)} features; written to {path}"
@@ -696,7 +726,113 @@ def cmd_model_train(args: argparse.Namespace) -> int:
         )
     else:
         text += "; NOT VALIDATED (no independent --validation dataset)"
+    if payload.get("registered"):
+        text += f"; registered as {payload['registered']}"
     _emit(payload, text, args.json)
+    return 0
+
+
+def _register_role_model_run(
+    args: argparse.Namespace,
+    model: role_model.RoleModel,
+    examples: Sequence[role_model.LabelledHost],
+    validation_metrics: dict[str, Any] | None,
+) -> str:
+    """Record the training run in the assessment store for reproducibility."""
+    from vulnassess.repository import AssessmentRepository, resolve_backend
+
+    if not (args.dataset_name or "").strip():
+        raise ConfigError("--register needs --dataset-name")
+    options = _training_options(args)
+    config_payload = json.dumps(options, sort_keys=True, separators=(",", ":"))
+    config_hash = sha256(config_payload.encode("utf-8")).hexdigest()[:16]
+    data_kind = (
+        "synthetic"
+        if any(example.label_source == "synthetic" for example in examples)
+        else "real_authorised"
+    )
+    reviewers = sorted({example.reviewer for example in examples if example.reviewer})
+    database = getattr(args, "db", None)
+    with AssessmentRepository(resolve_backend(database if database else None)) as repository:
+        dataset_id = repository.add_dataset(
+            {
+                "name": args.dataset_name.strip(),
+                "version": (args.dataset_version or "1").strip(),
+                "source": "vulnassess model train CLI",
+                "data_kind": data_kind,
+                "reviewer": reviewers[0] if reviewers else None,
+                "quality": "draft",
+                "config_hash": config_hash,
+                "content_sha256": role_model.dataset_hash(examples),
+                "row_count": len(examples),
+            }
+        )
+        split: dict[str, Any] = {"train_groups": model.training["groups"]}
+        if validation_metrics:
+            split["validation_groups"] = validation_metrics["groups"]
+        notes = f"artifact={args.out}; families={model.training['feature_families']}"
+        if not validation_metrics:
+            notes += "; not validated (no independent validation set)"
+        return repository.add_role_model_run(
+            {
+                "dataset_id": dataset_id,
+                "model_name": "vulnassess-role-model",
+                "model_hash": model.model_hash,
+                "label_set": list(model.classes),
+                "split": split,
+                "accuracy": None if validation_metrics is None else validation_metrics["accuracy"],
+                "macro_f1": (
+                    None if validation_metrics is None else validation_metrics["macro_f1"]
+                ),
+                "per_class": (
+                    {} if validation_metrics is None else validation_metrics["per_class"]
+                ),
+                "coverage": (
+                    None if validation_metrics is None else validation_metrics["coverage"]
+                ),
+                "abstention_rate": (
+                    None if validation_metrics is None else validation_metrics["abstention_rate"]
+                ),
+                "confusion": (
+                    {} if validation_metrics is None else validation_metrics["confusion_matrix"]
+                ),
+                "notes": notes,
+            }
+        )
+
+
+def cmd_model_ablate(args: argparse.Namespace) -> int:
+    examples = role_model.load_examples(args.data)
+    _reject_synthetic_labels(examples, args.allow_synthetic)
+    options = _training_options(args)
+    families = options.pop("feature_families")
+    if families is not None and args.subsets:
+        raise ConfigError("model ablate accepts --families or --subsets, not both")
+    subsets = None
+    if args.subsets:
+        subsets = [
+            None
+            if subset.strip() == "all"
+            else [family.strip() for family in subset.split(",") if family.strip()]
+            for subset in args.subsets.split(";")
+        ]
+    elif families is not None:
+        subsets = [families]
+    result = role_model.ablate_features(examples, folds=args.folds, subsets=subsets, **options)
+    lines = [f"feature-family ablation over {result['examples']} labelled host(s):"]
+    for entry in result["results"]:
+        aggregate = entry["aggregate"]
+        lines.append(
+            f"  {entry['subset']:<28} accuracy={aggregate['accuracy']:.3f} "
+            f"macro_f1={aggregate['macro_f1']:.3f} "
+            f"coverage={aggregate['coverage']:.3f} "
+            f"abstention={aggregate['abstention_rate']:.3f}"
+        )
+    lines.append(
+        "Compare subsets on the same group folds; a large drop without banners or "
+        "products means the model relies on vendor shortcuts rather than structure."
+    )
+    _emit(result, "\n".join(lines), args.json)
     return 0
 
 
@@ -1223,6 +1359,13 @@ def build_parser() -> argparse.ArgumentParser:
         command.add_argument("--learning-rate", type=float, default=0.2)
         command.add_argument("--l2", type=float, default=0.001)
         command.add_argument("--min-feature-count", type=int, default=1)
+        command.add_argument(
+            "--families",
+            help=(
+                "comma-separated feature families to keep (structure, service, product, "
+                "banner, os); omit for all families"
+            ),
+        )
         command.add_argument("--allow-synthetic", action="store_true")
 
     trainer = model_sub.add_parser("train", help="fit and save a role-model artifact")
@@ -1230,6 +1373,16 @@ def build_parser() -> argparse.ArgumentParser:
     trainer.add_argument("--data", required=True)
     trainer.add_argument("--validation")
     trainer.add_argument("--out", required=True)
+    trainer.add_argument(
+        "--register",
+        action="store_true",
+        help="record the dataset and training run in the assessment store",
+    )
+    trainer.add_argument("--dataset-name", help="dataset name used with --register")
+    trainer.add_argument("--dataset-version", default="1")
+    trainer.add_argument(
+        "--db", default=None, help="assessment store for --register (default: env var or local)"
+    )
     add_training_options(trainer)
     trainer.set_defaults(handler=cmd_model_train)
 
@@ -1241,6 +1394,23 @@ def build_parser() -> argparse.ArgumentParser:
     cross_validator.add_argument("--folds", type=int, default=5)
     add_training_options(cross_validator)
     cross_validator.set_defaults(handler=cmd_model_cross_validate)
+
+    ablator = model_sub.add_parser(
+        "ablate", help="cross-validate feature-family subsets to expose shortcut learning"
+    )
+    ablator.add_argument("--json", action="store_true")
+    ablator.add_argument("--data", required=True)
+    ablator.add_argument("--folds", type=int, default=5)
+    ablator.add_argument(
+        "--subsets",
+        help=(
+            "semicolon-separated family subsets, e.g. "
+            "'all;structure;structure,service'; default covers every family alone "
+            "plus all-without-banner"
+        ),
+    )
+    add_training_options(ablator)
+    ablator.set_defaults(handler=cmd_model_ablate)
 
     model_evaluator = model_sub.add_parser(
         "evaluate", help="evaluate a frozen artifact on independent labels"

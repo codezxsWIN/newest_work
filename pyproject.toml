@@ -12,6 +12,7 @@ license-files = ["LICENSE"]
 dependencies = [
     "pyyaml",
     "packaging",
+    "psycopg[binary]>=3.2,<4",
 ]
 
 [project.scripts]

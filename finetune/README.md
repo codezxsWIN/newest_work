@@ -1,20 +1,20 @@
 # Analyst fine-tuning runbook
 
-This directory fine-tunes the local analyst model on **real stored cases**. It
-exists because the vanilla `llama3.2:3b` produces valid but shallow analyses:
-the corpus and the job below teach it the exact output contract and grounded
-citation behaviour using cases that were actually scanned in this lab.
+This directory packages candidate supervision for a local analyst model. It is
+not evidence of a completed or independently evaluated fine-tuning run. The
+2026-09-23 recheck found two corpus entries: one `reallab` entry and one synthetic
+`demo` entry. See the measured evidence in [HANDOFF.md](../docs/HANDOFF.md).
 
-## What is real here
+## Available inputs
 
-- `corpus/sft.jsonl` — one JSON object per training example. `prompt` is the
-  byte-exact prompt the product builds (`analyst.build_prompt` over the stored
-  case). `response` is a supervision assessment that passed the product's
-  citation validator (`analyst.validate_analysis`) before being written.
+- `corpus/sft.jsonl` — frozen prompt/response examples, including synthetic
+  data. Existing rows predate the current guards and must be reviewed and
+  revalidated before training; they are not current model-quality measurements.
 - `assessments/*.json` — supervision assessments per case, authored by a human
   or a stronger reviewer. The builder refuses any assessment citing a finding
-  or evidence id that is not in the case (`exit 2`), so the corpus cannot be
-  poisoned by invented citations.
+  or evidence id that is not in the case (`exit 2`). The current builder also
+  rejects unsupported CVEs/numbers. These checks do not verify semantic truth,
+  reviewer identity, safe remediation, or independent evaluation.
 - `build_corpus.py` — builder/validator. Grow the corpus by scanning more real
   targets, then running:
 
@@ -24,10 +24,12 @@ citation behaviour using cases that were actually scanned in this lab.
       --out finetune/corpus/sft.jsonl
   ```
 
-## Training job (needs CUDA; this laptop has no GPU)
+## Training recipe (not run by the agent)
 
-Run on any 8 GB+ CUDA GPU (a free Colab T4 is enough for a 3B QLoRA). CPU-only
-fits in 16 GB RAM but costs on the order of a day per epoch — pilot only.
+NOT RUN: this illustrative recipe requires human-reviewed local dependencies,
+model artifacts, hardware and supervision provenance. Nothing is provisioned by
+the agent. Do not upload scan cases to cloud training services without the
+required policy approval. Resource use and model quality have not been measured.
 
 ```python
 # train_sft.py — run where a GPU exists
@@ -90,9 +92,11 @@ replaces the vanilla baseline with one flag. Everything stays local.
 
 ## Honest limits
 
-- Two verified examples exist today (reallab 14-finding case, demo case). That
-  is a pilot, not a trained analyst: grow the corpus before judging quality.
+- VERIFIED: the recheck inspected two stored rows, one `reallab` and one
+  synthetic `demo`. This is a corpus inventory, not verified real supervision
+  or a trained analyst. Reviewer provenance and held-out evaluation are missing.
 - Supervision provenance must be recorded per example in the assessment file's
   sibling provenance note; keep assessments reviewable like any other evidence.
-- Scoring stays deterministic. A fine-tuned analyst still cannot write a
-  number that is not already in the case; the validator unchanged.
+- Scoring stays deterministic. The current analyst boundary rejects unsupported
+  CVEs/numbers and never writes canonical scores; those guards do not prove
+  semantic correctness or useful reasoning.

@@ -154,6 +154,7 @@ class TestUiContract(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("stored score fidelity", result.stdout)
+        self.assertIn("analyst queue safety passed", result.stdout)
 
     def test_workflow_is_independent_and_does_not_run_analyst(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
@@ -163,13 +164,43 @@ class TestUiContract(unittest.TestCase):
             status, headers, body = request(application, "/workflow")
         self.assertEqual(status, 200)
         self.assertEqual(headers["Content-Security-Policy"], CSP)
-        self.assertIn(b'id="viewport"', body)
-        self.assertIn(b'id="connections"', body)
-        self.assertIn(b'id="node-inspector"', body)
+        self.assertIn(b'id="trace-stack"', body)
+        self.assertIn(b'id="queue-rail"', body)
+        self.assertIn(b'id="compare-stack"', body)
         self.assertNotIn(b"/static/workbench.css", body)
         self.assertNotIn(b"/static/app.js", body)
         for path in ("/static/workflow.css", "/static/workflow.js"):
             self.assertEqual(request(application, path)[0], 200)
+
+    def test_decision_hero_leads_with_the_stored_top_priority(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        _, _, body = request(application, "/")
+        document = body.decode("utf-8")
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        top = payload["scores"][0]
+        self.assertIn('id="decision"', document)
+        self.assertLess(
+            document.index('id="decision"'),
+            document.index('data-panel="evidence"'),
+            "the decision plate must open the document before the evidence stage",
+        )
+        self.assertIn(f">{top['risk']}</span>", document)
+        self.assertIn(f">{top['band']}</span>", document)
+        self.assertIn(f"finding={top['finding_id']}", document)
+        self.assertIn(f"/workflow?run={DEMO_RUN}&amp;finding={top['finding_id']}", document)
+        self.assertIn('class="stamp">SYNTHETIC', document)
+
+    def test_decision_hero_names_missing_scores_instead_of_inventing_one(self) -> None:
+        from vulnassess.ui.presentation import _decision_hero
+
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        payload["scores"] = []
+        hero = _decision_hero(payload, "SYNTHETIC")
+        self.assertIn("No stored priority.", hero)
+        self.assertIn("imported finding(s) and no stored scores", hero)
+        self.assertIn("SYNTHETIC", hero)
+        self.assertNotIn("decision-number", hero)
 
     def test_top_level_keys_are_pinned(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
@@ -385,6 +416,8 @@ class TestUiServer(unittest.TestCase):
                 _, headers, _ = request(self.application, path)
                 self.assertEqual(headers["Content-Security-Policy"], CSP)
                 self.assertIn("default-src 'self'", CSP)
+                self.assertIn("img-src 'self' data:;", CSP)
+                self.assertIn("script-src 'self';", CSP)
                 self.assertNotIn("unsafe-inline", CSP)
                 self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
 
@@ -628,6 +661,172 @@ class EvidenceParser(HTMLParser):
 class TestUiExport(unittest.TestCase):
     """Test shared live/offline markup against stored assessment records."""
 
+    def test_project_introduction_preserves_the_explicit_model_boundary(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        with patch.object(analyst, "analyze_target", side_effect=AssertionError("implicit model call")):
+            status, _, body = request(application, "/")
+        document = body.decode("utf-8")
+        self.assertEqual(status, 200)
+        self.assertIn('class="assessment-experience project-view"', document)
+        self.assertIn('id="project-title"', document)
+        self.assertIn('data-workflow-node="analyst"', document)
+        self.assertIn("The model explains. The formula scores.", document)
+        self.assertIn("A demonstration is not proof", document)
+        self.assertNotIn('style="', document)
+
+    def test_guided_example_uses_matching_stored_inputs(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        identities = re.findall(r'data-story-finding="([^"]+)"', document)
+        self.assertEqual(len(identities), 2)
+        selected = [
+            next(score for score in payload["scores"] if score["finding_id"] == identity)
+            for identity in identities
+        ]
+        self.assertNotEqual(selected[0]["host_ip"], selected[1]["host_ip"])
+        for key in ("cve_id", "base_vector", "base_score", "epss_percentile", "kev"):
+            self.assertEqual(selected[0][key], selected[1][key], key)
+        for score in selected:
+            panel = document.split(f'data-story-finding="{score["finding_id"]}"', 1)[1].split("</article>", 1)[0]
+            parsed = EvidenceParser()
+            parsed.feed(panel)
+            self.assertIn(str(score["risk"]), parsed.blocks)
+            self.assertIn(score["host_ip"], parsed.blocks)
+        self.assertIn("Synthetic example", document)
+        self.assertIn("not findings about real systems", document)
+        self.assertEqual(payload, json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+
+    def test_project_does_not_substitute_an_example_for_an_empty_run(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", "verify")
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn("No like-for-like example in this run.", document)
+        self.assertNotIn("data-story-finding=", document)
+        unselected = request(UiApplication(DATABASE, ROOT / "config"), "/")[2].decode("utf-8")
+        self.assertIn('id="select-project-run"', unselected)
+        self.assertNotIn("data-story-finding=", unselected)
+
+    def test_project_artwork_is_available_without_external_assets(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        status, headers, body = request(application, "/static/project-horizon.png")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "image/png")
+        self.assertTrue(body.startswith(b"\x89PNG\r\n\x1a\n"))
+
+    def test_explanation_sections_keep_model_execution_explicit(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        with patch.object(analyst, "analyze_target", side_effect=AssertionError("implicit model call")):
+            status, _, body = request(application, "/")
+        self.assertEqual(status, 200)
+        document = body.decode("utf-8")
+        for section in ("project-analyst", "project-run", "project-outcomes", "project-questions"):
+            self.assertIn(f'id="{section}"', document)
+        self.assertIn('id="project-analyst-target"', document)
+        self.assertIn('data-requires-host="true"', document)
+        self.assertIn("Opening the workflow does not run the model.", document)
+        self.assertIn("No. A published, deterministic formula produces the scores.", document)
+        self.assertIn("not evidence of a successful attack", document)
+
+    def test_project_analysis_requires_review_before_execution(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        with patch.object(analyst, "analyze_target", side_effect=AssertionError("implicit model call")):
+            status, _, body = request(application, "/")
+        self.assertEqual(status, 200)
+        document = body.decode("utf-8")
+        for identifier in ("project-run-form", "project-run-review", "project-run-confirm", "run-confirm-start", "project-run-stop"):
+            self.assertEqual(document.count(f'id="{identifier}"'), 1)
+        self.assertIn('name="analysis-scope" value="all"', document)
+        self.assertIn("does not launch scanners, refresh feeds or recalculate scores", document)
+        self.assertIn("does not cancel inference already running", document)
+        self.assertEqual(request(application, "/static/analyst-client.js")[0], 200)
+
+    def test_project_doors_preserve_findings_scores_and_sources(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn('id="project-doors"', document)
+        self.assertCountEqual(
+            re.findall(r'data-project-door="([^"]+)"', document),
+            [finding["id"] for finding in payload["findings"]],
+        )
+        scores = {score["finding_id"]: score for score in payload["scores"]}
+        for finding in payload["findings"]:
+            detail = document.split(f'data-project-door-detail="{finding["id"]}"', 1)[1].split("</article>", 1)[0]
+            parser = EvidenceParser()
+            parser.feed(detail)
+            self.assertIn(finding["evidence"], parser.blocks)
+            self.assertIn(finding["provenance"]["raw_path"], parser.blocks)
+            self.assertIn(f'data-workflow-finding="{finding["id"]}"', detail)
+            score = scores.get(finding["id"])
+            if score:
+                self.assertIn(f'<strong>{score["risk"]}</strong>', detail)
+                self.assertIn(f'band-{score["band"].lower()}', detail)
+        self.assertIn("Synthetic records / not real-system findings", document)
+        self.assertIn("not proof of an exploitable", document)
+        self.assertEqual(payload, json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+
+    def test_project_doors_do_not_invent_missing_systems(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", "verify")
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn("No recorded systems in this assessment.", document)
+        self.assertNotIn('data-project-door="', document)
+
+    def test_asset_explorer_preserves_record_membership(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertEqual(
+            re.findall(r'data-asset-panel="([^"]+)"', document),
+            [host["ip"] for host in payload["hosts"]],
+        )
+        self.assertEqual(
+            re.findall(r'data-context-panel="([^"]+)"', document),
+            [profile["host_ip"] for profile in payload["context"]],
+        )
+        for host in payload["hosts"]:
+            count = sum(item["host_ip"] == host["ip"] for item in payload["findings"])
+            self.assertIn(f'aria-label="Select {host["ip"]}, {count} stored findings"', document)
+        self.assertIn('class="ascii-field" aria-hidden="true"', document)
+        self.assertEqual(document.count('id="select-run"'), 1)
+        self.assertNotIn('style="', document)
+
+    def test_asset_priority_is_the_first_stored_score(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertTrue(payload["scores"])
+        for host in payload["hosts"]:
+            panel = document.split(f'data-asset-panel="{host["ip"]}"', 1)[1].split(
+                "</article>", 1
+            )[0]
+            scores = [score for score in payload["scores"] if score["host_ip"] == host["ip"]]
+            if not scores:
+                self.assertIn("No scored finding recorded for this asset.", panel)
+                continue
+            self.assertIn(f'data-priority-finding="{scores[0]["finding_id"]}"', panel)
+            self.assertIn(f'<strong>{scores[0]["risk"]}</strong>', panel)
+            parser = EvidenceParser()
+            parser.feed(panel)
+            finding = next(
+                item for item in payload["findings"] if item["id"] == scores[0]["finding_id"]
+            )
+            self.assertIn(finding["evidence"], parser.blocks)
+        selected = payload["scores"][0]["host_ip"]
+        self.assertIn(f'data-asset-panel="{selected}">', document)
+        self.assertEqual(payload, json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+
+    def test_context_evidence_is_disclosed_not_removed(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        document = request(application, "/")[2].decode("utf-8")
+        self.assertIn('class="feature-evidence"', document)
+        parser = EvidenceParser()
+        parser.feed(document)
+        for profile in payload["context"]:
+            for feature in [profile["role"], profile["exposure"], *profile["controls"].values()]:
+                self.assertIn(feature["evidence"], parser.blocks)
+        self.assertEqual(payload, json.loads(request(application, f"/api/run/{DEMO_RUN}")[2]))
+
     def test_export_is_self_contained(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
         with ReadOnlyStore(DATABASE) as store:
@@ -649,6 +848,11 @@ class TestUiExport(unittest.TestCase):
             self.assertFalse(tag == "script" and key == "src")
             self.assertFalse(value.startswith("/static/"))
         self.assertIn("connect-src 'none'", document)
+        self.assertIn("data:image/png;base64,", document)
+        self.assertNotIn("/static/project-horizon.png", document)
+        self.assertIn("font-src data:", document)
+        self.assertEqual(document.count("data:font/woff2;base64,"), 3)
+        self.assertNotIn("/static/vendor/fonts/", document)
         bootstrap = json.loads(
             re.search(
                 r'<script id="assessment-data" type="application/json">(.*?)</script>',
@@ -660,6 +864,25 @@ class TestUiExport(unittest.TestCase):
         self.assertTrue(bootstrap["offline"])
         self.assertEqual(len(bootstrap["cvss_fixture"]["vectors"]), 211)
         self.assertNotIn("import { scoreVector", document)
+        self.assertNotIn("from './analyst-client.js'", document)
+        module_imports = re.findall(r"(?m)^import\s[^\n]*", document)
+        self.assertEqual(module_imports, [], "offline export must inline every module")
+        self.assertIn("const initialiseCobeGlobe = (() =>", document)
+        module_source = re.search(
+            r'<script type="module">(.*?)</script>', document, re.DOTALL
+        ).group(1)
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "MISSING: node for the offline export syntax check")
+        checked = subprocess.run(
+            [node, "--input-type=module", "--check"],
+            input=module_source,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertIn("export function createAnalysisQueue", document)
         with ReadOnlyStore(DATABASE) as store:
             self.assertEqual(store.run(DEMO_RUN), before)
 
@@ -979,11 +1202,27 @@ class TestUiAssets(unittest.TestCase):
         static = ROOT / "vulnassess" / "ui" / "static"
         tokens = (static / "tokens.css").read_text(encoding="utf-8")
         stylesheet = (static / "entry.css").read_text(encoding="utf-8")
-        self.assertIn('--font-prose: "Segoe UI", system-ui, sans-serif;', tokens)
-        self.assertIn('--font-evidence: Consolas, "Liberation Mono", monospace;', tokens)
+        self.assertIn('--font-prose: "Instrument Sans", "Segoe UI", system-ui, sans-serif;', tokens)
+        self.assertIn('--font-evidence: "Geist Mono", Consolas, "Liberation Mono", monospace;', tokens)
         self.assertRegex(stylesheet, r"\.evidence\s*\{[^}]*font-family:\s*var\(--font-evidence\)")
         self.assertRegex(stylesheet, r"\.inferred\s*\{[^}]*font-family:\s*var\(--font-prose\)")
-        self.assertNotIn("@font-face", tokens + stylesheet)
+        self.assertRegex(tokens, r'@font-face\s*\{\s*font-family: "Instrument Sans";')
+        self.assertRegex(tokens, r'@font-face\s*\{\s*font-family: "Geist Mono";')
+
+    def test_model_evidence_section_makes_boundaries_explicit(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        document = (static / "index.html").read_text(encoding="utf-8")
+        stylesheet = (static / "workbench.css").read_text(encoding="utf-8")
+        self.assertIn('href="#project-model">Models</a>', document)
+        self.assertIn('id="project-model"', document)
+        self.assertIn("Neither one silently changes the recorded risk score.", document)
+        self.assertIn(
+            "Recorded evidence flows through a model boundary to a human review decision.", document
+        )
+        self.assertIn("Malformed or uncited output is rejected.", document)
+        self.assertIn('data-workflow-node="analyst"', document)
+        self.assertIn(".project-model", stylesheet)
+        self.assertIn("@media (max-width: 800px)", stylesheet)
 
     def test_no_hardcoded_colours_outside_tokens(self) -> None:
         static = ROOT / "vulnassess" / "ui" / "static"
@@ -995,6 +1234,50 @@ class TestUiAssets(unittest.TestCase):
             self.assertIsNone(
                 re.search(r"#[0-9a-fA-F]{3,8}\b", path.read_text(encoding="utf-8")), path
             )
+
+    def test_globe_draws_recorded_systems_not_invented_traffic(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        globe = (static / "cobe-globe.js").read_text(encoding="utf-8")
+        for invented in ("req/s", "Math.random", "setInterval", "cdn-"):
+            with self.subTest(invented=invented):
+                self.assertNotIn(invented, globe)
+        for recorded in ("assessment.hosts", "assessment.scores", "base_vector", "epss_percentile"):
+            with self.subTest(recorded=recorded):
+                self.assertIn(recorded, globe)
+        self.assertIn("initialiseCobeGlobe(bootstrap.assessment)", (static / "app.js").read_text(encoding="utf-8"))
+        page = (static / "index.html").read_text(encoding="utf-8")
+        self.assertIn("data-globe-status", page)
+        self.assertIn("Positions are illustrative, not geolocated.", page)
+
+    def test_scenario_is_labelled_illustration_and_scroll_scene_is_gone(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        page = (static / "index.html").read_text(encoding="utf-8")
+        self.assertLess(page.index('id="hero"'), page.index('id="project-scenario"'))
+        self.assertLess(page.index('id="project-scenario"'), page.index('id="project-showcase"'))
+        self.assertEqual(page.count('class="scenario-step"'), 3)
+        self.assertIn("An illustration of the synthetic demo run", page)
+        self.assertEqual(page.count('role="img"', page.index('id="project-scenario"'), page.index('id="project-showcase"')), 3)
+        script = (static / "app.js").read_text(encoding="utf-8")
+        self.assertIn("window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;", script)
+        for removed in ("data-hero-track", "data-hero-scene", "initialiseHeroScene"):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, page + script)
+
+    def test_planet_journey_matches_artwork_and_respects_reduced_motion(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        page = (static / "index.html").read_text(encoding="utf-8")
+        self.assertIn('<div class="planet-journey" data-planet-journey aria-hidden="true" hidden>', page)
+        self.assertLess(page.index("data-planet-journey"), page.index('id="hero"'))
+        script = (static / "app.js").read_text(encoding="utf-8")
+        start = script.index("function initialisePlanetJourney()")
+        journey = script[start : script.index("\n}\n", start)]
+        self.assertIn("window.matchMedia('(prefers-reduced-motion: reduce)').matches", journey)
+        for measured in ("/ 1600", "/ 1050", "800 * scaleX", "2732 * scaleY", "2000 * scaleX", "* 0.797"):
+            with self.subTest(measured=measured):
+                self.assertIn(measured, journey)
+        tokens = (static / "tokens.css").read_text(encoding="utf-8")
+        self.assertEqual(tokens.count("--planet-body:"), 2)
+        self.assertEqual(tokens.count("--planet-rim:"), 2)
 
     def test_severity_colours_survive_simulations_and_text_contrast(self) -> None:
         results = validate_palette(read_tokens())
@@ -1048,3 +1331,37 @@ class TestWalls(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestAnalystChoices(unittest.TestCase):
+    """The analyst asset selector can only offer hosts that can form a case."""
+
+    def test_hosts_without_findings_are_disabled_and_labelled(self) -> None:
+        from vulnassess.ui.presentation import _analyst_choices, _analyzable_hosts
+
+        payload = {
+            "findings": [{"host_ip": "127.0.0.1"}],
+            "context": [
+                {"host_ip": "127.0.0.1", "role": {"value": "web_frontend"}},
+                {"host_ip": "192.168.0.116", "role": {"value": "file_share"}},
+            ],
+        }
+        choices = _analyst_choices(payload)
+        self.assertIn('<option value="127.0.0.1">', choices)
+        self.assertIn(
+            '<option value="192.168.0.116" disabled>192.168.0.116 · file share — no stored findings</option>',
+            choices,
+        )
+        self.assertEqual(_analyzable_hosts(payload), {"127.0.0.1"})
+
+    def test_run_selector_matches_stored_analyzable_hosts(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        _, _, body = request(application, "/")
+        document = body.decode("utf-8")
+        payload = json.loads(request(application, f"/api/run/{DEMO_RUN}")[2])
+        analyzable = {item["host_ip"] for item in payload["findings"]}
+        for host_ip in {profile["host_ip"] for profile in payload["context"]}:
+            option = re.search(rf'<option value="{re.escape(host_ip)}"[^>]*>', document)
+            self.assertIsNotNone(option, host_ip)
+            disabled = "disabled" in option.group(0)
+            self.assertEqual(disabled, host_ip not in analyzable, host_ip)
