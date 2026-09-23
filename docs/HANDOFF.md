@@ -169,3 +169,312 @@ never a rank. New decisions get dated entries in `docs/decisions.md`.
   netstat check.
 - Don't upgrade ruff/pyright pins casually; the ruleset is version-stable by
   config, but re-run the full gate before pushing.
+
+## Execution ledger - 2026-09-23
+
+This ledger records the new end-to-end audit. Earlier machine inventories and
+completion statements above are historical, not evidence for this machine.
+Scope: PROJECT.md stages 1-8, trained context inference, deterministic ranking,
+and independent evaluation. The final user directive requests an adversarial
+audit; no product completion or policy approval is inferred from its goals.
+
+### Cycle 1 - locate the target-first execution path
+
+- Objective: trace a new authorized target from application input to report.
+- Current blocker: no joined target-first path has been established.
+- Evidence: VERIFIED, `git status --short --branch` returned
+  `## audit-no-assumptions...privwork/audit-no-assumptions` with nine modified
+  files; `git log -6 --format="%h %s"` identified HEAD as
+  `89ec696 docs: database schema, data flow, retention, and migration summary`.
+  Existing UI work is preserved.
+- Evidence: VERIFIED, local source reads of `vulnassess/ui/server.py` show
+  `if self.command != "GET"` returning `405, "UI supports GET only"`;
+  `vulnassess/cli.py::cmd_scan` emits outcomes after `orchestrator.orchestrate`
+  without invoking `pipeline.do_import` or downstream processing.
+- Change made: this ledger only; no runtime, scope, provider, dependency, or
+  fixed-interface change.
+- Test performed: NOT RUN, isolated target-intake and orchestration probes are
+  next; the source observations do not establish runtime integration.
+- Result: NOT RUN, end-to-end acceptance remains unproved. A writable assessment
+  API, new authorization schema, and remote reasoning would require resolving
+  the standing fixed-contract and local-only restrictions, not silently
+  replacing them with a new document.
+- Next action: verify installed tooling, run the supported local gate, and
+  exercise target intake and scanner-to-import boundaries without network use.
+
+### Cycle 2 - execute the target and scanner boundaries
+
+- Objective: distinguish a real assessment lifecycle from scanner-only success.
+- Current blocker: the HTTP application is a viewer; scan execution has no
+  automatic handoff to import or persistence.
+- Evidence: TESTED WITH MOCKS, socket-free `UiApplication`/`request` probes
+  returned `INTAKE {"new_assessment_get": 404, "create_post": 405}`. Planning
+  `portal.example.invalid` raised `ScopeError`, with `DNS_CALLS 0`. A configured
+  CIDR contains `192.168.0.116`, but the planner rejects it because it is not an
+  explicitly listed target. The canary was also rejected before execution.
+- Evidence: TESTED WITH MOCKS, the injected scanner probe returned
+  `MOCK_SCAN_HANDOFF {"exit": 0, "complete": true, "database_created": false,
+  "summary_created": true, "outcomes": 1}`. A second probe returned
+  `complete: true` while both web tools said
+  `successful Nmap output did not contain target 172.28.0.11`.
+- Change made: copied 228 tracked paths, including current edits, into a local
+  temporary source snapshot; backed up SQLite with a read-only source
+  connection. No original data or runtime code changed.
+- Test performed: TESTED WITH MOCKS, system Python ran pytest against
+  `tests/test_orchestrator.py tests/test_operations_cli.py
+  tests/test_reader_security.py tests/test_intel_trace.py
+  tests/test_settings_strict.py`, with socket creation and DNS blocked.
+- Result: TESTED WITH MOCKS, `39 passed, 4 subtests passed in 5.50s` and
+  `OFFLINE_FOCUSED_EXIT 0`. This is not live scanner verification.
+- Result: MISSING, `nmap`, `nikto`, `zap-baseline.py`, `ollama`, `make`,
+  `data/feeds`, `data/lab/canary.log`, and `lab/canary_access.log` were absent
+  from the checked PATH or paths. Both inspected Python environments lack
+  Ruff, Pyright, pytest-cov, and psycopg; only system Python has pytest.
+- Result: VERIFIED, system Python `scripts/check.py` exited 1 with
+  `GATE INCOMPLETE: missing prerequisites: ruff lint, ruff format, pyright,
+  pytest + coverage`. Coverage is unmeasured, not a passing threshold.
+- Next action: audit AI1 source, dataset independence, and the AI1-to-AI2
+  uncertainty handoff; run the broader suite in the isolated snapshot.
+
+### Cycle 3 - test the trained-context claim
+
+- Objective: determine which model is present and whether canonical use is
+  gated by independent validation.
+- Current blocker: the only artifact in `models/` is synthetic, and the
+  optional canonical-context path bypasses the promotion workflow.
+- Evidence: VERIFIED, structured reads of `models/synthetic-role-model.json`
+  returned hash `d1a13c5e7302dca5`, task `asset_role_shadow`, 9 classes, 134
+  features, 54 synthetic examples/54 declared groups, and temperature 0.25
+  selected on 18 synthetic calibration examples/18 declared groups.
+- Evidence: VERIFIED, system Python evaluated the existing synthetic datasets:
+  `TRAINING` and `CALIBRATION` both returned accuracy/macro-F1/coverage 1.0,
+  abstention 0.0 and ECE 0.0000003. These are synthetic replay measurements,
+  not independent model-quality evidence. `SPLITS` returned
+  `shared_group_ids: 0`, `identical_feature_vectors_across_splits: 17`, and
+  `evaluate_accepts_training_dataset: true`.
+- Evidence: VERIFIED, `pipeline.do_context(..., model_path=...)` on the isolated
+  stored synthetic demo changed two role sources from `rule` to `model` without
+  a promotion manifest. The persisted role has only `confidence`, `evidence`,
+  `source`, and `value`; it drops model hash, margin, abstention, coverage, and
+  OOV details. This contradicts an unconditional shadow-only claim.
+- Change made: no runtime/model changes; observations recorded here. The
+  isolated demo context was restored through the default rule path afterward.
+- Test performed: VERIFIED, artifact loading checked its hash; real model
+  inference was executed only against existing synthetic records. No training
+  labels, scanner evidence, approvals, or real-world metrics were invented.
+- Result: MISSING, independently human-labelled train/calibration/held-out data
+  and an unseen-environment evaluation have not been found in the inspected
+  model/data locations. Their absence is not permission to promote this model.
+- Next action: inspect structured analyst grounding, persistence and report
+  paths, then execute the available real-capture replay with its limits stated.
+
+### Cycle 4 - probe the reasoning analyst
+
+- Objective: determine whether AI2 is a grounded analyst and whether its
+  guards hold under adversarial input.
+- Current blocker: the case builder loses model uncertainty, and three guards
+  fail on bounded synthetic probes.
+- Evidence: TESTED WITH MOCKS, `analyst.build_case` produced a structured case
+  with `services`, `context`, `findings`, per-item `evidence_id` citations,
+  CVSS/EPSS/KEV/`match_method` intelligence and the deterministic score. This is
+  more than sentence rewriting. The role object carried only `confidence`,
+  `evidence`, `evidence_id`, `source`, `value`: no model hash, margin,
+  abstention, feature coverage, or OOV list reaches AI2.
+- Evidence: TESTED WITH MOCKS, `required_untrusted_prefix: false`. The analyst
+  prompt uses `<untrusted_evidence>` and never emits contract I2's required
+  `untrusted data follows` prefix, unlike `explain.build_prompt`.
+- Evidence: TESTED WITH MOCKS, with 140 synthetic services the evidence budget
+  filled and the finding cited `E128`, whose stored text is a service banner.
+  A citation can therefore point at unrelated evidence instead of failing.
+- Evidence: TESTED WITH MOCKS, a 24,043-character service banner with a
+  `\x01` control character reached the case unsanitised and closed the
+  untrusted block early: `closing_delimiters: 2`. `_clean` is applied to the
+  finding/score/intel text, not to `services`.
+- Evidence: TESTED WITH MOCKS, `validate_analysis` accepted a summary claiming
+  a fabricated CVE and a replacement priority, because only citation IDs and
+  field shapes are checked. Stored scores were unchanged.
+- Evidence: TESTED WITH MOCKS, a mocked 66,560-byte structured response was
+  accepted although `MAX_RESPONSE_BYTES` is 65,536: the streaming path never
+  enforces the declared limit.
+- Evidence: TESTED WITH MOCKS, an unavailable provider raised `LLMUnavailable`
+  and left the assessment byte-identical, with no structured fallback.
+- Change made: none in runtime code; the probes used synthetic inputs and a
+  non-forwarding mocked transport. No model endpoint was contacted.
+- Result: TESTED WITH MOCKS, AI2 is grounded but not defended; provider
+  selection is also hard-coded to `OllamaClient` at the analyst boundary.
+- Next action: replay the available real captures through the report path.
+
+### Cycle 5 - replay real captures end to end
+
+- Objective: measure how far the current pipeline runs on recorded evidence.
+- Current blocker: live scanning and live inference cannot run here.
+- Evidence: VERIFIED, in the isolated copy the existing `demo` command replayed
+  the three committed real Nmap captures plus the real ZAP capture against the
+  curated real feed subset and exited 0: 3 hosts, 225 findings, 225 scores,
+  `epss 3, kev 3, nvd 3`, `enrich: 3/225 findings matched`, and a 191,267-byte
+  report. Re-ranking reproduced byte-identical stored scores
+  (`repeat_rank_equal: true`), and the three baseline orders each had 225 items.
+- Evidence: VERIFIED, the same run printed `No CVE appears on two or more hosts
+  in this run; the two-machine comparison needs one.` The signature experiment
+  currently has no real-capture instance.
+- Evidence: VERIFIED, the hash-verified model predicted `file_share` for the
+  Juice Shop web host `172.28.0.12` at confidence 0.855 without abstaining
+  (coverage 0.348, 15 OOV features), and `file_share` for `172.28.0.10` at
+  0.994. The rule path independently produced `file_share` for `172.28.0.12`,
+  and the stored reason reads `internet-facing file share`. This is a real
+  generalisation failure on real evidence, not a fixture artifact.
+- Result: MISSING, live target intake, resolution, scanner execution and model
+  inference remain unproved. `nmap`, `nikto`, `zap-baseline.py` and `ollama`
+  are absent from PATH and the checked install locations, and nothing is
+  listening on the local model port.
+- Result: NOT RUN, no scan, DNS query, feed download, or model request was
+  issued during this audit; a socket/DNS guard was active for every probe.
+
+### Audit verdict - 2026-09-23
+
+STATUS: EXTERNAL BLOCKER for the live end-to-end objective, plus repository
+defects that are fixable here. The acceptance criteria are NOT met.
+
+Blocked outside the repository, with the exact human action required:
+
+1. Scanner execution: install Nmap, and Nikto or ZAP, then supply an empty
+   canary log path for `scan --execute`.
+2. Reasoning provider: run a local model service, or supply approved
+   credentials and an approved policy change for a remote provider. The
+   current documents require local-only inference.
+3. Quality gate: provision Ruff, Pyright and pytest-cov; `scripts/check.py`
+   reports `GATE INCOMPLETE` and coverage is unmeasured.
+4. Real labels and expert rankings: no human-labelled role dataset and no
+   expert judgment file exist, so AI1 promotion and RQ2/RQ3 stay unevaluated.
+5. Authorisation: a new unseen target requires an owner-approved scope entry.
+
+Requires human decision before implementation, because the request conflicts
+with recorded contracts:
+
+1. Writable target intake contradicts the GET-only viewer contract in
+   `docs/ui-contract.md`; the assessment schema already has the tables, but no
+   approved write path or ADR exists.
+2. Canonical model-derived context is blocked by MODEL-06 and OPERATIONS-01,
+   yet `context --model` already overrides the rule role without a manifest.
+
+Repository defects to fix under existing contracts, in priority order:
+
+1. `orchestrate` reports `complete: true` when discovery omits the requested
+   target; incomplete coverage must not read as success.
+2. `cmd_scan --execute` writes a summary but never imports or persists; the
+   scan-to-store handoff is missing.
+3. Analyst evidence overflow reuses the last ID, service text is unsanitised,
+   the I2 prefix is absent, the response-size limit is unenforced on the
+   streaming path, and validation permits fabricated CVEs and scores in prose.
+4. `context --model` bypasses `model_governance.validate_promotion` and drops
+   model hash, margin, abstention, coverage and OOV from the stored profile.
+5. `tests/test_assessment_store.py::NoBrowserWriteAccess` opens real sockets,
+   contradicting invariant I4; three `test_ui` contract tests still fail from
+   the earlier merge.
+6. The bundled model is synthetic-only: 54 training and 18 calibration
+   examples, all `label_source: synthetic`, with 17 identical feature vectors
+   shared across the two splits despite distinct group IDs.
+
+## Full two-prompt recheck - 2026-09-23
+
+This pass reopens the entire original implementation directive and the complete
+second-pass audit, not only the UI checkpoint. Earlier verdicts are historical;
+the final A-J review below will distinguish repaired paths from unproved claims.
+
+### Cycle 6 - truthful discovery and scan-to-store handoff
+
+- Objective: PROJECT.md stages 1-4; connect authorized scan execution to
+  normalized evidence and retain honest outcomes for the ranking experiment.
+- Current blocker: new hostname intake and real scanner execution are not
+  established. No authorization, download, or fixed-interface approval is
+  implied by this repair.
+- Evidence for the blocker: TESTED WITH MOCKS, the added missing-host test
+  failed with `AssertionError: True is not false`; the expanded scan CLI test
+  failed with `False is not true : executed captures must reach the store`.
+- Change made: missing requested-host evidence marks discovery failed while
+  preserving its exit code and raw path. `scan --execute` stores its outcomes
+  and imports successful captures. Web imports retain prior Nmap host services.
+  CLI shapes, exit codes and table layouts are unchanged.
+- Test performed: TESTED WITH MOCKS, `python -m pytest -q --tb=short
+  -p no:cacheprovider
+  tests/test_orchestrator.py::TestOrchestrator::test_scan_cli_execute_uses_injected_nmap_first_path
+  tests/test_orchestrator.py::TestOrchestrator::test_discovery_without_requested_host_is_not_complete`.
+- Result: TESTED WITH MOCKS, `2 passed, 2 subtests passed in 0.78s`; injected
+  scanner calls only, with a temporary database. This is not live integration
+  evidence and does not yet establish the complete target-to-report flow.
+- Next action: verify partial-run persistence, then examine context-model
+  promotion, independent labels, uncertainty retention and the analyst boundary.
+
+## Complete source publication checkpoint - 2026-09-23
+
+PROJECT.md Stage 7 publication, including the pending stages 1-5 safety repairs.
+The user requested all current UI and related source changes be pushed. This is
+a review checkpoint, not acceptance of the UI or certification of the research.
+
+VERIFIED: before this checkpoint, `git ls-remote --symref privwork HEAD
+'refs/heads/*'` returned default branch `audit-no-assumptions` at
+`fc2ba67e04242645cbcf9b61fc83e9afa38b96cd`, matching local HEAD. The new UI,
+globe renderer, fonts and workflow were already included in that committed tree.
+`git ls-files --others --ignored --exclude-standard -- vulnassess/ui scripts tests docs`
+listed only Python caches, not omitted UI source or assets. Eight tracked files
+had newer uncommitted changes at the initial check. The analyst and explanation
+implementations and their tests changed during publication preparation and were
+included as well: twelve changed files in this checkpoint.
+
+TESTED WITH MOCKS: current tracked worktree files were copied to an owned
+temporary directory, with both the process working directory and import path
+set to that copy. Socket creation, connections and name resolution were patched
+to fail. The workspace assessment database was not used. The executed test call:
+
+```python
+pytest.main(['-q', '-ra', '--tb=no', '-p', 'no:cacheprovider', 'tests/test_analyst.py', 'tests/test_model_governance.py', 'tests/test_orchestrator.py', 'tests/test_ui.py::TestUiExport', 'tests/test_ui.py::TestUiAssets'])
+```
+
+```text
+FAILED tests/test_ui.py::TestUiExport::test_export_is_self_contained
+AssertionError: 'font-src data:' not found
+1 failed, 65 passed, 34 subtests passed in 13.56s
+```
+
+There were zero skips and no skip reasons in this focused run. The pending
+export edit removes the previously published globe/font bundling; the failed
+test is retained, not weakened. This publication preserves the user's current
+edits rather than silently undoing them. NOT RUN: the broader suite, real
+scanner/model execution or repairs to the export regression in this push task.
+
+TESTED WITH MOCKS: after copying the subsequently changed explanation files into
+the same isolated source tree, the additional focused test call was:
+
+```python
+pytest.main(['-q', '-ra', '--tb=short', '-p', 'no:cacheprovider', 'tests/test_all.py::TestExplain', '-k', 'structured_stream'])
+```
+
+```text
+4 passed, 10 deselected, 3 subtests passed in 0.78s
+```
+
+These tests used fake stream bodies and patched transport, not a real model.
+
+MISSING: the required gate tools. The existing command returned exit 1:
+
+```text
+& 'C:\Users\amitdamle\AppData\Local\Microsoft\WindowsApps\python.exe' scripts/check.py
+MISSING ruff lint: ruff is not installed; a human must provision it
+MISSING ruff format: ruff is not installed; a human must provision it
+MISSING pyright: pyright is not installed; a human must provision it
+MISSING pytest + coverage: pytest_cov is not installed; a human must provision it
+GATE INCOMPLETE: missing prerequisites: ruff lint, ruff format, pyright, pytest + coverage
+```
+
+STATUS: source checkpoint prepared for the requested publication; build
+acceptance remains blocked. BRANCH / COMMIT: `audit-no-assumptions`, based on
+`fc2ba67`; the final publication hash is verified after push. GATE: focused
+failure and missing tools above; source coverage is unmeasured. BUILT: no new
+product features during publication. CHANGED: pending `vulnassess/`, `tests/`
+and this existing `docs/HANDOFF.md` entry. DECIDED: publish the complete current
+source checkpoint, not silently roll back the pending export change.
+DECISIONS: publication only; no contract, scope or dependency approval granted.
+EVIDENCE: quoted Git, test and gate results above. DEFERRED: build certification
+and real-integration evidence are separate from source synchronization and
+cannot be inferred from a successful push. NEXT: repair the offline-export
+regression in an authorized follow-up and provide reviewed quality tooling.

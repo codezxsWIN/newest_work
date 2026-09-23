@@ -4,7 +4,151 @@ import { initialiseCobeGlobe } from './cobe-globe.js';
 
 const embedded = document.getElementById('assessment-data');
 const bootstrap = JSON.parse(embedded.textContent);
-initialiseCobeGlobe();
+initialiseCobeGlobe(bootstrap.assessment);
+initialiseScenario();
+initialisePlanetJourney();
+initialiseInteractions();
+
+// The hero's planet leaves the artwork, sinks behind the scenario and shrinks onto the Cobe globe; every frame is a pure function of scroll position.
+function initialisePlanetJourney() {
+  const journey = document.querySelector('[data-planet-journey]');
+  const planet = journey?.querySelector('.planet');
+  const hero = document.getElementById('hero');
+  const scenario = document.getElementById('project-scenario');
+  const globe = document.querySelector('[data-cobe-globe]');
+  if (!journey || !planet || !hero || !scenario || !globe) return;
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !window.matchMedia('(min-width: 900px)').matches) return;
+  journey.hidden = false;
+  document.body.classList.add('has-planet-journey');
+  const clamp = value => Math.min(1, Math.max(0, value));
+  const ease = value => value * value * (3 - 2 * value);
+  const mix = (from, to, amount) => ({
+    x: from.x + (to.x - from.x) * amount, y: from.y + (to.y - from.y) * amount,
+    rx: from.rx + (to.rx - from.rx) * amount, ry: from.ry + (to.ry - from.ry) * amount,
+  });
+  const update = () => {
+    const scrolled = window.scrollY;
+    const heroBox = hero.getBoundingClientRect();
+    // Rim circle measured in project-horizon.png (1600x1050): radius 2000, centre (800, 2732).
+    const scaleX = heroBox.width / 1600;
+    const scaleY = Math.max(heroBox.height, 720) / 1050;
+    const start = { x: heroBox.left + 800 * scaleX, y: heroBox.top + scrolled + 2732 * scaleY, rx: 2000 * scaleX, ry: 2000 * scaleY };
+    const radius = Math.max(window.innerWidth * 1.1, 1300);
+    const backdrop = { x: window.innerWidth / 2, y: window.innerHeight * 0.7 + radius, rx: radius, ry: radius };
+    const globeBox = globe.getBoundingClientRect();
+    // Cobe's bright rim sits at 0.797 of the canvas radius (measured), so the planet's rim lands exactly on it.
+    const sphere = globeBox.width / 2 * 0.797;
+    const landing = { x: globeBox.left + globeBox.width / 2, y: globeBox.top + globeBox.height / 2, rx: sphere, ry: sphere };
+    const scenarioTop = scenario.getBoundingClientRect().top + scrolled;
+    const landStart = scenarioTop + scenario.offsetHeight - window.innerHeight;
+    const landEnd = Math.max(globeBox.top + scrolled + globeBox.height / 2 - window.innerHeight / 2, landStart + 1);
+    const sink = ease(clamp(scrolled / Math.max(scenarioTop - window.innerHeight * 0.15, 1)));
+    // Motion completes at 80% of the landing; the last 20% is a pure in-place crossfade onto the globe.
+    const landLinear = clamp((scrolled - landStart) / (landEnd - landStart) / 0.8);
+    const land = ease(landLinear);
+    const beforeLanding = mix(start, backdrop, sink);
+    const at = mix(beforeLanding, landing, land);
+    // Size settles faster than position, so the planet is already small when the showcase text scrolls in.
+    const shrink = 1 - (1 - landLinear) ** 3;
+    at.rx = beforeLanding.rx + (landing.rx - beforeLanding.rx) * shrink;
+    at.ry = beforeLanding.ry + (landing.ry - beforeLanding.ry) * shrink;
+    // Track the visible rim, not the centre, so the shrinking planet stays on screen.
+    const rimTop = (beforeLanding.y - beforeLanding.ry) + ((landing.y - landing.ry) - (beforeLanding.y - beforeLanding.ry)) * land;
+    at.y = rimTop + at.ry;
+    planet.style.width = `${(at.rx * 2.24).toFixed(1)}px`;
+    planet.style.height = `${(at.ry * 2.24).toFixed(1)}px`;
+    planet.style.transform = `translate(${(at.x - at.rx * 1.12).toFixed(1)}px, ${(at.y - at.ry * 1.12).toFixed(1)}px)`;
+    // The planet sits exactly under the artwork's planet, so masking the artwork after 4px of scroll is invisible.
+    const handoff = clamp(scrolled / 4);
+    const arrival = clamp(((scrolled - landStart) / (landEnd - landStart) - 0.8) / 0.2);
+    // Dim to 65% while it is a backdrop behind text; full strength where it hands over to the artwork and the globe.
+    const backdropDim = 1 - 0.35 * sink * (1 - landLinear);
+    journey.style.opacity = (backdropDim * (1 - arrival)).toFixed(3);
+    hero.style.setProperty('--handoff', handoff.toFixed(3));
+    globe.style.setProperty('--globe-reveal', arrival.toFixed(3));
+  };
+  window.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
+  update();
+}
+
+// Reveal the scenario once when it scrolls into view; if it is already visible or motion is reduced, it simply stays shown.
+function initialiseScenario() {
+  const section = document.getElementById('project-scenario');
+  if (!section || !('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  if (section.getBoundingClientRect().top < window.innerHeight * 0.85) return;
+  section.classList.add('is-armed');
+  const observer = new IntersectionObserver(entries => {
+    if (!entries.some(entry => entry.isIntersecting)) return;
+    section.classList.add('is-visible');
+    observer.disconnect();
+  }, { threshold: 0.25 });
+  observer.observe(section);
+}
+
+// Pointer-driven card glow, row spotlight and nav letter swap; text is restored exactly after each swap.
+function initialiseInteractions() {
+  const glowCards = [...document.querySelectorAll('.model-stage, .project-door, .door-record, .scenario-step')];
+  let pointer = null;
+  let frame = 0;
+  const paintGlow = () => {
+    frame = 0;
+    for (const card of glowCards) {
+      const bounds = card.getBoundingClientRect();
+      const near = pointer && bounds.width > 0
+        && pointer.x > bounds.left - 70 && pointer.x < bounds.right + 70
+        && pointer.y > bounds.top - 70 && pointer.y < bounds.bottom + 70;
+      card.style.setProperty('--glow-active', near ? '1' : '0');
+      if (near) {
+        const angle = Math.atan2(pointer.y - (bounds.top + bounds.height / 2), pointer.x - (bounds.left + bounds.width / 2)) * 180 / Math.PI + 90;
+        card.style.setProperty('--glow-angle', angle.toFixed(1));
+      }
+    }
+  };
+  document.addEventListener('pointermove', event => {
+    pointer = { x: event.clientX, y: event.clientY };
+    if (!frame) frame = requestAnimationFrame(paintGlow);
+  }, { passive: true });
+  document.documentElement.addEventListener('pointerleave', () => { pointer = null; paintGlow(); });
+
+  for (const row of document.querySelectorAll('.project-outcome-list > a, .analyst-evidence-path li, .project-faq summary, .project-path li')) {
+    row.addEventListener('pointermove', event => {
+      const bounds = row.getBoundingClientRect();
+      row.style.setProperty('--mx', `${(event.clientX - bounds.left).toFixed(0)}px`);
+      row.style.setProperty('--my', `${(event.clientY - bounds.top).toFixed(0)}px`);
+    });
+    row.addEventListener('pointerleave', () => { row.style.removeProperty('--mx'); row.style.removeProperty('--my'); });
+  }
+
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  for (const link of document.querySelectorAll('.project-nav a')) {
+    const original = link.textContent;
+    const letters = [...original].filter(character => character.trim());
+    if (!letters.length) continue;
+    link.setAttribute('aria-label', original);
+    let timer = 0;
+    const swap = () => {
+      clearInterval(timer);
+      link.style.width = `${link.getBoundingClientRect().width}px`;
+      let step = 0;
+      timer = setInterval(() => {
+        step += 1;
+        const settled = Math.floor(step / 2);
+        link.textContent = [...original].map((character, index) => (
+          index < settled || !character.trim() ? character : letters[(index * 5 + step * 3) % letters.length]
+        )).join('');
+        if (settled >= original.length) {
+          clearInterval(timer);
+          link.textContent = original;
+          link.style.removeProperty('width');
+        }
+      }, 32);
+    };
+    link.addEventListener('pointerenter', swap);
+    link.addEventListener('focus', swap);
+  }
+}
+
 const workflowLink = document.getElementById('open-workflow');
 if (workflowLink && !bootstrap.offline) {
   workflowLink.hidden = false;
@@ -24,7 +168,15 @@ if (projectTarget && bootstrap.assessment?.hosts.length) {
   projectTarget.disabled = Boolean(bootstrap.offline);
 }
 const projectRunTarget = document.getElementById('project-run-target');
-if (projectRunTarget && projectTarget) projectRunTarget.replaceChildren(...[...projectTarget.options].map(option => option.cloneNode(true)));
+const hostsWithFindings = new Set((bootstrap.assessment?.findings || []).map(item => item.host_ip));
+if (projectRunTarget && projectTarget) projectRunTarget.replaceChildren(...[...projectTarget.options].map(option => {
+  const copy = option.cloneNode(true);
+  if (!hostsWithFindings.has(copy.value)) {
+    copy.disabled = true;
+    copy.textContent += ' — no stored findings';
+  }
+  return copy;
+}));
 function showProjectDoor(identity) {
   const panel = [...document.querySelectorAll('[data-project-door-host]')].find(item => !item.hidden);
   if (!panel) return;
@@ -323,7 +475,7 @@ const projectRunResults = document.getElementById('project-run-results');
 const projectRunStatus = document.getElementById('project-run-status');
 const projectRunStop = document.getElementById('project-run-stop');
 const projectRunConfirm = document.getElementById('project-run-confirm');
-const recordedHosts = (bootstrap.assessment?.hosts || []).map(host => host.ip);
+const recordedHosts = (bootstrap.assessment?.hosts || []).map(host => host.ip).filter(ip => hostsWithFindings.has(ip));
 let pendingAnalysisHosts = [];
 
 function analysisTargets() {
@@ -407,7 +559,7 @@ function refreshAnalysisPlan() {
   if (!current.entries.length && targets.length) projectRunResults.replaceChildren(...targets.map(host => analysisEntry(host, 'not-requested', 'Not requested')));
   const note = document.getElementById('project-run-note');
   if (bootstrap.offline) note.textContent = 'Offline snapshot. Local model requests are unavailable here.';
-  else if (!recordedHosts.length) note.textContent = 'A stored assessment with recorded systems is required.';
+  else if (!recordedHosts.length) note.textContent = 'A stored assessment with at least one recorded finding is required.';
 }
 
 function reviewAnalysis() {

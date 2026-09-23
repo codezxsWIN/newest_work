@@ -73,7 +73,9 @@ def do_import(
         counts["nikto"] = store.upsert_findings(run_id, findings)
 
     if not hosts:
-        hosts = [Host(ip=target_ip)]
+        hosts = [host for host in store.hosts(run_id) if host.ip == target_ip]
+        if not hosts:
+            hosts = [Host(ip=target_ip)]
     for host in hosts:
         store.upsert_host(run_id, host)
 

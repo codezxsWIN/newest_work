@@ -11,6 +11,7 @@ import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 import yaml
 
@@ -882,6 +883,57 @@ class TestExplain(unittest.TestCase):
             with self.subTest(timeout=timeout):
                 with self.assertRaises(ConfigError):
                     explain.OllamaClient(timeout=timeout)
+
+    def test_structured_stream_accepts_bounded_json_and_uses_the_schema(self) -> None:
+        schema = {"type": "object", "properties": {"summary": {"type": "string"}}}
+        answer = {"summary": "Synthetic bounded response"}
+        content = json.dumps(answer)
+        body = b"".join(
+            (json.dumps({"message": {"content": chunk}, "done": done}) + "\n").encode("utf-8")
+            for chunk, done in ((content[:10], False), (content[10:], True))
+        )
+        with patch.object(
+            explain.urllib.request, "urlopen", return_value=io.BytesIO(body)
+        ) as transport:
+            result = explain.OllamaClient().generate_structured("synthetic prompt", schema)
+        self.assertEqual(result, answer)
+        self.assertEqual(json.loads(transport.call_args.args[0].data)["format"], schema)
+
+    def test_structured_stream_rejects_oversized_content(self) -> None:
+        content = json.dumps({"summary": "x" * 600})
+        chunks = [content[index : index + 32] for index in range(0, len(content), 32)]
+        body = b"".join(
+            (
+                json.dumps({"message": {"content": chunk}, "done": index == len(chunks) - 1})
+                + "\n"
+            ).encode("utf-8")
+            for index, chunk in enumerate(chunks)
+        )
+        with (
+            patch.object(explain, "MAX_RESPONSE_BYTES", 128),
+            patch.object(explain.urllib.request, "urlopen", return_value=io.BytesIO(body)),
+            self.assertRaisesRegex(LLMUnavailable, "exceeds"),
+        ):
+            explain.OllamaClient().generate_structured("synthetic prompt", {})
+
+    def test_structured_stream_requires_explicit_completion(self) -> None:
+        event = {"message": {"content": '{"summary":"partial"}'}, "done": False}
+        body = (json.dumps(event) + "\n").encode("utf-8")
+        with (
+            patch.object(explain.urllib.request, "urlopen", return_value=io.BytesIO(body)),
+            self.assertRaisesRegex(LLMUnavailable, "completion"),
+        ):
+            explain.OllamaClient().generate_structured("synthetic prompt", {})
+
+    def test_structured_stream_rejects_malformed_events(self) -> None:
+        for event in ([], {"message": []}, {"message": {"content": {}}}):
+            with self.subTest(event=event):
+                body = (json.dumps(event) + "\n").encode("utf-8")
+                with (
+                    patch.object(explain.urllib.request, "urlopen", return_value=io.BytesIO(body)),
+                    self.assertRaises(LLMUnavailable),
+                ):
+                    explain.OllamaClient().generate_structured("synthetic prompt", {})
 
     def test_the_prompt_labels_the_data_untrusted_and_hides_every_score(self):
         finding, breakdown, profile = self._fixture()

@@ -7,6 +7,7 @@ import re
 from ipaddress import ip_address
 from typing import Any, Iterable, Sequence
 
+from vulnassess.errors import ConfigError
 from vulnassess.role_model import RoleModel
 from vulnassess.schema import ContextProfile, Feature, Finding, Host
 
@@ -156,6 +157,11 @@ def build_profile(
     signatures: dict[str, Any],
     model: RoleModel | None = None,
 ) -> ContextProfile:
+    if model is not None:
+        raise ConfigError(
+            "canonical learned-role activation requires a human-approved context-source ADR; "
+            "use 'model predict' or 'model hybrid' for shadow results"
+        )
     findings = list(findings)
     exposure, segment = infer_exposure(host, scope)
     manual: dict[str, Feature] = {}
@@ -166,10 +172,6 @@ def build_profile(
         quote = f"scope.yaml lab_targets[{name}].tags.{key}={value}"
         manual[key] = Feature(value, 1.0, "manual", quote)
     role = infer_role(host, rules)
-    if model is not None:
-        prediction = model.predict(host)
-        if not prediction.abstained:
-            role = Feature(prediction.label, prediction.confidence, "model", prediction.evidence)
     return ContextProfile(
         host_ip=host.ip,
         role=role,

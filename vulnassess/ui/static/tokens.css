@@ -83,6 +83,8 @@
   --hero-muted: #454547;
   --hero-line: #77777855;
   --hero-glass: #ffffff44;
+  --planet-body: #ebebeb;
+  --planet-rim: #000000;
   font-synthesis: none;
 }
 
@@ -104,6 +106,8 @@
   --hero-muted: #c8c8c5;
   --hero-line: #dadade33;
   --hero-glass: #18181a55;
+  --planet-body: #131313;
+  --planet-rim: #ffffff;
 }
 
 :root[data-theme="dark"]:not(.workflow-theme) {

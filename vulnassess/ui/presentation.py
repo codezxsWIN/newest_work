@@ -508,15 +508,33 @@ def _context_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
         + '<span class="model-badge">Ollama / grounded evidence</span></div>'
         + '<p class="model-copy">The local model reads every stored service, finding, context inference, CVSS record, EPSS signal and KEV flag for one target. Its actions must cite records from this assessment.</p>'
         + '<div class="model-controls"><label for="model-host">Asset</label><select id="model-host">'
-        + "".join(
-            f'<option value="{escape(profile["host_ip"])}">{escape(profile["host_ip"])} · {escape(_text(profile["role"]["value"]).replace("_", " "))}</option>'
-            for profile in payload["context"]
-        )
-        + '</select><button id="run-model" class="primary-button" type="button">Review local analysis</button></div>'
+        + _analyst_choices(payload)
+        + f'</select><button id="run-model" class="primary-button" type="button"{"" if _analyzable_hosts(payload) else " disabled"}>Review local analysis</button></div>'
         + '<div id="model-output" class="model-output" aria-live="polite"><span class="model-placeholder">Select an asset to ask the local analyst for correlations and an evidence-backed remediation sequence.</span></div>'
         + "</details>"
         + '<p class="stage-footnote">AI analysis is advisory. Canonical risk remains the transparent stored calculation; unknown citations or malformed model output are rejected.</p></section>'
     )
+
+
+def _analyzable_hosts(payload: dict[str, Any]) -> set[str]:
+    """Hosts whose stored finding set can form an analyst case."""
+    return {item["host_ip"] for item in payload["findings"]}
+
+
+def _analyst_choices(payload: dict[str, Any]) -> str:
+    """Analyst asset options; hosts without stored findings are disabled, not refused after the click."""
+    analyzable = _analyzable_hosts(payload)
+    options = []
+    for profile in payload["context"]:
+        host_ip = escape(profile["host_ip"])
+        role = escape(_text(profile["role"]["value"]).replace("_", " "))
+        if profile["host_ip"] in analyzable:
+            options.append(f'<option value="{host_ip}">{host_ip} · {role}</option>')
+        else:
+            options.append(
+                f'<option value="{host_ip}" disabled>{host_ip} · {role} — no stored findings</option>'
+            )
+    return "".join(options)
 
 
 def _pair(payload: dict[str, Any]) -> list[dict[str, Any]]:

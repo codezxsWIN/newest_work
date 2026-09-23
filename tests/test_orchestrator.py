@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from vulnassess.cli import main
-from vulnassess.errors import ConfigError, ScopeError
+from vulnassess.errors import AdapterError, ConfigError, ScopeError
 from vulnassess.orchestrator import (
     Execution,
     ScannerCommand,
@@ -25,6 +25,7 @@ from vulnassess.orchestrator import (
 )
 from vulnassess.schema import Host, Service
 from vulnassess.settings import Settings
+from vulnassess.store import Store
 
 ROOT = Path(__file__).resolve().parents[1]
 SYNTHETIC = ROOT / "tests" / "synthetic"
@@ -100,6 +101,7 @@ class TestOrchestrator(unittest.TestCase):
         with TemporaryDirectory() as directory:
             root = Path(directory)
             output = root / "captures"
+            database = root / "synthetic_scan.db"
             canary = root / "synthetic_canary.log"
             canary.write_text("", encoding="utf-8")
             executor = FakeExecutor()
@@ -114,6 +116,8 @@ class TestOrchestrator(unittest.TestCase):
             ):
                 code = main(
                     [
+                        "--db",
+                        str(database),
                         "--config",
                         str(ROOT / "config"),
                         "scan",
@@ -130,6 +134,16 @@ class TestOrchestrator(unittest.TestCase):
                     ]
                 )
             result = json.loads(stdout.getvalue())
+            self.assertTrue(database.is_file(), "executed captures must reach the store")
+            with Store(database) as store:
+                hosts = store.hosts("synthetic-execute")
+                findings = store.findings("synthetic-execute")
+                summary = store.run_info("synthetic-execute")["summary"]
+            self.assertEqual([host.ip for host in hosts], ["172.28.0.10"])
+            self.assertTrue(hosts[0].services)
+            self.assertEqual({finding.tool for finding in findings}, {"nmap", "nikto", "zap"})
+            self.assertTrue(all(Path(finding.provenance.raw_path).is_file() for finding in findings))
+            self.assertEqual(summary["scans"][-1], result)
 
         self.assertEqual(code, 0)
         self.assertEqual([call.tool for call in executor.calls], ["nmap", "nikto", "zap"])
@@ -162,6 +176,50 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(code, 2)
         execute.assert_not_called()
         self.assertIn("MISSING scanner binary", errors.getvalue())
+
+    def test_scan_cli_persists_partial_and_failed_runs(self) -> None:
+        for target, failed, expected_tools in (
+            ("172.28.0.10", {"nikto"}, {"nmap", "zap"}),
+            ("172.28.0.10", {"nmap"}, set()),
+            ("172.28.0.11", set(), set()),
+        ):
+            with self.subTest(target=target, failed=failed), TemporaryDirectory() as directory:
+                root = Path(directory)
+                database = root / "synthetic_partial.db"
+                canary = root / "synthetic_canary.log"
+                canary.write_text("", encoding="utf-8")
+                executor = FakeExecutor(fail=failed)
+                stdout = io.StringIO()
+                with (
+                    patch("vulnassess.cli.orchestrator.missing_binaries", return_value=[]),
+                    patch(
+                        "vulnassess.cli.orchestrator.execute_local",
+                        side_effect=lambda command, timeout: executor(command),
+                    ),
+                    redirect_stdout(stdout),
+                ):
+                    code = main(
+                        [
+                            "--db", str(database), "--config", str(ROOT / "config"),
+                            "scan", "--run-id", "synthetic-partial", "--target-ip", target,
+                            "--out-dir", str(root / "captures"), "--canary-log", str(canary),
+                            "--execute", "--json",
+                        ]
+                    )
+                result = json.loads(stdout.getvalue())
+                self.assertEqual(code, AdapterError.exit_code)
+                self.assertFalse(result["complete"])
+                self.assertTrue(database.is_file())
+                with Store(database) as store:
+                    self.assertEqual(
+                        {finding.tool for finding in store.findings("synthetic-partial")},
+                        expected_tools,
+                    )
+                    self.assertEqual(
+                        store.run_info("synthetic-partial")["summary"]["scans"][-1], result
+                    )
+                    if not expected_tools:
+                        self.assertEqual(store.hosts("synthetic-partial"), [])
 
     def test_local_executor_is_shell_free_bounded_and_mocked(self):
         command = ScannerCommand("nmap", ("nmap", "127.0.0.1"), Path("synthetic.xml"))
@@ -302,6 +360,29 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(result["skipped_tools"], 2)
         self.assertEqual(result["endpoints"], [])
         self.assertTrue(result["complete"])
+
+    def test_discovery_without_requested_host_is_not_complete(self):
+        for tools in (("nmap",), ("nmap", "nikto", "zap")):
+            with self.subTest(tools=tools), TemporaryDirectory() as directory:
+                scan_plan = plan(
+                    SETTINGS,
+                    "172.28.0.11",
+                    Path(directory) / "captures",
+                    tools=tools,
+                )
+                executor = FakeExecutor()
+
+                result = orchestrate(scan_plan, "synthetic-missing-host", executor)
+
+            self.assertEqual([call.tool for call in executor.calls], ["nmap"])
+            self.assertFalse(result["complete"])
+            self.assertEqual(result["successful_tools"], 0)
+            self.assertEqual(result["failed_tools"], 1)
+            discovery = result["outcomes"][0]
+            self.assertEqual(discovery["status"], "failed")
+            self.assertEqual(discovery["exit_code"], 0)
+            self.assertIn("172.28.0.11", discovery["failure"])
+            self.assertTrue(discovery["raw_path"])
 
     def test_canary_log_is_missing_empty_or_a_hard_failure(self):
         with TemporaryDirectory() as directory:

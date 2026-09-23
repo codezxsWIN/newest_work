@@ -219,6 +219,27 @@ def cmd_scan(args: argparse.Namespace) -> int:
     output = _write_json_payload(result, args.summary_out)
     if output is not None:
         result["summary_output"] = output
+    with _store(args) as store:
+        store.start_run(args.run_id, settings.config_hash())
+        existing = (store.run_info(args.run_id) or {}).get("summary") or {}
+        store.set_run_summary(
+            args.run_id,
+            {**existing, "scans": [*existing.get("scans", []), result]},
+        )
+        for outcome in result["outcomes"]:
+            if outcome["status"] != "success":
+                continue
+            tool = outcome["tool"]
+            raw_path = outcome["raw_path"]
+            pipeline.do_import(
+                settings,
+                store,
+                args.run_id,
+                args.target_ip,
+                nmap_path=raw_path if tool == "nmap" else None,
+                zap_path=raw_path if tool == "zap" else None,
+                nikto_path=raw_path if tool == "nikto" else None,
+            )
     _emit(
         result,
         f"scan outcomes: success={result['successful_tools']} failed={result['failed_tools']} "
