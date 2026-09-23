@@ -44,6 +44,38 @@ STRUCTURAL_PREFIXES = (
     "os=",
     "tls=",
 )
+# Feature-family ablation support (audit concern 19): banner/product tokens can
+# create shortcut learning, so training can restrict features to chosen families.
+FEATURE_FAMILIES: dict[str, tuple[str, ...]] = {
+    "structure": ("port=", "port_proto=", "tls="),
+    "service": ("service=",),
+    "product": ("product=", "cpe_vendor=", "cpe_product="),
+    "banner": ("banner=",),
+    "os": ("os=",),
+}
+
+
+def _family_prefixes(families: Sequence[str] | None) -> tuple[str, ...]:
+    if families is None:
+        return ()
+    unknown = sorted(set(families) - set(FEATURE_FAMILIES))
+    if unknown:
+        raise ConfigError(
+            f"unknown feature family {unknown[0]!r}; choose from {sorted(FEATURE_FAMILIES)}"
+        )
+    if not families:
+        raise ConfigError("feature_families must not be empty; pass None for all families")
+    return tuple(prefix for family in sorted(set(families)) for prefix in FEATURE_FAMILIES[family])
+
+
+def _restrict_rows(
+    rows: Sequence[dict[str, float]], prefixes: Sequence[str]
+) -> list[dict[str, float]]:
+    if not prefixes:
+        return list(rows)
+    return [
+        {name: value for name, value in row.items() if name.startswith(prefixes)} for row in rows
+    ]
 
 
 @dataclass(frozen=True)
@@ -321,6 +353,7 @@ def train(
     confidence_threshold: float = 0.55,
     margin_threshold: float = 0.10,
     minimum_feature_coverage: float = 0.20,
+    feature_families: Sequence[str] | None = None,
 ) -> RoleModel:
     """Fit deterministic, class-balanced multinomial logistic regression."""
     if len(examples) < 4:
@@ -337,7 +370,10 @@ def train(
     ):
         raise ConfigError("invalid role-model training hyperparameters")
 
-    rows = [extract_features(example.host)[0] for example in examples]
+    rows = _restrict_rows(
+        [extract_features(example.host)[0] for example in examples],
+        _family_prefixes(feature_families),
+    )
     counts = Counter(name for row in rows for name in row)
     features = tuple(sorted(name for name, count in counts.items() if count >= min_feature_count))
     if not features:
@@ -404,6 +440,9 @@ def train(
             "groups": len({example.group for example in examples}),
             "label_counts": dict(sorted(Counter(example.label for example in examples).items())),
             "min_feature_count": min_feature_count,
+            "feature_families": (
+                "all" if feature_families is None else sorted(set(feature_families))
+            ),
             "dataset_hash": dataset_hash(examples),
             "label_sources": dict(
                 sorted(Counter(example.label_source for example in examples).items())
@@ -534,6 +573,7 @@ def cross_validate(
     learning_rate: float = 0.2,
     l2: float = 0.001,
     min_feature_count: int = 1,
+    feature_families: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Group-stratified deterministic cross-validation for RQ1."""
     by_group: dict[str, list[LabelledHost]] = defaultdict(list)
@@ -571,6 +611,7 @@ def cross_validate(
             learning_rate=learning_rate,
             l2=l2,
             min_feature_count=min_feature_count,
+            feature_families=feature_families,
         )
         metrics = evaluate(model, testing)
         results.append({"fold": index + 1, "test_groups": sorted(test_groups), **metrics})
@@ -594,6 +635,47 @@ def cross_validate(
         "dataset_hash": dataset_hash(examples),
         "aggregate": aggregate,
         "results": results,
+    }
+
+
+def ablate_features(
+    examples: Sequence[LabelledHost],
+    *,
+    folds: int = 5,
+    subsets: Sequence[Sequence[str] | None] | None = None,
+    **options: Any,
+) -> dict[str, Any]:
+    """Group-aware feature-family ablation.
+
+    Each subset is cross-validated independently on the same group folds so the
+    comparison shows which feature families actually carry signal (audit
+    concern 19: banner/product shortcut learning). Default subsets: all
+    families, each family alone, and everything except banners.
+    """
+    if subsets is None:
+        default_families = sorted(FEATURE_FAMILIES)
+        subsets = [
+            None,
+            *([family] for family in default_families),
+            [family for family in default_families if family != "banner"],
+        ]
+    results = []
+    for subset in subsets:
+        prefix = "all" if subset is None else "+".join(sorted(set(subset)))
+        outcome = cross_validate(examples, folds=folds, feature_families=subset, **options)
+        results.append(
+            {
+                "subset": prefix,
+                "folds": outcome["folds"],
+                "groups": outcome["groups"],
+                "dataset_hash": outcome["dataset_hash"],
+                "aggregate": outcome["aggregate"],
+            }
+        )
+    return {
+        "examples": len(examples),
+        "folds_requested": folds,
+        "results": sorted(results, key=lambda item: item["subset"]),
     }
 
 
