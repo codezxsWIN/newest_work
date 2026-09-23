@@ -374,3 +374,107 @@ Repository defects to fix under existing contracts, in priority order:
 6. The bundled model is synthetic-only: 54 training and 18 calibration
    examples, all `label_source: synthetic`, with 17 identical feature vectors
    shared across the two splits despite distinct group IDs.
+
+## Full two-prompt recheck - 2026-09-23
+
+This pass reopens the entire original implementation directive and the complete
+second-pass audit, not only the UI checkpoint. Earlier verdicts are historical;
+the final A-J review below will distinguish repaired paths from unproved claims.
+
+### Cycle 6 - truthful discovery and scan-to-store handoff
+
+- Objective: PROJECT.md stages 1-4; connect authorized scan execution to
+  normalized evidence and retain honest outcomes for the ranking experiment.
+- Current blocker: new hostname intake and real scanner execution are not
+  established. No authorization, download, or fixed-interface approval is
+  implied by this repair.
+- Evidence for the blocker: TESTED WITH MOCKS, the added missing-host test
+  failed with `AssertionError: True is not false`; the expanded scan CLI test
+  failed with `False is not true : executed captures must reach the store`.
+- Change made: missing requested-host evidence marks discovery failed while
+  preserving its exit code and raw path. `scan --execute` stores its outcomes
+  and imports successful captures. Web imports retain prior Nmap host services.
+  CLI shapes, exit codes and table layouts are unchanged.
+- Test performed: TESTED WITH MOCKS, `python -m pytest -q --tb=short
+  -p no:cacheprovider
+  tests/test_orchestrator.py::TestOrchestrator::test_scan_cli_execute_uses_injected_nmap_first_path
+  tests/test_orchestrator.py::TestOrchestrator::test_discovery_without_requested_host_is_not_complete`.
+- Result: TESTED WITH MOCKS, `2 passed, 2 subtests passed in 0.78s`; injected
+  scanner calls only, with a temporary database. This is not live integration
+  evidence and does not yet establish the complete target-to-report flow.
+- Next action: verify partial-run persistence, then examine context-model
+  promotion, independent labels, uncertainty retention and the analyst boundary.
+
+## Complete source publication checkpoint - 2026-09-23
+
+PROJECT.md Stage 7 publication, including the pending stages 1-5 safety repairs.
+The user requested all current UI and related source changes be pushed. This is
+a review checkpoint, not acceptance of the UI or certification of the research.
+
+VERIFIED: before this checkpoint, `git ls-remote --symref privwork HEAD
+'refs/heads/*'` returned default branch `audit-no-assumptions` at
+`fc2ba67e04242645cbcf9b61fc83e9afa38b96cd`, matching local HEAD. The new UI,
+globe renderer, fonts and workflow were already included in that committed tree.
+`git ls-files --others --ignored --exclude-standard -- vulnassess/ui scripts tests docs`
+listed only Python caches, not omitted UI source or assets. Eight tracked files
+had newer uncommitted changes at the initial check. The analyst and explanation
+implementations and their tests changed during publication preparation and were
+included as well: twelve changed files in this checkpoint.
+
+TESTED WITH MOCKS: current tracked worktree files were copied to an owned
+temporary directory, with both the process working directory and import path
+set to that copy. Socket creation, connections and name resolution were patched
+to fail. The workspace assessment database was not used. The executed test call:
+
+```python
+pytest.main(['-q', '-ra', '--tb=no', '-p', 'no:cacheprovider', 'tests/test_analyst.py', 'tests/test_model_governance.py', 'tests/test_orchestrator.py', 'tests/test_ui.py::TestUiExport', 'tests/test_ui.py::TestUiAssets'])
+```
+
+```text
+FAILED tests/test_ui.py::TestUiExport::test_export_is_self_contained
+AssertionError: 'font-src data:' not found
+1 failed, 65 passed, 34 subtests passed in 13.56s
+```
+
+There were zero skips and no skip reasons in this focused run. The pending
+export edit removes the previously published globe/font bundling; the failed
+test is retained, not weakened. This publication preserves the user's current
+edits rather than silently undoing them. NOT RUN: the broader suite, real
+scanner/model execution or repairs to the export regression in this push task.
+
+TESTED WITH MOCKS: after copying the subsequently changed explanation files into
+the same isolated source tree, the additional focused test call was:
+
+```python
+pytest.main(['-q', '-ra', '--tb=short', '-p', 'no:cacheprovider', 'tests/test_all.py::TestExplain', '-k', 'structured_stream'])
+```
+
+```text
+4 passed, 10 deselected, 3 subtests passed in 0.78s
+```
+
+These tests used fake stream bodies and patched transport, not a real model.
+
+MISSING: the required gate tools. The existing command returned exit 1:
+
+```text
+& 'C:\Users\amitdamle\AppData\Local\Microsoft\WindowsApps\python.exe' scripts/check.py
+MISSING ruff lint: ruff is not installed; a human must provision it
+MISSING ruff format: ruff is not installed; a human must provision it
+MISSING pyright: pyright is not installed; a human must provision it
+MISSING pytest + coverage: pytest_cov is not installed; a human must provision it
+GATE INCOMPLETE: missing prerequisites: ruff lint, ruff format, pyright, pytest + coverage
+```
+
+STATUS: source checkpoint prepared for the requested publication; build
+acceptance remains blocked. BRANCH / COMMIT: `audit-no-assumptions`, based on
+`fc2ba67`; the final publication hash is verified after push. GATE: focused
+failure and missing tools above; source coverage is unmeasured. BUILT: no new
+product features during publication. CHANGED: pending `vulnassess/`, `tests/`
+and this existing `docs/HANDOFF.md` entry. DECIDED: publish the complete current
+source checkpoint, not silently roll back the pending export change.
+DECISIONS: publication only; no contract, scope or dependency approval granted.
+EVIDENCE: quoted Git, test and gate results above. DEFERRED: build certification
+and real-integration evidence are separate from source synchronization and
+cannot be inferred from a successful push. NEXT: repair the offline-export
+regression in an authorized follow-up and provide reviewed quality tooling.

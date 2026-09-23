@@ -6,6 +6,7 @@ from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+from vulnassess import pipeline
 from vulnassess.errors import ConfigError
 from vulnassess.model_governance import (
     PromotionManifest,
@@ -13,8 +14,10 @@ from vulnassess.model_governance import (
     recommend_hybrid_role,
     validate_promotion,
 )
-from vulnassess.role_model import PREPROCESSING_VERSION, LabelledHost, train
+from vulnassess.role_model import PREPROCESSING_VERSION, LabelledHost, save_model, train
 from vulnassess.schema import Feature, Host, Service
+from vulnassess.settings import Settings
+from vulnassess.store import Store
 
 
 def labelled(index: int, role: str, port: int, service: str) -> LabelledHost:
@@ -168,6 +171,28 @@ class TestModelGovernance(unittest.TestCase):
 
         self.assertEqual(recommendation.action, "keep_rule_model_abstained")
         self.assertEqual(recommendation.selected_source, "rule")
+
+    def test_canonical_context_rejects_model_activation_without_context_adr(self) -> None:
+        settings = Settings(Path(__file__).resolve().parents[1] / "config")
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            artifact = root / "synthetic_model.json"
+            save_model(self.model, artifact)
+            with Store(root / "synthetic_context.db") as store:
+                store.start_run("synthetic-context", settings.config_hash())
+                store.upsert_host(
+                    "synthetic-context",
+                    Host(
+                        ip="172.28.0.10",
+                        services=(Service(80, "tcp", "http", banner="80/tcp http"),),
+                    ),
+                )
+                pipeline.do_context(settings, store, "synthetic-context")
+                before = store.profiles("synthetic-context")
+                with self.assertRaisesRegex(ConfigError, "context-source ADR"):
+                    pipeline.do_context(settings, store, "synthetic-context", str(artifact))
+                self.assertEqual(store.profiles("synthetic-context"), before)
+                self.assertTrue(all(profile.role.source == "rule" for profile in before))
 
     def test_manifest_loader_rejects_unknown_and_missing_fields(self):
         with TemporaryDirectory() as directory:

@@ -7,7 +7,7 @@ import re
 import shutil
 import subprocess
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -402,6 +402,11 @@ def orchestrate(plan: OrchestrationPlan, run_id: str, executor: Executor) -> dic
     hosts, _ = parse_nmap_xml(plan.discovery.output, run_id)
     host = next((item for item in hosts if item.ip == plan.target_ip), None)
     if host is None:
+        outcomes[0] = replace(
+            discovery,
+            status="failed",
+            failure=f"Nmap output did not contain requested target {plan.target_ip}",
+        )
         outcomes.extend(
             ToolOutcome(
                 tool=tool,
