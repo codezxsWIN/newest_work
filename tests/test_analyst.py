@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from finetune.build_corpus import build_example
 from vulnassess import analyst
 from vulnassess.errors import ConfigError, LLMUnavailable
 from vulnassess.ui.reader import ReadOnlyStore
@@ -13,6 +14,7 @@ DATABASE = ROOT / "data" / "vulnassess.db"
 
 class FakeClient:
     model = "test-local-model"
+    source = "synthetic_grounded_analysis"
 
     def __init__(self, result):
         self.result = result
@@ -209,3 +211,85 @@ def test_large_case_is_prioritized_bounded_and_explicitly_partial() -> None:
     assert result["analysis"]["confidence"] == "low"
     assert any("150" in text for text in result["analysis"]["uncertainties"])
     assert payload == original
+
+
+@pytest.mark.parametrize(
+    "claim",
+    ["Confirmed CVE-2099-99999 on this host.", "The replacement risk score is 99."],
+)
+def test_unsupported_identifiers_and_numbers_are_rejected(claim: str) -> None:
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+    response = valid_result(case["findings"][0]["id"], evidence[0]["id"])
+    response["summary"] = claim
+    with pytest.raises(LLMUnavailable, match="unsupported"):
+        analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("finding_ids", []), ("finding_ids", [{}]), ("evidence_ids", [{}])],
+)
+def test_malformed_citations_raise_the_expected_error(field: str, value: list) -> None:
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+    response = valid_result(case["findings"][0]["id"], evidence[0]["id"])
+    response["recommended_actions"][0][field] = value
+    with pytest.raises(LLMUnavailable):
+        analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+
+
+def test_injected_provider_provenance_is_not_relabeled_as_ollama() -> None:
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+    client = FakeClient(valid_result(case["findings"][0]["id"], evidence[0]["id"]))
+    result = analyst.analyze_target(payload, "172.28.0.12", client)
+    assert result["source"] == client.source
+
+
+def test_provider_failure_does_not_change_the_assessment(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = demo_payload()
+    original = copy.deepcopy(payload)
+    client = FakeClient({})
+
+    def unavailable() -> bool:
+        raise LLMUnavailable("synthetic unavailable provider")
+
+    monkeypatch.setattr(client, "available", unavailable)
+    with pytest.raises(LLMUnavailable, match="unavailable provider"):
+        analyst.analyze_target(payload, "172.28.0.12", client)
+    assert client.prompt is None
+    assert payload == original
+
+
+def test_missing_case_is_rejected_before_contacting_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = FakeClient({})
+
+    def forbidden() -> bool:
+        raise AssertionError("invalid case must not contact a provider")
+
+    monkeypatch.setattr(client, "available", forbidden)
+    with pytest.raises(ConfigError, match="MISSING"):
+        analyst.analyze_target(demo_payload(), "192.0.2.99", client)
+
+
+def test_corpus_builder_rejects_unsupported_supervision_facts() -> None:
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+    response = valid_result(case["findings"][0]["id"], evidence[0]["id"])
+    response["summary"] = "Confirmed CVE-2099-99999 on this host."
+    with pytest.raises(LLMUnavailable, match="unsupported"):
+        build_example(DATABASE, "demo", "172.28.0.12", response)
+
+
+def test_corpus_builder_keeps_the_validated_case_without_writing_assessment() -> None:
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+    response = valid_result(case["findings"][0]["id"], evidence[0]["id"])
+    example = build_example(DATABASE, "demo", "172.28.0.12", response)
+    assert "untrusted data follows" in example["prompt"]
+    assert example["meta"]["findings"] == len(case["findings"])
+    with ReadOnlyStore(DATABASE) as store:
+        assert store.run("demo") == payload

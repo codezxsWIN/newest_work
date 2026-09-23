@@ -55,9 +55,10 @@ def plan(
             f"{target_ip} is the canary in {settings.config_dir / 'scope.yaml'}; "
             "it must never be scanned; no command was built"
         )
-    if not scope.contains(target_ip):
+    if not scope.contains(target_ip) or scope.name(target_ip) is None:
         raise ScopeError(
-            f"{target_ip} is not in {settings.config_dir / 'scope.yaml'} "
+            f"{target_ip} is not an explicitly listed target in "
+            f"{settings.config_dir / 'scope.yaml'} "
             f"(allowed: {scope.allowed()}); no command was built"
         )
     unknown = [tool for tool in tools if tool not in BUILDERS]

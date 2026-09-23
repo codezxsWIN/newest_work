@@ -747,11 +747,14 @@ def load_examples(path: str | Path) -> list[LabelledHost]:
             continue
         try:
             payload = json.loads(line)
+            group = payload["group"]
+            if not isinstance(group, str) or not group.strip():
+                raise ValueError("group must identify an independently reviewed host/capture unit")
             examples.append(
                 LabelledHost(
                     host=Host.from_json(payload["host"]),
                     label=str(payload["label"]),
-                    group=str(payload["group"]),
+                    group=group,
                     label_source=str(payload["label_source"]),
                     reviewer=payload.get("reviewer"),
                 )
@@ -774,7 +777,7 @@ def export_label_template(hosts: Iterable[Host], run_id: str, path: str | Path) 
                 {
                     "host": host.to_json(),
                     "label": None,
-                    "group": f"{run_id}:{host.ip}",
+                    "group": None,
                     "label_source": None,
                     "reviewer": None,
                 }

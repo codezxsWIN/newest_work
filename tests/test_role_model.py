@@ -230,6 +230,18 @@ class TestRoleModel(unittest.TestCase):
         self.assertTrue(all(item["label"] is None for item in payloads))
         self.assertTrue(all(item["label_source"] is None for item in payloads))
 
+    def test_label_template_requires_an_independently_reviewed_group(self) -> None:
+        with TemporaryDirectory() as directory:
+            paths = [Path(directory) / f"synthetic_labels_{index}.jsonl" for index in range(2)]
+            for index, path in enumerate(paths):
+                export_label_template([host("database", 1)], f"repeat-{index}", path)
+                row = json.loads(path.read_text(encoding="utf-8"))
+                self.assertIsNone(row["group"])
+                row.update(label="database", label_source="human", reviewer="synthetic-reviewer")
+                path.write_text(json.dumps(row) + "\n", encoding="utf-8")
+                with self.assertRaisesRegex(ConfigError, "group"):
+                    load_examples(path)
+
     def test_cli_refuses_synthetic_training_without_explicit_opt_in(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

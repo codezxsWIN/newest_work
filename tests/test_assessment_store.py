@@ -4,12 +4,10 @@ import json
 import os
 import re
 import tempfile
-import threading
 import unittest
-import urllib.error
-import urllib.request
 from pathlib import Path
 
+from tests.test_ui import request
 from vulnassess.errors import ConfigError
 from vulnassess.repository import ENV_VAR, AssessmentRepository, resolve_backend
 
@@ -390,22 +388,17 @@ class NoBrowserWriteAccess(unittest.TestCase):
         self.db_path = Path(self.tmp.name) / "assess.db"
         with AssessmentRepository(self.db_path) as repo:
             _populate(repo)
-        from vulnassess.ui.server import UiApplication, UiServer
+        from vulnassess.ui.server import UiApplication
 
         self.application = UiApplication(self.db_path, Path("config"))
-        self.server = UiServer(self.application, port=0)
-        self.port = self.server.server_address[1]
-        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
-        self.thread.start()
 
     def tearDown(self):
-        self.server.shutdown()
-        self.server.server_close()
         self.tmp.cleanup()
 
     def _get(self, route: str) -> dict:
-        with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/{route}") as response:
-            return json.load(response)
+        status, _, body = request(self.application, f"/{route}")
+        self.assertEqual(status, 200)
+        return json.loads(body)
 
     def test_assessment_routes_are_readable(self):
         runs = self._get("api/assessment-runs")
@@ -419,14 +412,13 @@ class NoBrowserWriteAccess(unittest.TestCase):
 
     def test_write_verbs_are_refused(self):
         for method in ("POST", "PUT", "DELETE"):
-            request = urllib.request.Request(
-                f"http://127.0.0.1:{self.port}/api/findings",
+            status, _, _ = request(
+                self.application,
+                "/api/findings",
                 method=method,
-                data=b"{}" if method != "DELETE" else None,
+                body=b"{}" if method != "DELETE" else b"",
             )
-            with self.assertRaises(urllib.error.HTTPError) as caught:
-                urllib.request.urlopen(request)
-            self.assertEqual(caught.exception.code, 405, method)
+            self.assertEqual(status, 405, method)
 
     def test_database_url_is_never_served(self):
         for route in ("api/assessment-runs", "api/findings", "api/ablations"):

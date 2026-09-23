@@ -382,25 +382,27 @@ def collect_report_audit(
             prediction = model.predict(host)
             profile = profiles.get(host.ip)
             rule_label = None if profile is None else str(profile.role.value)
-            if prediction.abstained or prediction.label != rule_label:
-                model_cases.append(
-                    {
-                        "host_ip": host.ip,
-                        "rule": rule_label,
-                        "model": prediction.label,
-                        "confidence": prediction.confidence,
-                        "margin": prediction.margin,
-                        "abstained": prediction.abstained,
-                        "evidence": prediction.evidence,
-                    }
-                )
+            model_cases.append(
+                {
+                    "host_ip": host.ip,
+                    "rule": rule_label,
+                    "model": prediction.label,
+                    "confidence": prediction.confidence,
+                    "margin": prediction.margin,
+                    "abstained": prediction.abstained,
+                    "feature_coverage": prediction.feature_coverage,
+                    "out_of_vocabulary": list(prediction.out_of_vocabulary),
+                    "model_hash": prediction.model_hash,
+                    "evidence": prediction.evidence,
+                }
+            )
         rows.append(
             {
                 "component": "shadow role model",
                 "evidence_status": "NOT RUN",
                 "artifact_hash": model.model_hash,
                 "summary": (
-                    f"{len(model_cases)} abstention/disagreement cases; shadow only, "
+                    f"{len(model_cases)} shadow predictions; independent validation not supplied; "
                     "canonical context unchanged"
                 ),
                 "path": str(model_path),
