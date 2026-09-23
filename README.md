@@ -150,7 +150,52 @@ is the printable assessment artifact, not a competing application. Live and expo
 views share the same renderer, controls, evidence inspector and Risk analytics.
 
 Open `/workflow?run=R` on the local viewer for the workflow canvas. It is a live-only
-view, separate from the workbench and its single-file export.
+view, separate from the workbench and its single-file export. Press **Run**, enter
+an authorised IP or hostname, and choose **Run live target**. This checks scope,
+pins a single resolved address, scans the top 100 TCP ports with light Nmap service
+detection, infers context, and shows each model stage. The live evidence stays in
+memory and does not require a recorded assessment or write scores. Nmap must be on
+the server's PATH or supplied as `VULNASSESS_NMAP_BIN` in the server process
+environment. A completed scan is held in server memory for 10 minutes so a failed model request can be retried without running Nmap again. Another live scan of the same target is blocked during that period; restarting the server clears the in-memory evidence.
+Use **Preview example** and **Preview flow** to watch five labelled simulations:
+light Nmap with no findings, a full web path, skipped web tools when HTTP is absent,
+model unavailability, and a target outside scope. The full web path illustrates
+the CLI orchestrator's Nmap-to-ZAP/Nikto branch; the live Run button still starts
+only light Nmap. Preview mode contacts no target or model and does not create evidence.
+The default local Ollama model keeps evidence on this machine. The optional
+`deepseek/deepseek-v4-flash-0731:free` model uses
+OpenRouter only after selecting it and confirming evidence sharing. Put your key
+in the ignored project-root `.env` as `OPENROUTER_API_KEY=...`; the server reads
+it when requested, and the browser never receives it. The cloud transport makes
+one bounded structured request per selected target, does not retry a 429 or
+switch to a paid model, and does not alter deterministic scores. Free-tier limits
+and model availability are controlled by OpenRouter; a key is required to test
+a real request. Groq is a separate opt-in analyst provider using
+`openai/gpt-oss-20b` with strict structured output. Put `GROQ_API_KEY=...` in
+the ignored project-root `.env` and select Groq in the workflow. Groq receives
+only the bounded target case after consent; it does not select scan commands or
+change deterministic scores. It is a paid API, so check your Groq account's
+limits and billing before repeated runs.
+The analyst now requests one evidence-cited, unverified investigation with a
+hypothesis, a concrete verification action and an alternative explanation. The
+viewer shows the actual cited evidence alongside it. Unknown citations and a
+non-actionable verification are rejected. Model prose can still be wrong: the
+investigation is advice, not a vulnerability finding, executed test or risk score.
+The live Nmap case explicitly records that ZAP and Nikto were not run, so the
+analyst can distinguish missing web coverage from a clean web scan.
+
+The **Check scope** control checks an IP, HTTP(S) lab-instance URL, or project link
+without scanning. The live Run action starts a scan only for an authorised target.
+The named OWASP, DVWA, Metasploitable, TryHackMe, Hack The Box, PortSwigger,
+OverTheWire, picoCTF, and Gruyere project pages are accepted as setup references,
+**not authorised scan targets**. For a new domain, all resolved addresses must
+be in configured scope; the live Run pins the single resolved address.
+New CIDR intake is not implemented. The saved-evidence path is available under
+**Use an existing assessment instead**. Select a recorded target and open **Local AI analyst**
+to run just that target from the canvas. Its inspector
+shows the actual assessment load, model check, evidence selection, prompt preparation,
+generation and validation stages as they happen. The other canvas nodes describe
+stored records; running the analyst does not rerun scanners or recalculate scores.
 
 ### Workflow screenshots
 

@@ -253,6 +253,13 @@ class TestOrchestrator(unittest.TestCase):
                     plan(SETTINGS, target, output)
                 self.assertFalse(output.exists())
 
+    def test_explicitly_authorised_cidr_does_not_require_a_demo_target_name(self):
+        with TemporaryDirectory() as directory:
+            scan_plan = plan(SETTINGS, "192.168.0.116", Path(directory) / "captures", tools=("nmap",))
+            self.assertEqual(scan_plan.target_ip, "192.168.0.116")
+            self.assertEqual(scan_plan.discovery.argv[-1], "192.168.0.116")
+            self.assertFalse((Path(directory) / "captures").exists())
+
     def test_discovery_derives_only_observed_http_endpoints(self):
         host = Host(
             ip="172.28.0.11",

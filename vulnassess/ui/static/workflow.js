@@ -1,5 +1,6 @@
 import {SIZE, EDGES, ICONS, buildNodes, connectedNodeIds, nodeDetails, evidenceKind} from './workflow-data.js';
-import {requestAnalyst} from './analyst-client.js';
+import {requestAnalystProgress} from './analyst-client.js';
+import {PREVIEW_SCENARIOS} from './workflow-preview.js';
 
 const runSelect = document.getElementById('workflow-run');
 const hostSelect = document.getElementById('workflow-host');
@@ -9,9 +10,460 @@ const graph = document.getElementById('graph');
 const message = document.getElementById('loading-state');
 const inspector = document.getElementById('node-inspector');
 const content = document.getElementById('node-content');
+const runPanel = document.getElementById('run-panel');
+const runTargets = document.getElementById('run-targets');
+const runProgress = document.getElementById('run-progress');
+const runSearch = document.getElementById('run-target-search');
+const providerSelect = document.getElementById('analyst-provider');
 const svgNamespace = 'http://www.w3.org/2000/svg';
 const narrowViewport = matchMedia('(max-width: 960px)');
 const view = {assessment: null, scope: null, weights: null, host: '', finding: '', node: '', mode: narrowViewport.matches ? 'stages' : 'canvas', modeChosen: false, scale: 1, panX: 0, panY: 0, load: 0, analyses: new Map()};
+const analysisStages = [
+  ['records', 'Read stored assessment'],
+  ['model', 'Check model access'],
+  ['evidence', 'Gather target evidence'],
+  ['prompt', 'Prepare grounded request'],
+  ['generation', 'Generate response'],
+  ['validation', 'Validate citations and scores'],
+];
+const runState = {busy: false, stop: false, targets: [], selected: new Set(), entries: new Map()};
+const liveStages = [
+  ['scope', 'Authorise target'], ['scanner', 'Scan services'], ['context', 'Infer context'],
+  ...analysisStages.filter(([id]) => id !== 'records'),
+];
+const liveState = {active: false, busy: false, previewState: 'idle', previewScenario: null, target: '', provider: '', stages: new Map(), scan: null, result: null, error: ''};
+let previewSequence = 0;
+const executionSteps = () => liveState.previewState !== 'idle' && liveState.previewScenario
+  ? liveState.previewScenario.steps
+  : liveStages.map(([id, label]) => ({id, label}));
+
+function appendInvestigation(holder, analyst) {
+  const evidence = new Map((analyst.evidence || []).map(item => [item.id, item]));
+  for (const investigation of analyst.analysis.investigations || []) {
+    const section = element('section', 'ai-investigation');
+    section.append(element('h3', '', 'AI investigation · unverified'));
+    section.append(element('p', '', `Hypothesis: ${investigation.hypothesis}`));
+    section.append(element('p', '', `Verify: ${investigation.verification}`));
+    section.append(element('p', '', `Alternative: ${investigation.alternative}`));
+    const citations = element('ul', 'ai-investigation-citations');
+    for (const id of investigation.evidence_ids) {
+      const item = evidence.get(id);
+      citations.append(element('li', '', `${id} · ${item?.kind || 'evidence'}: ${item?.text || 'Citation unavailable'}`));
+    }
+    section.append(citations);
+    holder.append(section);
+  }
+}
+
+function renderLiveResult() {
+  const holder = document.getElementById('live-result');
+  holder.replaceChildren();
+  holder.hidden = !(liveState.scan || liveState.result || liveState.error);
+  const scan = liveState.scan || liveState.result;
+  if (scan) {
+    holder.append(element('h3', '', `Live scan · ${scan.target} (${scan.resolved_ip})`));
+    const services = scan.services || [];
+    holder.append(element('p', '', `${services.length} open services · ${scan.finding_count} vulnerability findings from the light scan`));
+    const list = element('ul');
+    for (const service of services) {
+      list.append(element('li', '', `${service.port}/${service.protocol} ${service.name || 'unknown'} · ${service.product || 'product unknown'} ${service.version || ''}`));
+    }
+    holder.append(list);
+  }
+  if (liveState.result?.analyst) {
+    const analyst = liveState.result.analyst;
+    holder.append(element('h3', '', `${analyst.model} · confidence ${analyst.analysis.confidence}`));
+    holder.append(element('p', '', analyst.analysis.summary));
+    appendInvestigation(holder, analyst);
+    for (const action of analyst.analysis.recommended_actions) {
+      holder.append(element('p', 'analysis-action', `${action.order}. ${action.action} — ${action.reason} [${action.evidence_ids.join(', ')}]`));
+    }
+    for (const uncertainty of analyst.analysis.uncertainties) holder.append(element('p', '', `Uncertainty: ${uncertainty}`));
+  }
+  if (liveState.error) holder.append(element('p', 'analysis-error', liveState.error));
+}
+
+function renderLiveProgress() {
+  const list = document.getElementById('live-progress');
+  list.replaceChildren();
+  for (const {id, label} of executionSteps()) {
+    const entry = liveState.stages.get(id) || {state: 'pending', detail: 'Waiting'};
+    const item = element('li', `run-progress-item state-${entry.state}`);
+    item.append(element('strong', '', label), element('span', '', entry.state));
+    item.append(element('small', '', entry.detail));
+    list.append(item);
+  }
+  document.getElementById('start-live-run').disabled = liveState.busy;
+  document.getElementById('new-target').disabled = liveState.busy;
+  providerSelect.disabled = liveState.busy;
+  const previewButton = document.getElementById('preview-flow');
+  previewButton.disabled = liveState.busy && liveState.previewState !== 'running';
+  previewButton.setAttribute('aria-pressed', String(liveState.previewState === 'running'));
+  previewButton.textContent = liveState.previewState === 'running' ? 'Stop preview' : ['complete', 'stopped', 'blocked'].includes(liveState.previewState) ? 'Replay preview' : 'Preview flow';
+  document.getElementById('preview-scenario').disabled = liveState.busy;
+}
+
+function renderLiveExecution() {
+  const rail = document.getElementById('live-execution');
+  rail.hidden = !liveState.active;
+  if (!liveState.active) return;
+  const isPreview = liveState.previewState !== 'idle';
+  const steps = executionSteps();
+  const context = document.getElementById('live-execution-context');
+  context.hidden = !isPreview;
+  context.textContent = isPreview ? liveState.previewScenario.context : '';
+  document.getElementById('live-execution-mode').textContent = isPreview ? 'SIMULATED PREVIEW / NO SCAN OR MODEL CALL' : 'LIVE RUN / EVENT STREAM';
+  const current = [...liveState.stages.entries()].find(([, entry]) => entry.state === 'running');
+  const finished = [...liveState.stages.values()].filter(entry => ['complete', 'skipped'].includes(entry.state)).length;
+  const currentLabel = current ? steps.find(step => step.id === current[0])?.label : liveState.error ? 'Run stopped' : liveState.result || finished === steps.length ? 'Run complete' : 'Preparing run';
+  document.getElementById('live-execution-title').textContent = isPreview
+    ? `${liveState.previewScenario.label} · ${liveState.previewState === 'complete' ? 'complete' : liveState.previewState === 'stopped' ? 'stopped' : liveState.previewState === 'blocked' ? 'blocked' : currentLabel}`
+    : `${liveState.target} · ${currentLabel}`;
+  document.getElementById('live-execution-count').textContent = isPreview
+    ? `${finished} / ${steps.length} simulated stages`
+    : `${finished} / ${steps.length} stages`;
+  const last = [...liveState.stages.values()].at(-1);
+  document.getElementById('live-execution-detail').textContent = current?.[1].detail
+    || (isPreview ? last?.detail || `Preview ${liveState.previewState}. No scan or model call was made.`
+      : liveState.error || (liveState.result ? 'Model output validated against the collected evidence.' : 'Waiting for the next stage.'));
+  const list = document.getElementById('live-execution-steps');
+  list.replaceChildren();
+  for (const [index, {id, label}] of steps.entries()) {
+    const event = liveState.stages.get(id);
+    const state = event?.state || 'pending';
+    const item = element('li', `live-execution-step state-${state}`);
+    item.append(element('span', 'live-step-state', state === 'pending' ? 'waiting' : state));
+    item.append(element('strong', '', `${String(index + 1).padStart(2, '0')} · ${label}`));
+    let detail = event?.detail || (index === 0 ? (isPreview ? 'Preview will start here' : 'Waiting for authorization check') : 'Waiting for previous stage');
+    if (id === 'scanner' && liveState.scan) {
+      const services = liveState.scan.services.map(service => `${service.port}/${service.protocol} ${service.name || 'unknown'}${service.product ? ` · ${service.product}${service.version ? ` ${service.version}` : ''}` : ''}`);
+      if (services.length) detail = `${detail} · ${services.join(' / ')}`;
+    }
+    if (id === 'validation' && liveState.result?.analyst?.analysis?.summary) {
+      detail = `${detail} · ${liveState.result.analyst.analysis.summary}`;
+    }
+    if (state === 'error' && liveState.error) detail = liveState.error;
+    item.title = detail;
+    item.append(element('small', '', detail));
+    list.append(item);
+  }
+  const output = document.getElementById('live-execution-output');
+  output.replaceChildren();
+  const analysis = liveState.result?.analyst;
+  output.hidden = !analysis;
+  if (analysis) {
+    output.append(element('h3', '', `${analysis.model} · ${analysis.analysis.confidence} confidence · validated output`));
+    output.append(element('p', '', analysis.analysis.summary));
+    appendInvestigation(output, analysis);
+    const actions = element('ul');
+    for (const action of analysis.analysis.recommended_actions) {
+      actions.append(element('li', '', `${action.order}. ${action.action} — ${action.reason} [${action.evidence_ids.join(', ')}]`));
+    }
+    for (const uncertainty of analysis.analysis.uncertainties) actions.append(element('li', '', `Uncertainty: ${uncertainty}`));
+    if (actions.children.length) output.append(actions);
+  }
+}
+
+function applyLiveRunToNodes(nodes) {
+  if (!liveState.active) return nodes;
+  const stageNode = {scope: 'scope', scanner: 'nmap', context: 'context', model: 'analyst', evidence: 'analyst', prompt: 'analyst', generation: 'analyst', validation: 'analyst'};
+  for (const node of nodes) {
+    const stage = liveState.previewState !== 'idle'
+      ? executionSteps().filter(step => step.node === node.id).map(step => step.id)
+      : liveStages.map(([id]) => id).filter(id => stageNode[id] === node.id);
+    if (!stage.length) continue;
+    const mostRecent = stage.map(id => [id, liveState.stages.get(id)]).filter(([, entry]) => entry).at(-1);
+    const entry = mostRecent?.[1];
+    node.state = entry?.state || 'pending';
+    node.status = liveState.previewState !== 'idle'
+      ? entry?.state === 'running' ? 'Simulated step running' : entry?.state === 'complete' ? 'Simulated step complete' : entry?.state === 'skipped' ? 'Skipped (preview)' : entry?.state === 'error' ? 'Blocked (preview)' : 'Waiting (preview)'
+      : entry?.detail || 'Waiting for upstream stage';
+    if (node.id === 'nmap' && liveState.scan) {
+      node.status = `${liveState.scan.services.length} services · ${liveState.scan.finding_count} findings`;
+    }
+    if (node.id === 'analyst' && liveState.result?.analyst) {
+      node.state = 'complete';
+      node.status = `Response validated · ${liveState.result.analyst.analysis.confidence} confidence`;
+    }
+    if (node.id === 'analyst' && liveState.error && !entry) {
+      node.state = 'error';
+      node.status = liveState.error;
+    }
+  }
+  return nodes;
+}
+
+function liveFlowEdges() {
+  if (!liveState.active) return [];
+  const current = [...liveState.stages.entries()].find(([, entry]) => entry.state === 'running')?.[0];
+  if (liveState.previewState !== 'idle') return executionSteps().find(step => step.id === current)?.edges || [];
+  if (current === 'scanner') return ['scope:nmap'];
+  if (current === 'context') return ['nmap:canonical', 'canonical:context'];
+  if (['model', 'evidence', 'prompt', 'generation', 'validation'].includes(current)) return ['context:analyst'];
+  return [];
+}
+
+function completedFlowEdges() {
+  if (!liveState.active) return [];
+  if (liveState.previewState !== 'idle') return [...new Set(executionSteps()
+    .filter(step => liveState.stages.get(step.id)?.state === 'complete')
+    .flatMap(step => step.edges))];
+  const completed = new Set();
+  if (liveState.stages.get('scanner')?.state === 'complete') completed.add('scope:nmap');
+  if (liveState.stages.get('context')?.state === 'complete'
+      || liveStages.slice(3).some(([id]) => liveState.stages.has(id))) {
+    completed.add('nmap:canonical');
+    completed.add('canonical:context');
+  }
+  if (liveStages.slice(3).some(([id]) => liveState.stages.has(id))) completed.add('context:analyst');
+  return [...completed];
+}
+
+async function startLiveRun() {
+  if (liveState.busy) return;
+  const target = document.getElementById('new-target').value.trim();
+  const provider = providerSelect.value;
+  if (!target) {
+    document.getElementById('target-check-result').textContent = 'Enter a target address first.';
+    return;
+  }
+  if (provider !== 'ollama' && !document.getElementById('share-evidence').checked) {
+    document.getElementById('target-check-result').textContent = 'Confirm evidence sharing before using a cloud model.';
+    return;
+  }
+  liveState.busy = true;
+  previewSequence++;
+  liveState.previewState = 'idle';
+  liveState.previewScenario = null;
+  liveState.active = true;
+  liveState.target = target;
+  liveState.provider = provider;
+  liveState.stages = new Map();
+  liveState.scan = null;
+  liveState.result = null;
+  liveState.error = '';
+  renderLiveProgress();
+  renderLiveExecution();
+  renderLiveResult();
+  fit();
+  runPanel.hidden = true;
+  document.getElementById('open-run').setAttribute('aria-expanded', 'false');
+  document.getElementById('live-execution-title').focus({preventScroll: true});
+  const accept = event => {
+    if (event.type === 'stage' && liveStages.some(([id]) => id === event.stage)
+        && ['running', 'complete'].includes(event.state) && typeof event.detail === 'string') {
+      liveState.stages.set(event.stage, {state: event.state, detail: event.detail});
+      renderLiveProgress();
+      renderLiveExecution();
+      renderGraph();
+    } else if (event.type === 'scan' && event.scan && Array.isArray(event.scan.services)) {
+      liveState.scan = event.scan;
+      renderLiveResult();
+      renderLiveExecution();
+      renderGraph();
+    } else if (event.type === 'result' && event.result?.analyst) {
+      liveState.result = event.result;
+      renderLiveResult();
+      renderLiveExecution();
+      renderGraph();
+    } else if (event.type === 'error' && typeof event.message === 'string') {
+      throw new Error(event.message);
+    } else {
+      throw new Error('Invalid live assessment event.');
+    }
+  };
+  try {
+    const response = await fetch('/api/live-assessment/events', {
+      method: 'POST', cache: 'no-store', credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-VulnAssess-Action': 'live-assessment'},
+      body: JSON.stringify({target, provider, share_evidence: provider !== 'ollama'}),
+    });
+    if (!response.ok) {
+      const failure = await response.json().catch(() => null);
+      throw new Error(failure?.error?.message || 'Live assessment request failed.');
+    }
+    if (!response.body) throw new Error('Live assessment stream is unavailable.');
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      if (buffer.length > 2_000_000) throw new Error('Live assessment response exceeded its size limit.');
+      let newline;
+      while ((newline = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, newline);
+        buffer = buffer.slice(newline + 1);
+        if (line) accept(JSON.parse(line));
+      }
+    }
+    buffer += decoder.decode();
+    if (buffer.trim()) accept(JSON.parse(buffer));
+    if (!liveState.result) throw new Error('Live assessment ended without a model result.');
+    document.getElementById('live-result').scrollIntoView({block: 'nearest'});
+  } catch (error) {
+    liveState.error = error instanceof Error ? error.message : 'Live assessment failed.';
+    const running = [...liveState.stages].reverse().find(([, entry]) => entry.state === 'running');
+    if (running) liveState.stages.set(running[0], {state: 'error', detail: liveState.error});
+    renderLiveResult();
+    renderLiveExecution();
+    renderGraph();
+    document.getElementById('live-result').scrollIntoView({block: 'nearest'});
+  } finally {
+    liveState.busy = false;
+    renderLiveProgress();
+    renderLiveExecution();
+    renderGraph();
+  }
+}
+
+async function previewLiveFlow() {
+  if (liveState.previewState === 'running') {
+    previewSequence++;
+    const current = [...liveState.stages.entries()].find(([, entry]) => entry.state === 'running');
+    if (current) liveState.stages.set(current[0], {state: 'pending', detail: 'Preview stopped here'});
+    liveState.busy = false;
+    liveState.previewState = 'stopped';
+    renderLiveProgress();
+    renderLiveExecution();
+    renderGraph();
+    return;
+  }
+  if (liveState.busy) return;
+  const sequence = ++previewSequence;
+  const scenario = PREVIEW_SCENARIOS[document.getElementById('preview-scenario').value] || PREVIEW_SCENARIOS.light;
+  liveState.active = true;
+  liveState.busy = true;
+  liveState.previewState = 'running';
+  liveState.previewScenario = scenario;
+  liveState.target = '';
+  liveState.provider = '';
+  liveState.stages = new Map();
+  liveState.scan = null;
+  liveState.result = null;
+  liveState.error = '';
+  renderLiveProgress();
+  renderLiveExecution();
+  renderLiveResult();
+  fitPreviewPath();
+  runPanel.hidden = true;
+  document.getElementById('open-run').setAttribute('aria-expanded', 'false');
+  document.getElementById('live-execution-title').focus({preventScroll: true});
+  for (const step of scenario.steps) {
+    if (sequence !== previewSequence) return;
+    if (step.outcome === 'skipped') {
+      liveState.stages.set(step.id, {state: 'skipped', detail: step.detail});
+      renderLiveProgress();
+      renderLiveExecution();
+      renderGraph();
+      continue;
+    }
+    liveState.stages.set(step.id, {state: 'running', detail: step.detail});
+    renderLiveProgress();
+    renderLiveExecution();
+    renderGraph();
+    await new Promise(resolve => setTimeout(resolve, 1250));
+    if (sequence !== previewSequence) return;
+    liveState.stages.set(step.id, {state: step.outcome, detail: step.detail});
+    renderLiveProgress();
+    renderLiveExecution();
+    renderGraph();
+    if (step.outcome === 'error') break;
+  }
+  if (sequence !== previewSequence) return;
+  liveState.busy = false;
+  liveState.previewState = [...liveState.stages.values()].some(entry => entry.state === 'error') ? 'blocked' : 'complete';
+  renderLiveProgress();
+  renderLiveExecution();
+  renderGraph();
+  document.getElementById('workflow-announcement').textContent = `${scenario.label} animation preview ${liveState.previewState}. No scan or model request was made.`;
+}
+
+function renderRunTargets() {
+  const filter = runSearch.value.trim().toLowerCase();
+  runTargets.replaceChildren();
+  for (const host of view.assessment?.hosts || []) {
+    const name = [host.ip, host.hostname].filter(Boolean).join(' · ');
+    if (filter && !name.toLowerCase().includes(filter)) continue;
+    const label = element('label', 'run-target');
+    const input = element('input');
+    input.type = 'checkbox';
+    input.value = host.ip;
+    input.checked = runState.selected.has(host.ip);
+    input.disabled = runState.busy;
+    label.append(input, element('span', '', name));
+    runTargets.append(label);
+  }
+  if (!runTargets.children.length) runTargets.append(element('p', 'run-empty', 'No recorded target matches. Choose another assessment above to see its targets.'));
+  document.getElementById('run-selection-note').textContent = `${runState.selected.size} selected · ${view.assessment?.hosts.length || 0} recorded in this assessment`;
+}
+
+function renderRunProgress() {
+  runProgress.replaceChildren();
+  for (const host of runState.targets) {
+    const entry = runState.entries.get(host) || {status: 'pending'};
+    const item = element('li', `run-progress-item state-${entry.status}`);
+    item.append(element('strong', '', host), element('span', '', entry.status === 'running' ? `${entry.stage || 'Preparing'} · ${entry.detail || 'Starting'}` : entry.status));
+    if (entry.error) item.append(element('small', '', entry.error));
+    runProgress.append(item);
+  }
+  document.getElementById('start-run').disabled = runState.busy;
+  document.getElementById('stop-run').hidden = !runState.busy;
+  if (!runState.busy) document.getElementById('stop-run').disabled = false;
+}
+
+async function startRun() {
+  if (runState.busy || !view.assessment) return;
+  const provider = providerSelect.value;
+  if (provider !== 'ollama' && !document.getElementById('share-evidence').checked) {
+    document.getElementById('run-selection-note').textContent = 'Confirm evidence sharing before using a cloud model.';
+    return;
+  }
+  const hosts = [...runState.selected];
+  if (!hosts.length) {
+    document.getElementById('run-selection-note').textContent = 'Select at least one recorded target.';
+    return;
+  }
+  runState.busy = true;
+  runState.stop = false;
+  runState.targets = hosts;
+  runState.entries = new Map(hosts.map(host => [host, {status: 'pending'}]));
+  renderRunTargets();
+  renderRunProgress();
+  const runId = view.assessment.run.run_id;
+  for (const host of hosts) {
+    if (runState.stop) {
+      runState.entries.set(host, {status: 'stopped'});
+      renderRunProgress();
+      continue;
+    }
+    runState.entries.set(host, {status: 'running', stage: 'Read stored assessment'});
+    renderRunProgress();
+    if (view.assessment?.run.run_id === runId) {
+      view.host = host;
+      view.finding = '';
+      hostSelect.value = host;
+      populateFindings();
+      updateLocation();
+      renderGraph();
+      renderInspector();
+    }
+    const cached = view.analyses.get(`${runId}/${host}`);
+    const source = {openrouter: 'openrouter_deepseek_grounded_analysis', groq: 'groq_gpt_oss_20b_grounded_analysis', ollama: 'local_ollama_grounded_analysis'}[provider];
+    const sameProvider = cached?.result?.source === source;
+    const result = cached?.status === 'complete' && sameProvider ? cached : await analyzeTarget(host, runId, provider);
+    runState.entries.set(host, result.status === 'complete' ? {status: sameProvider ? 'reused' : 'complete'} : {status: 'error', error: result.error});
+    if (result.status !== 'complete') runState.stop = true;
+    renderRunProgress();
+  }
+  runState.busy = false;
+  renderRunTargets();
+  renderRunProgress();
+  const failed = [...runState.entries.values()].some(entry => entry.status === 'error');
+  const providerLabel = {openrouter: 'DeepSeek', groq: 'Groq', ollama: 'Local'}[provider];
+  document.getElementById('workflow-announcement').textContent = `${providerLabel} analysis ${failed ? 'stopped after an error' : 'run finished'}. Scanner and stored scores were not changed.`;
+}
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -71,6 +523,26 @@ function fit() {
   transform();
 }
 
+function fitPreviewPath() {
+  if (!view.assessment || view.mode !== 'canvas' || liveState.previewState === 'idle') return fit();
+  const path = new Set(executionSteps().flatMap(step => [step.node, ...step.edges.flatMap(edge => edge.split(':'))]));
+  const nodes = buildNodes(view.assessment, view.scope).filter(node => path.has(node.id));
+  if (!nodes.length) return fit();
+  const left = Math.min(...nodes.map(node => node.x)) - 100;
+  const right = Math.max(...nodes.map(node => node.x)) + 100;
+  const topNode = Math.min(...nodes.map(node => node.y)) - 65;
+  const bottomNode = Math.max(...nodes.map(node => node.y)) + 135;
+  const width = viewport.clientWidth;
+  const height = viewport.clientHeight;
+  const top = document.querySelector('.trace-controls').offsetHeight + 28;
+  const bottom = document.querySelector('.canvas-footer').offsetHeight + 25;
+  const availableHeight = height - top - bottom;
+  view.scale = Math.max(.18, Math.min(1, (width - 40) / (right - left), availableHeight / (bottomNode - topNode)));
+  view.panX = (width - (right - left) * view.scale) / 2 - left * view.scale;
+  view.panY = top + Math.max(0, (availableHeight - (bottomNode - topNode) * view.scale) / 2) - topNode * view.scale;
+  transform();
+}
+
 function zoom(factor, point = {x: viewport.clientWidth / 2, y: viewport.clientHeight / 2}) {
   const previous = view.scale;
   view.scale = Math.max(.18, Math.min(2.2, previous * factor));
@@ -96,7 +568,20 @@ function edgePath(from, to) {
 
 function renderGraph() {
   if (!view.assessment) return;
-  const nodes = buildNodes(view.assessment, view.scope, selection(), currentAnalysis());
+  viewport.dataset.execution = liveState.active ? 'true' : 'false';
+  viewport.dataset.preview = liveState.previewState !== 'idle' ? 'true' : 'false';
+  const nodes = applyLiveRunToNodes(buildNodes(view.assessment, view.scope, selection(), currentAnalysis()));
+  const analysis = currentAnalysis();
+  const currentLive = [...liveState.stages.entries()].find(([, entry]) => entry.state === 'running');
+  document.getElementById('canvas-status').textContent = liveState.previewState !== 'idle'
+    ? `Simulated preview / ${liveState.previewScenario.label} / ${currentLive ? executionSteps().find(step => step.id === currentLive[0])?.label : liveState.previewState}`
+    : liveState.active
+    ? `Live run / ${currentLive ? `${liveStages.find(([id]) => id === currentLive[0])?.[1]} · ${currentLive[1].detail}` : liveState.result ? 'complete · model output validated' : liveState.error ? 'stopped · stage failed' : 'starting'}`
+    : analysis?.status === 'running'
+    ? `Local analyst / ${analysisStages.find(([id]) => id === analysis.stage)?.[1] || 'Starting'}`
+    : analysis?.status === 'complete' ? 'Local analyst complete / stored scores unchanged'
+    : analysis?.status === 'error' ? 'Local analyst failed / stored scores unchanged'
+    : 'Stored records / no pipeline execution';
   const nodeMap = new Map(nodes.map(node => [node.id, node]));
   const connected = view.node ? connectedNodeIds(view.node) : null;
   const paths = document.getElementById('connections');
@@ -107,20 +592,37 @@ function renderGraph() {
   arrow.append(svgElement('path', {d: 'M0,0 L6,3 L0,6', class: 'arrow-fill'}));
   definitions.append(arrow);
   paths.append(definitions);
+  const flowEdges = new Set(liveFlowEdges());
+  const completedEdges = new Set(completedFlowEdges());
+  const previewEdges = liveState.previewState !== 'idle'
+    ? new Set(executionSteps().flatMap(step => step.edges)) : null;
   for (const edge of EDGES) {
     const from = nodeMap.get(edge.from);
     const to = nodeMap.get(edge.to);
     const missing = edge.optional || ['missing', 'optional'].includes(from.state) || ['missing', 'optional'].includes(to.state);
+    const identity = `${edge.from}:${edge.to}`;
     const active = view.node === edge.from || view.node === edge.to;
-    paths.append(svgElement('path', {d: edgePath(from, to), class: `connection${missing ? ' optional' : ''}${active ? ' highlighted' : ''}${view.node && !active ? ' faded' : ''}`, 'marker-end': 'url(#flow-arrow)', 'data-edge': `${edge.from}:${edge.to}`}));
+    paths.append(svgElement('path', {d: edgePath(from, to), class: `connection${missing ? ' optional' : ''}${active ? ' highlighted' : ''}${view.node && !active && !liveState.active ? ' faded' : ''}${previewEdges && !previewEdges.has(identity) ? ' out-of-preview' : ''}`, 'marker-end': 'url(#flow-arrow)', 'data-edge': identity}));
+    if (completedEdges.has(identity)) paths.append(svgElement('path', {d: edgePath(from, to), class: 'connection-flow-done', 'data-flow-complete': identity}));
     if (active) paths.append(svgElement('path', {d: edgePath(from, to), class: 'connection-trace', pathLength: 100}));
+    if (flowEdges.has(identity)) paths.append(svgElement('path', {d: edgePath(from, to), class: 'connection-flow', pathLength: 100, 'data-live-edge': identity}));
+  }
+  if (flowEdges.has('context:analyst') || completedEdges.has('context:analyst')) {
+    const flow = edgePath(nodeMap.get('context'), nodeMap.get('analyst'));
+    paths.append(svgElement('path', {d: flow, class: 'connection optional', 'data-edge': 'context:analyst'}));
+    if (completedEdges.has('context:analyst')) paths.append(svgElement('path', {d: flow, class: 'connection-flow-done', 'data-flow-complete': 'context:analyst'}));
+    if (flowEdges.has('context:analyst')) paths.append(svgElement('path', {d: flow, class: 'connection-flow', pathLength: 100, 'data-live-edge': 'context:analyst'}));
   }
   const list = document.getElementById('node-list');
   list.replaceChildren();
+  const previewPath = liveState.previewState !== 'idle'
+    ? new Set(executionSteps().flatMap(step => [step.node, ...step.edges.flatMap(edge => edge.split(':'))]))
+    : new Set(['scope', 'nmap', 'canonical', 'context', 'analyst']);
   for (const node of nodes) {
     const button = element('button', `flow-node group-${node.group} state-${node.state}`);
     button.type = 'button';
     button.dataset.node = node.id;
+    if (previewPath.has(node.id)) button.dataset.executionPath = 'true';
     button.style.left = `${node.x}px`;
     button.style.top = `${node.y}px`;
     button.setAttribute('aria-label', `${node.title}: ${node.status}`);
@@ -249,10 +751,25 @@ function renderAnalyst() {
   button.type = 'button';
   button.id = 'workflow-analyze';
   button.disabled = !view.host || currentAnalysis()?.status === 'running';
-  button.addEventListener('click', analyzeTarget);
+  button.addEventListener('click', () => analyzeTarget());
   holder.append(button);
   const live = currentAnalysis();
-  if (live?.status === 'running') holder.append(element('p', 'analysis-wait', 'Waiting for the local model response. No pipeline step is being replayed.'));
+  if (live) {
+    const progress = element('ol', 'analysis-progress');
+    progress.setAttribute('aria-label', 'Local analyst stages');
+    for (const [id, label] of analysisStages) {
+      const state = live.steps?.[id]?.state || 'pending';
+      const item = element('li', `analysis-progress-step state-${state}`);
+      item.dataset.stage = id;
+      item.append(element('span', 'analysis-progress-state', state.replace('-', ' ')), element('strong', '', label));
+      const detail = element('span', 'analysis-progress-detail', live.steps?.[id]?.detail || 'Not started');
+      detail.dataset.progressDetail = id;
+      item.append(detail);
+      progress.append(item);
+    }
+    holder.append(progress);
+  }
+  if (live?.status === 'running') holder.append(element('p', 'analysis-wait', 'Only the local analyst steps above are running. Scanner and score nodes show stored records.'));
   if (live?.status === 'error') holder.append(element('p', 'analysis-error', live.error));
   if (live?.result) {
     const result = live.result;
@@ -270,31 +787,55 @@ function renderAnalyst() {
       appendQuotes(record, correlation.evidence_ids.map(identity => ({label: `Citation ${identity}`, quote: evidenceMap.get(identity)?.text || 'Citation not present in response', source: result.model})));
       holder.append(record);
     }
+    appendInvestigation(holder, result);
     for (const uncertainty of result.analysis.uncertainties) holder.append(element('p', 'boundary-note', uncertainty));
   }
   content.append(holder);
 }
 
-async function analyzeTarget() {
-  if (!view.host || !view.assessment) return;
-  const runId = view.assessment.run.run_id;
-  const hostIp = view.host;
+async function analyzeTarget(hostIp = view.host, runId = view.assessment?.run.run_id, provider = 'ollama') {
+  if (!hostIp || !runId || !view.assessment) return {status: 'error', error: 'No recorded target selected'};
   const key = `${runId}/${hostIp}`;
-  if (view.analyses.get(key)?.status === 'running') return;
-  view.analyses.set(key, {runId, hostIp, status: 'running'});
+  if (view.analyses.get(key)?.status === 'running') return {status: 'error', error: 'Analysis already running for this target'};
+  view.analyses.set(key, {runId, hostIp, status: 'running', stage: '', steps: {}});
   renderGraph();
   renderInspector();
   try {
-    const response = await requestAnalyst(runId, hostIp);
-    view.analyses.set(key, {runId, hostIp, status: 'complete', result: response});
+    const response = await requestAnalystProgress(runId, hostIp, event => {
+      const live = view.analyses.get(key);
+      if (!live || live.status !== 'running' || !analysisStages.some(([id]) => id === event.stage)) return;
+      const previousState = live.steps[event.stage]?.state;
+      live.stage = event.stage;
+      live.steps[event.stage] = {state: event.state, detail: event.detail};
+      if (runState.entries.get(hostIp)?.status === 'running') {
+        runState.entries.set(hostIp, {status: 'running', stage: analysisStages.find(([id]) => id === event.stage)[1], detail: event.detail});
+        renderRunProgress();
+      }
+      if (view.assessment?.run.run_id === runId && view.host === hostIp) {
+        if (previousState !== event.state) {
+          renderGraph();
+          renderInspector();
+          document.getElementById('workflow-announcement').textContent = `${analysisStages.find(([id]) => id === event.stage)[1]}: ${event.state}`;
+        } else {
+          const detail = document.querySelector(`[data-progress-detail="${event.stage}"]`);
+          if (detail) detail.textContent = event.detail;
+        }
+      }
+    }, provider);
+    const live = view.analyses.get(key);
+    view.analyses.set(key, {...live, status: 'complete', result: response});
   } catch (error) {
-    view.analyses.set(key, {runId, hostIp, status: 'error', error: error.message});
+    const live = view.analyses.get(key);
+    const steps = {...live?.steps};
+    steps[live?.stage || 'records'] = {state: 'error', detail: error.message};
+    view.analyses.set(key, {...live, status: 'error', steps, error: error.message});
   }
   if (view.assessment?.run.run_id === runId && view.host === hostIp) {
     renderGraph();
     renderInspector();
-    document.getElementById('workflow-announcement').textContent = view.analyses.get(key).status === 'complete' ? 'Local analyst response received. Stored scores unchanged.' : 'Local analysis failed. No result substituted.';
+    document.getElementById('workflow-announcement').textContent = view.analyses.get(key).status === 'complete' ? 'Analyst response received. Stored scores unchanged.' : 'Analysis failed. No result substituted.';
   }
+  return view.analyses.get(key);
 }
 
 function populateFindings() {
@@ -348,6 +889,10 @@ async function loadWorkflow() {
     view.host = parameters.get('host') || '';
     view.finding = parameters.get('finding') || '';
     populateSelection();
+    if (!runState.busy) {
+      runState.selected = new Set(view.host ? [view.host] : assessment.hosts.map(host => host.ip));
+      renderRunTargets();
+    }
     document.getElementById('canvas-caption').textContent = `Recorded assessment / ${assessment.run.run_id}`;
     document.getElementById('record-summary').textContent = `${assessment.hosts.length} assets / ${assessment.findings.length} findings / ${assessment.scores.length} scored`;
     document.getElementById('run-hash').textContent = `config ${assessment.run.config_hash}`;
@@ -374,6 +919,43 @@ async function loadWorkflow() {
 }
 
 document.getElementById('refresh-workflow').addEventListener('click', loadWorkflow);
+document.getElementById('open-run').addEventListener('click', () => {
+  runPanel.hidden = !runPanel.hidden;
+  document.getElementById('open-run').setAttribute('aria-expanded', String(!runPanel.hidden));
+  if (!runPanel.hidden) { renderRunTargets(); runSearch.focus(); }
+});
+document.getElementById('close-run').addEventListener('click', () => {
+  runPanel.hidden = true;
+  document.getElementById('open-run').setAttribute('aria-expanded', 'false');
+  document.getElementById('open-run').focus();
+});
+document.getElementById('start-run').addEventListener('click', startRun);
+document.getElementById('start-live-run').addEventListener('click', startLiveRun);
+document.getElementById('preview-flow').addEventListener('click', previewLiveFlow);
+document.getElementById('stop-run').addEventListener('click', () => { runState.stop = true; document.getElementById('stop-run').disabled = true; });
+providerSelect.addEventListener('change', () => {
+  document.getElementById('cloud-consent').hidden = providerSelect.value === 'ollama';
+  document.getElementById('share-evidence').checked = false;
+});
+runSearch.addEventListener('input', renderRunTargets);
+runTargets.addEventListener('change', event => {
+  if (event.target.type !== 'checkbox') return;
+  if (event.target.checked) runState.selected.add(event.target.value);
+  else runState.selected.delete(event.target.value);
+  renderRunTargets();
+});
+document.getElementById('check-target').addEventListener('click', async () => {
+  const input = document.getElementById('new-target');
+  const output = document.getElementById('target-check-result');
+  const target = input.value.trim();
+  output.textContent = 'Checking the local authorization scope and scanner availability…';
+  try {
+    const result = await getRecord(`/api/target-check?target=${encodeURIComponent(target)}`);
+    output.textContent = `${result.submitted || result.target}: ${result.reason}${result.missing?.length ? ` Missing: ${result.missing.join(', ')}.` : ''}`;
+  } catch (error) {
+    output.textContent = error.message;
+  }
+});
 runSelect.addEventListener('change', () => { location.href = `/workflow?run=${encodeURIComponent(runSelect.value)}`; });
 hostSelect.addEventListener('change', () => { view.host = hostSelect.value; view.finding = ''; populateFindings(); updateLocation(); renderGraph(); renderInspector(); });
 findingSelect.addEventListener('change', () => {
@@ -437,6 +1019,6 @@ viewport.addEventListener('keydown', event => {
   if (event.key === '0') { event.preventDefault(); fit(); }
 });
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && !inspector.hidden) document.getElementById('close-node').click(); });
-window.addEventListener('resize', fit);
+window.addEventListener('resize', () => liveState.previewState !== 'idle' ? fitPreviewPath() : fit());
 setViewMode(view.mode);
 loadWorkflow();

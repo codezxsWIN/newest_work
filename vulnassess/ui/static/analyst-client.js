@@ -35,6 +35,59 @@ export async function requestAnalyst(runId, hostIp) {
   return validateAnalystResponse(body, runId, hostIp);
 }
 
+export async function requestAnalystProgress(runId, hostIp, onProgress = () => {}, provider = 'ollama') {
+  if (!['ollama', 'openrouter', 'groq'].includes(provider)) throw new Error('Unknown analyst provider.');
+  const cloud = provider !== 'ollama';
+  const response = await fetch(`/api/analyst/${encodeURIComponent(runId)}/${encodeURIComponent(hostIp)}/events`, {
+    cache: 'no-store', credentials: 'same-origin',
+    ...(cloud ? {method: 'POST', headers: {'Content-Type': 'application/json', 'X-VulnAssess-Action': 'cloud-analyst'}, body: JSON.stringify({provider, share_evidence: true})} : {}),
+  });
+  if (!response.ok) {
+    const failure = await response.json().catch(() => null);
+    throw new Error(failure?.error?.message || 'Live analyst request is unavailable.');
+  }
+  if (!response.body) throw new Error('Live analyst progress is unavailable.');
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let result = null;
+  const accept = line => {
+    if (!line) return;
+    const event = JSON.parse(line);
+    if (event.type === 'stage') {
+      if (typeof event.stage !== 'string' || !['running', 'complete'].includes(event.state)
+          || typeof event.detail !== 'string') throw new Error('Invalid analyst progress event.');
+      onProgress(event);
+    } else if (event.type === 'result') {
+      result = validateAnalystResponse(event.result, runId, hostIp);
+    } else if (event.type === 'error') {
+      throw new Error(typeof event.message === 'string' ? event.message : 'Local analysis failed.');
+    } else {
+      throw new Error('Unknown analyst progress event.');
+    }
+  };
+  try {
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, {stream: true});
+      if (buffer.length > 2_000_000) throw new Error('Analyst progress response exceeded its size limit.');
+      let boundary;
+      while ((boundary = buffer.indexOf('\n')) !== -1) {
+        accept(buffer.slice(0, boundary));
+        buffer = buffer.slice(boundary + 1);
+      }
+    }
+    buffer += decoder.decode();
+    accept(buffer);
+    if (!result) throw new Error('Local analysis ended before returning a validated result.');
+    return result;
+  } finally {
+    if (!result) await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
+}
+
 export function createAnalysisQueue({request = requestAnalyst, onChange = () => {}} = {}) {
   let state = {busy: false, stopRequested: false, stopReason: '', runId: null, entries: []};
   const snapshot = () => ({...state, entries: state.entries.map(entry => ({...entry}))});

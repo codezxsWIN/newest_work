@@ -15,6 +15,7 @@ import urllib.error
 import urllib.request
 from ipaddress import ip_address
 from urllib.parse import urlsplit
+from typing import Callable
 
 from vulnassess.errors import ConfigError, LLMUnavailable
 from vulnassess.schema import ContextProfile, Finding, Rationale, ScoreBreakdown
@@ -206,6 +207,7 @@ class OllamaClient:
         *,
         num_predict: int = 600,
         num_ctx: int = 2048,
+        on_progress: Callable[[int], None] | None = None,
     ) -> dict:
         """Generate JSON in JSON mode over a streamed /api/chat exchange.
 
@@ -240,6 +242,7 @@ class OllamaClient:
         parts: list[str] = []
         received_bytes = 0
         content_bytes = 0
+        last_reported = 0
         completed = False
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
@@ -269,6 +272,9 @@ class OllamaClient:
                             f"Ollama structured output exceeds {MAX_RESPONSE_BYTES} bytes"
                         )
                     parts.append(content)
+                    if on_progress is not None and content_bytes - last_reported >= 512:
+                        on_progress(content_bytes)
+                        last_reported = content_bytes
                     if event.get("done") is True:
                         completed = True
                         break

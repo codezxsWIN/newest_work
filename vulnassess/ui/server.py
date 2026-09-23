@@ -1,18 +1,25 @@
-"""GET-only loopback workbench with explicit local analysis and no writable Store."""
+"""Loopback workbench with explicit analyst requests and no writable Store."""
 
 import json
 import os
+import re
+import time
 from dataclasses import dataclass
 from hashlib import sha256
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
 from pathlib import Path
 from socketserver import TCPServer
-from typing import Any, cast
+from threading import Lock
+from typing import Any, Callable, cast
 from urllib.parse import parse_qs, unquote, urlsplit
 
 import yaml
 
 import vulnassess.analyst as analyst
+import vulnassess.orchestrator as orchestrator
+import vulnassess.live_assessment as live_assessment
+from vulnassess.target_intake import resolve_addresses
 from vulnassess.errors import ConfigError, LLMUnavailable
 from vulnassess.repository import ENV_VAR, AssessmentRepository
 from vulnassess.settings import CONFIG_FILES, Settings
@@ -36,6 +43,23 @@ CONTENT_TYPES = {
     ".woff2": "font/woff2",
 }
 MAX_STATIC_BYTES = 4 * 1024 * 1024
+LAB_REFERENCES = {
+    "owasp.org": "OWASP project page (Juice Shop or WebGoat)",
+    "www.owasp.org": "OWASP project page (Juice Shop or WebGoat)",
+    "dvwa.co.uk": "DVWA project page",
+    "www.dvwa.co.uk": "DVWA project page",
+    "docs.rapid7.com": "Metasploitable documentation",
+    "tryhackme.com": "TryHackMe platform",
+    "www.tryhackme.com": "TryHackMe platform",
+    "hackthebox.com": "Hack The Box platform",
+    "www.hackthebox.com": "Hack The Box platform",
+    "portswigger.net": "PortSwigger Web Security Academy",
+    "overthewire.org": "OverTheWire wargames",
+    "www.overthewire.org": "OverTheWire wargames",
+    "picoctf.org": "picoCTF platform",
+    "www.picoctf.org": "picoCTF platform",
+    "google-gruyere.appspot.com": "Google Gruyere training platform",
+}
 
 
 @dataclass(frozen=True)
@@ -87,6 +111,9 @@ class UiApplication:
         self.run_id = run_id
         self.analyst_model = analyst_model
         self.ollama_host = ollama_host
+        self._live_lock = Lock()
+        self._last_live_scan: dict[str, float] = {}
+        self._recent_live_cases: dict[str, tuple[float, dict[str, Any]]] = {}
         for name in CONFIG_FILES:
             path = local_path(self.config_dir / name)
             if not path.is_relative_to(self.config_dir):
@@ -158,9 +185,79 @@ class UiApplication:
         except (OSError, ValueError) as error:
             raise ConfigError(f"cannot read CVSS arithmetic fixture {path}") from error
 
-    def analyst_report(self, run_id: str, host_ip: str) -> dict[str, Any]:
+    def target_check(self, target: str) -> dict[str, Any]:
+        """Classify an IP, lab URL, or project link; never connect to the target."""
+        submitted = target.strip()
+        if not submitted or len(submitted) > 512:
+            raise ConfigError("Enter one target address of at most 512 characters")
+        try:
+            parsed = urlsplit(submitted if "://" in submitted else f"//{submitted}")
+        except ValueError as error:
+            raise ConfigError("Target URL has an invalid host") from error
+        if (
+            (parsed.scheme and parsed.scheme not in ("http", "https"))
+            or parsed.username or parsed.password or parsed.query or parsed.fragment
+        ):
+            raise ConfigError("Target URL must be HTTP(S), without credentials, query or fragment")
+        try:
+            hostname = parsed.hostname
+            port = parsed.port
+        except ValueError as error:
+            raise ConfigError("Target URL has an invalid host or port") from error
+        if not hostname or (port is not None and port < 1):
+            raise ConfigError("Target URL needs a valid host")
+        hostname = hostname.rstrip(".").lower()
+        if hostname in LAB_REFERENCES:
+            return {
+                "submitted": submitted,
+                "status": "reference",
+                "reason": f"{LAB_REFERENCES[hostname]} — not a scan target. Run or open your assigned lab instance and check its specific URL/IP.",
+            }
+        try:
+            addresses = [str(ip_address(hostname))]
+        except ValueError:
+            if len(hostname) > 253 or not re.fullmatch(r"[a-z0-9-]+(?:\.[a-z0-9-]+)+", hostname):
+                raise ConfigError("Enter an IP or valid domain, not a CIDR or project title")
+            try:
+                addresses = resolve_addresses(hostname, port or 0)
+            except (OSError, ValueError) as error:
+                raise ConfigError("Domain could not be resolved; no scan was started") from error
+            if not addresses or len(addresses) > 32:
+                raise ConfigError("Domain resolution returned no usable or too many addresses")
+        settings = Settings(self.config_dir)
+        if any(settings.scope.is_canary(address) for address in addresses):
+            return {"submitted": submitted, "status": "blocked", "reason": "Canary address: never scan"}
+        if any(not settings.scope.contains(address) for address in addresses):
+            return {"submitted": submitted, "status": "blocked", "resolved_ips": addresses, "reason": "At least one resolved address is outside the authorised scope; no scanner command was built"}
+        missing = [] if live_assessment.nmap_binary() else ["nmap"]
+        return {
+            "target": addresses[0],
+            "submitted": submitted,
+            "resolved_ips": addresses,
+            "status": "needs-pinning" if hostname != addresses[0] else ("ready" if not missing else "needs-tools"),
+            "scope": settings.scope.segment(addresses[0]) or addresses[0],
+            "missing": missing,
+            "reason": (
+                "Scope accepted. A live run will pin this domain to its authorised IP."
+                if hostname != addresses[0]
+                else ("Scope accepted for a light live Nmap scan." if not missing else "Scope accepted, but Nmap is unavailable.")
+            ),
+        }
+
+    def analyst_report(
+        self,
+        run_id: str,
+        host_ip: str,
+        on_progress: Callable[[str, str, str], None] | None = None,
+        provider: str = "ollama",
+    ) -> dict[str, Any]:
+        if on_progress is not None:
+            on_progress("records", "running", "Reading the selected stored assessment")
         with open_read_store(self.database) as store:
             payload = store.run(run_id)
+        if on_progress is not None:
+            on_progress("records", "complete", "Stored assessment loaded")
+        options = {"on_progress": on_progress} if on_progress is not None else {}
         return {
             "run_id": run_id,
             **analyst.analyze_target(
@@ -168,8 +265,43 @@ class UiApplication:
                 host_ip,
                 model=self.analyst_model,
                 ollama_host=self.ollama_host,
+                provider=provider,
+                **options,
             ),
         }
+
+    def live_report(self, target: str, provider: str, on_progress: Callable[[str, str, str], None], on_capture: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+        on_progress("scope", "running", "Resolving and checking the entered target")
+        check = self.target_check(target)
+        addresses = check.get("resolved_ips") or []
+        if check.get("status") not in ("ready", "needs-tools", "needs-pinning") or len(addresses) != 1:
+            raise ConfigError(check.get("reason") or "Target must resolve to one authorised address")
+        if check.get("missing"):
+            raise ConfigError("Nmap is unavailable; configure VULNASSESS_NMAP_BIN or install Nmap")
+        target_ip = addresses[0]
+        with self._live_lock:
+            now = time.monotonic()
+            recent = self._recent_live_cases.get(target_ip)
+            case = recent[1] if recent and now - recent[0] < 600 else None
+            if case is None:
+                previous = self._last_live_scan.get(target_ip, 0.0)
+                if now - previous < 600:
+                    raise ConfigError("A scan of this target is already running or its evidence is unavailable; wait 10 minutes before another live scan")
+                self._last_live_scan[target_ip] = now
+        if case is not None:
+            on_progress("scope", "complete", f"{target} pinned to authorised {target_ip}")
+            on_progress("scanner", "complete", "Reused the recent live scan; Nmap was not run again")
+            if on_capture is not None:
+                on_capture({key: case[key] for key in ("target", "resolved_ip", "services", "finding_count")})
+            on_progress("context", "complete", "Reused context from the recent live scan")
+            result = analyst.analyze_target(case["payload"], target_ip, provider=provider, on_progress=on_progress)
+            return {key: value for key, value in case.items() if key != "payload"} | {"analyst": result, "reused_scan": True}
+
+        def remember_case(scanned: dict[str, Any]) -> None:
+            with self._live_lock:
+                self._recent_live_cases[target_ip] = (time.monotonic(), scanned)
+
+        return live_assessment.run(target, check, self.config_dir, provider=provider, on_progress=on_progress, on_capture=on_capture, on_case=remember_case)
 
     def _repository(self) -> AssessmentRepository:
         """Open the expanded assessment store strictly read-only."""
@@ -266,6 +398,14 @@ class UiApplication:
                 return json_response(200, self.cvss_fixture())
             except ConfigError as error:
                 return error_response(409, str(error))
+        if parts == ["api", "target-check"]:
+            parameters = parse_qs(parsed.query, keep_blank_values=True)
+            if set(parameters) != {"target"} or len(parameters["target"]) != 1:
+                return error_response(400, "Target check requires exactly one target")
+            try:
+                return json_response(200, self.target_check(parameters["target"][0]))
+            except ConfigError as error:
+                return error_response(400, str(error))
         if parts[0] != "api":
             return error_response(404, "UI route not found")
         try:
@@ -332,7 +472,7 @@ class UiRequestHandler(BaseHTTPRequestHandler):
     def parse_request(self) -> bool:
         if not super().parse_request():
             return False
-        if self.command != "GET":
+        if self.command not in ("GET", "POST"):
             self.close_connection = True
             self._reply(error_response(405, "UI supports GET only"))
             return False
@@ -351,11 +491,164 @@ class UiRequestHandler(BaseHTTPRequestHandler):
             return False
         return True
 
+    def _stream_analyst(self, run_id: str, host_ip: str, provider: str = "ollama") -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Content-Security-Policy", CSP)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+        def send(event: dict[str, Any]) -> None:
+            self.wfile.write(json.dumps(event, ensure_ascii=True, allow_nan=False).encode("utf-8") + b"\n")
+            self.wfile.flush()
+
+        try:
+            server = cast(UiServer, self.server)
+            result = server.application.analyst_report(
+                run_id,
+                host_ip,
+                provider=provider,
+                on_progress=lambda stage, state, detail: send(
+                    {"type": "stage", "stage": stage, "state": state, "detail": detail}
+                ),
+            )
+            send({"type": "result", "result": result})
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except (ConfigError, LLMUnavailable) as error:
+            try:
+                send({"type": "error", "message": str(error)})
+            except (BrokenPipeError, ConnectionResetError):
+                return
+        except Exception:
+            try:
+                send({"type": "error", "message": "Analyst request failed unexpectedly."})
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
+    def _stream_live(self, target: str, provider: str) -> None:
+        self.send_response(200)
+        for name, value in (
+            ("Content-Type", "application/x-ndjson; charset=utf-8"),
+            ("Content-Security-Policy", CSP),
+            ("X-Content-Type-Options", "nosniff"),
+            ("Referrer-Policy", "no-referrer"),
+            ("Cache-Control", "no-store"),
+            ("Cross-Origin-Resource-Policy", "same-origin"),
+            ("Connection", "close"),
+        ):
+            self.send_header(name, value)
+        self.end_headers()
+        self.close_connection = True
+
+        def send(event: dict[str, Any]) -> None:
+            self.wfile.write(json.dumps(event, ensure_ascii=True, allow_nan=False).encode("utf-8") + b"\n")
+            self.wfile.flush()
+
+        try:
+            server = cast(UiServer, self.server)
+            result = server.application.live_report(
+                target, provider,
+                lambda stage, state, detail: send({"type": "stage", "stage": stage, "state": state, "detail": detail}),
+                lambda capture: send({"type": "scan", "scan": capture}),
+            )
+            send({"type": "result", "result": result})
+        except (BrokenPipeError, ConnectionResetError):
+            return
+        except (ConfigError, LLMUnavailable) as error:
+            try:
+                send({"type": "error", "message": str(error)})
+            except (BrokenPipeError, ConnectionResetError):
+                return
+        except Exception:
+            try:
+                send({"type": "error", "message": "Live assessment failed unexpectedly."})
+            except (BrokenPipeError, ConnectionResetError):
+                return
+
     def do_GET(self) -> None:
         if not self._same_origin():
             return
         server = cast(UiServer, self.server)
+        try:
+            parsed = urlsplit(self.path)
+            decoded = unquote(parsed.path, errors="strict")
+        except (ValueError, UnicodeError):
+            self._reply(error_response(404, "UI route not found"))
+            return
+        parts = decoded.split("/")
+        if (
+            len(parts) == 6
+            and parts[:3] == ["", "api", "analyst"]
+            and parts[5] == "events"
+            and not parsed.scheme
+            and not parsed.netloc
+            and not parsed.query
+            and not parsed.fragment
+            and all(parts[3:5])
+            and not any(part.startswith(".") for part in parts[3:5])
+            and not any(character in decoded for character in ("\\", ":", "%"))
+            and not any(ord(character) < 32 or ord(character) == 127 for character in decoded)
+        ):
+            self._stream_analyst(parts[3], parts[4])
+            return
         self._reply(server.application.get(self.path))
+
+    def do_POST(self) -> None:
+        server = cast(UiServer, self.server)
+        if self.path != "/api/live-assessment/events" and not self.path.startswith("/api/analyst/"):
+            self._reply(error_response(405, "POST is supported only for an explicit cloud analyst request"))
+            return
+        if not self._same_origin():
+            return
+        authority = f"127.0.0.1:{server.server_address[1]}"
+        action = "live-assessment" if self.path == "/api/live-assessment/events" else "cloud-analyst"
+        if self.headers.get("Origin") != f"http://{authority}" or self.headers.get("X-VulnAssess-Action") != action:
+            self._reply(error_response(403, "Cloud analyst requires an explicit same-origin action"))
+            return
+        try:
+            size = int(self.headers.get("Content-Length", "-1"))
+            if self.headers.get("Content-Type") != "application/json" or not 0 < size <= 1024:
+                raise ValueError("invalid request size or type")
+            body = json.loads(self.rfile.read(size))
+            parsed = urlsplit(self.path)
+            decoded = unquote(parsed.path, errors="strict")
+            parts = decoded.split("/")
+        except (ValueError, UnicodeError, json.JSONDecodeError):
+            self._reply(error_response(400, "Invalid cloud analyst request"))
+            return
+        if self.path == "/api/live-assessment/events":
+            if (
+                not isinstance(body, dict)
+                or set(body) != {"target", "provider", "share_evidence"}
+                or not isinstance(body["target"], str)
+                or not 0 < len(body["target"]) <= 512
+                or body["provider"] not in ("ollama", "openrouter", "groq")
+                or body["share_evidence"] is not (body["provider"] in ("openrouter", "groq"))
+            ):
+                self._reply(error_response(400, "Invalid live assessment request"))
+                return
+            self._stream_live(body["target"], body["provider"])
+            return
+        if (
+            not isinstance(body, dict)
+            or body not in ({"provider": "openrouter", "share_evidence": True}, {"provider": "groq", "share_evidence": True})
+            or len(parts) != 6
+            or parts[:3] != ["", "api", "analyst"]
+            or parts[5] != "events"
+            or not all(parts[3:5])
+            or parsed.query or parsed.fragment or parsed.scheme or parsed.netloc
+            or any(character in decoded for character in ("\\", ":", "%"))
+            or any(ord(character) < 32 or ord(character) == 127 for character in decoded)
+        ):
+            self._reply(error_response(400, "Invalid cloud analyst request"))
+            return
+        self._stream_analyst(parts[3], parts[4], provider=body["provider"])
 
 
 class UiServer(ThreadingHTTPServer):

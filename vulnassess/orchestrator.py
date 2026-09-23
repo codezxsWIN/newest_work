@@ -157,9 +157,9 @@ def _authorize(settings, target_ip: str) -> None:
             f"{target_ip} is the canary in {settings.config_dir / 'scope.yaml'}; "
             "no scanner command was built"
         )
-    if not settings.scope.contains(target_ip) or settings.scope.name(target_ip) is None:
+    if not settings.scope.contains(target_ip):
         raise ScopeError(
-            f"{target_ip} is not an explicitly listed lab target in "
+            f"{target_ip} is outside the authorised addresses in "
             f"{settings.config_dir / 'scope.yaml'}; no scanner command was built"
         )
 

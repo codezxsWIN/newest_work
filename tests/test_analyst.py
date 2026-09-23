@@ -84,6 +84,52 @@ def test_analysis_runs_local_model_and_preserves_canonical_scores():
     assert cited and set(cited) <= canonical
 
 
+def test_analysis_can_assess_live_services_when_scan_has_no_vulnerability_findings():
+    payload = demo_payload()
+    payload["scanner_coverage"] = {"nmap": "top 100 TCP ports", "zap": "not run", "nikto": "not run"}
+    payload["findings"] = []
+    payload["scores"] = []
+    payload["enrichments"] = []
+    response = {
+        "summary": "The light scan observed SSH and HTTP; it did not establish a vulnerability.",
+        "confidence": "low",
+        "recommended_actions": [{
+            "order": 1,
+            "action": "Verify service versions and restrict exposure to intended users.",
+            "reason": "The scan observed internet-facing SSH and HTTP services only.",
+            "finding_ids": [],
+            "evidence_ids": ["E1"],
+        }],
+        "correlations": [],
+        "uncertainties": ["No exploit checks or authenticated tests were run."],
+    }
+    client = FakeClient(response)
+    result = analyst.analyze_target(payload, "172.28.0.12", client)
+    assert result["analysis"]["recommended_actions"][0]["finding_ids"] == []
+    assert result["canonical_scores_changed"] is False
+    assert "zero vulnerability findings" in client.prompt.lower()
+    assert "not run" in client.prompt.lower()
+    assert "not checked" in client.prompt.lower()
+
+
+def test_analysis_reports_only_completed_real_stages():
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+    events = []
+    result = analyst.analyze_target(
+        payload,
+        "172.28.0.12",
+        FakeClient(valid_result(case["findings"][0]["id"], evidence[0]["id"])),
+        on_progress=lambda stage, state, detail: events.append((stage, state, detail)),
+    )
+    assert result["canonical_scores_changed"] is False
+    assert [(stage, state) for stage, state, _ in events] == [
+        (stage, state)
+        for stage in ("model", "evidence", "prompt", "generation", "validation")
+        for state in ("running", "complete")
+    ]
+
+
 def test_unknown_model_citation_is_rejected():
     payload = demo_payload()
     case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
@@ -91,6 +137,59 @@ def test_unknown_model_citation_is_rejected():
     response["recommended_actions"][0]["evidence_ids"] = ["E999"]
     with pytest.raises(LLMUnavailable, match="unknown evidence"):
         analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+
+
+def test_cited_investigation_is_returned_with_canonical_finding_identity():
+    assert set(analyst.ANALYSIS_SCHEMA["required"]) == set(analyst.ANALYSIS_SCHEMA["properties"])
+    payload = demo_payload()
+    case, evidence, alias_map = analyst.build_case(payload, "172.28.0.12")
+    alias = case["findings"][0]["id"]
+    citation = evidence[0]["id"]
+    response = valid_result(alias, citation)
+    response["investigations"] = [{
+        "hypothesis": "The exposed service may need a configuration review.",
+        "verification": "Review the service configuration and compare it with the approved baseline.",
+        "alternative": "The observed exposure may be an intentional lab configuration.",
+        "finding_ids": [alias],
+        "evidence_ids": [citation],
+    }]
+    result = analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+    investigation = result["analysis"]["investigations"][0]
+    assert investigation["finding_ids"] == [alias_map[alias]]
+    assert investigation["evidence_ids"] == [citation]
+    assert "hypothesis" in investigation and "verification" in investigation
+
+
+def test_investigation_cannot_cite_unknown_evidence_or_finding():
+    for finding_ids, evidence_ids, expected in [
+        (["F999"], ["E1"], "unknown finding"),
+        ([], ["E999"], "unknown evidence"),
+        ([], [], "unknown evidence"),
+    ]:
+        response = valid_result("F1", "E1")
+        response["investigations"] = [{
+            "hypothesis": "Review the observed service.",
+            "verification": "Check the approved configuration.",
+            "alternative": "This service may be intentional.",
+            "finding_ids": finding_ids,
+            "evidence_ids": evidence_ids,
+        }]
+        with pytest.raises(LLMUnavailable, match=expected):
+            analyst.validate_analysis(response, {"F1"}, {"E1"})
+
+
+def test_investigation_rejects_a_non_action_and_repeated_claims():
+    response = valid_result("F1", "E1")
+    response["summary"] = "No vulnerability found."
+    response["investigations"] = [{
+        "hypothesis": "No vulnerability found.",
+        "verification": "No evidence of exploitation.",
+        "alternative": "No vulnerability found.",
+        "finding_ids": [],
+        "evidence_ids": ["E1"],
+    }]
+    with pytest.raises(LLMUnavailable, match="testable verification"):
+        analyst.validate_analysis(response, {"F1"}, {"E1"})
 
 
 def test_missing_target_findings_are_explicit():

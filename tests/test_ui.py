@@ -164,13 +164,43 @@ class TestUiContract(unittest.TestCase):
             status, headers, body = request(application, "/workflow")
         self.assertEqual(status, 200)
         self.assertEqual(headers["Content-Security-Policy"], CSP)
-        self.assertIn(b'id="trace-stack"', body)
-        self.assertIn(b'id="queue-rail"', body)
-        self.assertIn(b'id="compare-stack"', body)
+        self.assertIn(b'id="open-run"', body)
+        self.assertIn(b'id="run-panel"', body)
+        self.assertIn(b'id="run-targets"', body)
+        self.assertIn(b'id="run-progress"', body)
+        self.assertIn(b"Scanner results and deterministic scores are not rerun.", body)
         self.assertNotIn(b"/static/workbench.css", body)
         self.assertNotIn(b"/static/app.js", body)
         for path in ("/static/workflow.css", "/static/workflow.js"):
             self.assertEqual(request(application, path)[0], 200)
+
+    def test_new_target_check_respects_authorised_scope_without_scanning(self) -> None:
+        application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
+        with patch("vulnassess.orchestrator.execute_local", side_effect=AssertionError("scanner ran")):
+            status, _, body = request(application, "/api/target-check?target=192.168.0.116")
+            blocked_status, _, blocked_body = request(application, "/api/target-check?target=172.28.0.250")
+            outside_status, _, outside_body = request(application, "/api/target-check?target=8.8.8.8")
+        self.assertEqual(status, 200)
+        self.assertIn(json.loads(body)["status"], {"ready", "needs-tools"})
+        self.assertEqual(json.loads(blocked_body)["status"], "blocked")
+        self.assertEqual(json.loads(outside_body)["status"], "blocked")
+        self.assertEqual(blocked_status, 200)
+        self.assertEqual(outside_status, 200)
+        with patch("vulnassess.ui.server.resolve_addresses", return_value=["8.8.8.8"]):
+            domain_status, _, domain_body = request(application, "/api/target-check?target=example.com")
+        self.assertEqual(domain_status, 200)
+        self.assertEqual(json.loads(domain_body)["status"], "blocked")
+        reference_status, _, reference_body = request(application, "/api/target-check?target=https%3A%2F%2Fowasp.org%2Fwww-project-juice-shop%2F")
+        self.assertEqual(reference_status, 200)
+        self.assertEqual(json.loads(reference_body)["status"], "reference")
+        for hostname in (
+            "dvwa.co.uk", "docs.rapid7.com", "tryhackme.com", "www.hackthebox.com",
+            "portswigger.net", "overthewire.org", "picoctf.org", "google-gruyere.appspot.com",
+        ):
+            with self.subTest(hostname=hostname):
+                result = application.target_check(f"https://{hostname}/")
+                self.assertEqual(result["status"], "reference")
+        self.assertEqual(request(application, "/api/target-check?target=https%3A%2F%2Fuser%40example.com")[0], 400)
 
     def test_decision_hero_leads_with_the_stored_top_priority(self) -> None:
         application = UiApplication(DATABASE, ROOT / "config", DEMO_RUN)
@@ -584,6 +614,90 @@ class TestUiModel(unittest.TestCase):
         self.assertEqual(payload["host_ip"], "172.28.0.12")
         self.assertFalse(payload["canonical_scores_changed"])
         analyze.assert_called_once()
+
+    def test_live_analyst_route_streams_stage_status_and_result(self) -> None:
+        def fake_analysis(payload, host_ip, *, on_progress, **_options):
+            self.assertEqual(host_ip, "172.28.0.12")
+            self.assertEqual(payload["run"]["run_id"], "demo")
+            on_progress("model", "running", "Checking local model")
+            on_progress("model", "complete", "Local model available")
+            return {"host_ip": host_ip, "model": "test-local-model", "canonical_scores_changed": False}
+
+        with patch.object(analyst, "analyze_target", side_effect=fake_analysis):
+            status, headers, body = request(self.application, "/api/analyst/demo/172.28.0.12/events")
+        events = [json.loads(line) for line in body.splitlines()]
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/x-ndjson; charset=utf-8")
+        self.assertEqual([(event["type"], event.get("state")) for event in events], [
+            ("stage", "running"), ("stage", "complete"),
+            ("stage", "running"), ("stage", "complete"), ("result", None),
+        ])
+        self.assertEqual(events[-1]["result"]["run_id"], "demo")
+
+    def test_live_analyst_route_reports_failure_without_claiming_completion(self) -> None:
+        def failing_analysis(_payload, _host_ip, *, on_progress, **_options):
+            on_progress("generation", "running", "Waiting for local model")
+            raise ConfigError("Local model unavailable")
+
+        with patch.object(analyst, "analyze_target", side_effect=failing_analysis):
+            status, _, body = request(self.application, "/api/analyst/demo/172.28.0.12/events")
+        events = [json.loads(line) for line in body.splitlines()]
+        self.assertEqual(status, 200)
+        self.assertEqual(events[0]["stage"], "records")
+        self.assertEqual(events[2]["stage"], "generation")
+        self.assertEqual(events[-1], {"type": "error", "message": "Local model unavailable"})
+
+    def test_cloud_analyst_requires_explicit_origin_action_and_evidence_consent(self) -> None:
+        path = "/api/analyst/demo/172.28.0.12/events"
+        body = b'{"provider":"openrouter","share_evidence":true}'
+        headers = (
+            "Origin: http://127.0.0.1:8765\r\n"
+            "X-VulnAssess-Action: cloud-analyst\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+        )
+        self.assertEqual(request(self.application, path, "POST", body=body)[0], 403)
+        self.assertEqual(request(self.application, path, "POST", extra_headers=headers, body=b'{}')[0], 400)
+        with patch.object(analyst, "analyze_target", return_value={"source": "openrouter_deepseek_grounded_analysis"}) as analyze:
+            status, _, data = request(self.application, path, "POST", extra_headers=headers, body=body)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(data.splitlines()[-1])["result"]["source"], "openrouter_deepseek_grounded_analysis")
+        self.assertEqual(analyze.call_args.kwargs["provider"], "openrouter")
+
+    def test_live_target_request_requires_origin_and_consent_without_recorded_selection(self) -> None:
+        path = "/api/live-assessment/events"
+        body = b'{"target":"scanme.nmap.org","provider":"openrouter","share_evidence":true}'
+        headers = (
+            "Origin: http://127.0.0.1:8765\r\n"
+            "X-VulnAssess-Action: live-assessment\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+        )
+        self.assertEqual(request(self.application, path, "POST", body=body)[0], 403)
+        self.assertEqual(request(self.application, path, "POST", extra_headers=headers, body=b'{}')[0], 400)
+        with patch.object(self.application, "live_report", return_value={"target": "scanme.nmap.org", "analyst": {"analysis": {"summary": "Verified."}}}) as live:
+            status, _, data = request(self.application, path, "POST", extra_headers=headers, body=body)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(data.splitlines()[-1])["result"]["target"], "scanme.nmap.org")
+        self.assertEqual(live.call_args.args[:2], ("scanme.nmap.org", "openrouter"))
+
+    def test_groq_live_target_requires_consent_and_routes_without_scanning_in_test(self) -> None:
+        path = "/api/live-assessment/events"
+        body = b'{"target":"scanme.nmap.org","provider":"groq","share_evidence":true}'
+        headers = (
+            "Origin: http://127.0.0.1:8765\r\n"
+            "X-VulnAssess-Action: live-assessment\r\n"
+            "Content-Type: application/json\r\n"
+            f"Content-Length: {len(body)}\r\n"
+        )
+        refused = body.replace(b'true', b'false')
+        refused_headers = headers.replace(f"Content-Length: {len(body)}", f"Content-Length: {len(refused)}")
+        self.assertEqual(request(self.application, path, "POST", extra_headers=refused_headers, body=refused)[0], 400)
+        with patch.object(self.application, "live_report", return_value={"target": "scanme.nmap.org", "analyst": {"analysis": {"summary": "Verified."}}}) as live:
+            status, _, data = request(self.application, path, "POST", extra_headers=headers, body=body)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(data.splitlines()[-1])["result"]["target"], "scanme.nmap.org")
+        self.assertEqual(live.call_args.args[:2], ("scanme.nmap.org", "groq"))
 
     def test_model_request_is_refused_regardless_of_origin_and_action(self) -> None:
         self.assertEqual(request(self.application, "/api/model/run", "POST")[0], 405)

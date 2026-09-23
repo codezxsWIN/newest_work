@@ -115,5 +115,31 @@ for (const invalid of [
 const mismatchedQueue = client.createAnalysisQueue({request: async () => syntheticResponse('synthetic-other-run', 'synthetic-host-a')});
 const mismatched = await mismatchedQueue.start('synthetic-run', queueTargets);
 assert.deepEqual(mismatched.entries.map(entry => entry.status), ['error', 'not-run', 'not-run']);
+const originalFetch = globalThis.fetch;
+const streamed = [
+  {type: 'stage', stage: 'model', state: 'running', detail: 'Checking local model'},
+  {type: 'stage', stage: 'model', state: 'complete', detail: 'Model ready'},
+  {type: 'result', result: syntheticResponse('synthetic-run', 'synthetic-host-a')},
+];
+const wire = streamed.map(event => JSON.stringify(event)).join('\n') + '\n';
+const bytes = new TextEncoder().encode(wire);
+globalThis.fetch = async () => new Response(new ReadableStream({
+  start(controller) {
+    controller.enqueue(bytes.slice(0, 13));
+    controller.enqueue(bytes.slice(13, 71));
+    controller.enqueue(bytes.slice(71));
+    controller.close();
+  },
+}));
+try {
+  const seen = [];
+  const result = await client.requestAnalystProgress('synthetic-run', 'synthetic-host-a', event => seen.push(event));
+  assert.equal(result.run_id, 'synthetic-run');
+  assert.deepEqual(seen, streamed.slice(0, 2));
+  globalThis.fetch = async () => new Response(`${JSON.stringify({type: 'error', message: 'Model unavailable'})}\n`);
+  await assert.rejects(client.requestAnalystProgress('synthetic-run', 'synthetic-host-a'), /Model unavailable/);
+} finally {
+  globalThis.fetch = originalFetch;
+}
 assert.equal(JSON.stringify(input.assessment), before);
 console.log('ANALYST: sequential requests, duplicate prevention, stop, failure, identity and citation checks; analyst queue safety passed');

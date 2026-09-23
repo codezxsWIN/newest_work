@@ -13,7 +13,7 @@
   <header class="flow-header">
     <a class="wordmark" href="/workflow" aria-label="VulnAssess workflow"><span class="flow-mark" aria-hidden="true">v/a</span>VulnAssess<span class="product-label">WORKFLOW</span></a>
     <div class="run-controls"><label for="workflow-run">Assessment</label><select id="workflow-run" disabled><option>Loading records</option></select><span id="data-kind" class="data-kind">LOCAL</span></div>
-    <div class="header-tools"><a id="assessment-link" class="quiet-link" href="/">Back to project</a><button id="refresh-workflow" class="tool" type="button" title="Refresh stored records" aria-label="Refresh stored records"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6"/></svg></button></div>
+    <div class="header-tools"><label class="sr-only" for="preview-scenario">Preview example</label><select id="preview-scenario" aria-label="Preview example"><option value="light">Nmap + AI · no findings</option><option value="web">Full web assessment</option><option value="noWeb">No HTTP · web tools skipped</option><option value="modelError">Model unavailable</option><option value="denied">Target outside scope</option></select><button id="preview-flow" class="tool-text preview-button" type="button" title="Animate a simulated workflow without scanning or calling a model">Preview flow</button><button id="open-run" class="run-button" type="button" aria-controls="run-panel" aria-expanded="false">Run</button><a id="assessment-link" class="quiet-link" href="/">Back to project</a><button id="refresh-workflow" class="tool" type="button" title="Refresh stored records" aria-label="Refresh stored records"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6"/></svg></button></div>
   </header>
   <div class="workflow-bar">
     <div class="canvas-heading"><h1>Assessment workflow</h1><p id="canvas-caption">Loading the recorded assessment.</p></div>
@@ -23,6 +23,31 @@
       <button type="button" data-view-mode="stages" aria-pressed="false" title="View all stages as a list"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h3v3H4ZM4 16h3v3H4ZM11 6h9M11 17h9"/></svg>Stages</button>
     </div>
   </div>
+  <section id="live-execution" class="live-execution" aria-label="Live assessment execution" aria-live="polite" hidden>
+    <div class="live-execution-heading"><div><span id="live-execution-mode" class="eyebrow">LIVE RUN / EVENT STREAM</span><h2 id="live-execution-title" tabindex="-1">Waiting for the target</h2><p id="live-execution-context" class="live-execution-context" hidden></p><p id="live-execution-detail" class="live-execution-detail">Stage details appear here.</p></div><span id="live-execution-count" class="live-execution-count">0 / 8 stages</span></div>
+    <ol id="live-execution-steps" class="live-execution-steps" aria-label="Live workflow stages"></ol>
+    <div id="live-execution-output" class="live-execution-output" hidden></div>
+  </section>
+  <section id="run-panel" class="run-panel" aria-label="Run analysis" hidden>
+    <div class="run-panel-heading"><div><span class="eyebrow">ASSESSMENT RUN</span><h2>Run analysis</h2></div><button id="close-run" class="tool" type="button" aria-label="Close run panel">×</button></div>
+    <p>Enter an authorised target to run a light Nmap scan, then assess its fresh evidence with the selected model.</p>
+    <label class="run-label" for="analyst-provider">Analyst model</label>
+    <select id="analyst-provider"><option value="ollama">Local Ollama</option><option value="openrouter">DeepSeek V4 Flash · OpenRouter free</option><option value="groq">GPT-OSS 20B · Groq</option></select>
+    <label id="cloud-consent" class="cloud-consent" hidden><input id="share-evidence" type="checkbox"> I understand this sends the target’s bounded scan evidence to the selected model provider. No key is sent to the browser.</label>
+    <div class="new-target-check"><label class="run-label" for="new-target">Target address</label><div><input id="new-target" type="text" placeholder="Authorised IP or hostname" spellcheck="false"><button id="check-target" class="tool-text" type="button">Check scope</button></div><p id="target-check-result" role="status">The live run pins the address, scans the top 100 TCP ports, and reports each stage.</p></div>
+    <button id="start-live-run" class="run-button" type="button">Run live target</button>
+    <ol id="live-progress" class="run-progress" aria-label="Live assessment stages" aria-live="polite"></ol>
+    <section id="live-result" class="live-result" aria-label="Live assessment result" hidden></section>
+    <details id="recorded-run" class="recorded-run"><summary>Use an existing assessment instead</summary>
+      <p>Analyze selected targets with stored evidence. Scanner results and deterministic scores are not rerun.</p>
+      <label class="run-label" for="run-target-search">Find a recorded target</label>
+      <input id="run-target-search" type="search" placeholder="Search IP or hostname" autocomplete="off">
+      <div id="run-targets" class="run-targets" role="group" aria-label="Recorded targets"></div>
+      <p id="run-selection-note" class="run-selection-note" role="status"></p>
+      <div class="run-actions"><button id="start-run" class="run-button" type="button">Run selected targets</button><button id="stop-run" class="tool-text" type="button" hidden>Stop after current</button></div>
+      <ol id="run-progress" class="run-progress" aria-label="Stored run progress"></ol>
+    </details>
+  </section>
   <main class="flow-workspace">
     <section id="viewport" class="viewport" aria-label="Assessment workflow canvas" tabindex="0">
       <div class="trace-controls"><label for="workflow-host">Target</label><select id="workflow-host" disabled><option>All recorded hosts</option></select><label class="sr-only" for="workflow-finding">Trace a finding</label><select id="workflow-finding" disabled><option>All findings</option></select></div>

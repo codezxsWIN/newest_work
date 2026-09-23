@@ -92,8 +92,12 @@ export function buildNodes(assessment, scope, selection = {}, analysis = null) {
   for (const tool of ['nmap', 'zap', 'nikto']) states[tool] = hasSource(tool) ? {state: 'stored', status: 'Import recorded'} : {state: 'missing', status: 'No import recorded'};
   for (const feed of ['nvd', 'epss', 'kev']) states[feed] = recordState(assessment.feeds_meta.filter(item => item.feed === feed), 'Snapshot loaded');
   if (analysis && analysis.runId === assessment.run.run_id && analysis.hostIp === selection.host) {
+    const activeStage = {
+      records: 'Reading assessment', model: 'Checking model', evidence: 'Gathering evidence', prompt: 'Preparing request',
+      generation: 'Generating response', validation: 'Validating citations',
+    }[analysis.stage] || 'Starting local analysis';
     states.analyst = analysis.status === 'complete' ? {state: 'live', status: 'Response received'}
-      : analysis.status === 'running' ? {state: 'running', status: 'Request in progress'} : {state: 'error', status: 'Request failed'};
+      : analysis.status === 'running' ? {state: 'running', status: activeStage} : {state: 'error', status: 'Request failed'};
   }
   return NODE_SPECS.map(spec => ({...spec, ...states[spec.id]}));
 }
@@ -165,6 +169,6 @@ export function nodeDetails(identity, assessment, scope, weights, selection = {}
 }
 
 export function evidenceKind(assessment) {
-  const paths = [...assessment.feeds_meta.map(feed => feed.path), ...assessment.findings.map(finding => finding.provenance.raw_path)];
+  const paths = assessment.findings.map(finding => finding.provenance.raw_path);
   return paths.some(path => String(path).toLowerCase().includes('synthetic')) ? 'SYNTHETIC INPUTS' : 'STORED ASSESSMENT';
 }

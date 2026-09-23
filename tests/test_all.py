@@ -899,6 +899,19 @@ class TestExplain(unittest.TestCase):
         self.assertEqual(result, answer)
         self.assertEqual(json.loads(transport.call_args.args[0].data)["format"], schema)
 
+    def test_structured_stream_reports_received_bytes_without_exposing_content(self) -> None:
+        answer = {"summary": "x" * 700}
+        body = (
+            json.dumps({"message": {"content": json.dumps(answer)}, "done": True}) + "\n"
+        ).encode("utf-8")
+        reports = []
+        with patch.object(explain.urllib.request, "urlopen", return_value=io.BytesIO(body)):
+            result = explain.OllamaClient().generate_structured(
+                "synthetic prompt", {}, on_progress=reports.append
+            )
+        self.assertEqual(result, answer)
+        self.assertEqual(reports, [len(json.dumps(answer).encode("utf-8"))])
+
     def test_structured_stream_rejects_oversized_content(self) -> None:
         content = json.dumps({"summary": "x" * 600})
         chunks = [content[index : index + 32] for index in range(0, len(content), 32)]
@@ -1090,12 +1103,18 @@ class TestWalls(unittest.TestCase):
     NETWORK = ("urllib.request", "urllib.error", "import httpx", "import requests", "import socket")
 
     def test_only_the_model_layer_imports_a_network_client(self):
-        """urllib.parse is allowed anywhere: it parses strings and performs no I/O."""
+        """Network I/O stays in explicit transports and the scoped DNS preflight."""
+        permitted = {
+            "explain.py": {"urllib.request", "urllib.error"},
+            "openrouter.py": {"urllib.request", "urllib.error"},
+            "groq.py": {"urllib.request", "urllib.error"},
+            "target_intake.py": {"import socket"},
+        }
         for path in sorted((ROOT / "vulnassess").rglob("*.py")):
             source = path.read_text(encoding="utf-8")
             for token in self.NETWORK:
                 with self.subTest(module=path.name, token=token):
-                    if path.name == "explain.py":
+                    if token in permitted.get(path.name, set()):
                         continue
                     self.assertNotIn(token, source)
 
