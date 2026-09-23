@@ -533,3 +533,136 @@ Ollama-unavailable error; that request is not described as mocked or successful
 inference. The incident, missing service and quality prerequisites are recorded
 in docs/ui.md. Future browser model checks must use in-page fakes, not rely on
 route interception being retained through a timed-out check.
+
+## Globe land map under the viewer CSP - 2026-09-23
+
+**UI-30. DECIDED - allow `data:` images only, and keep inline styles blocked:**
+PROJECT.md Stage 7 (Report). The vendored Cobe 2.0.1 globe loads its land map
+from an embedded `data:image/png`. The server CSP had no `img-src`, so
+`default-src 'self'` blocked it and the globe showed no continents. The CSP now
+adds `img-src 'self' data:`, which the offline export already allowed with
+`img-src data:`. Scripts, styles and connections are unchanged, and
+`unsafe-inline` is still absent.
+Cobe also writes label visibility into an inline `<style>`, which `style-src
+'self'` blocks on every frame. The adapter detaches that element and copies its
+`--cobe-visible-*` values onto the globe root through CSSOM. Labels on the far
+side now hide, and the per-frame CSP violations stop.
+
+Alternatives rejected: adding `'unsafe-inline'` to `style-src` (weakens the page
+policy); editing the vendored library, or extracting its texture to a patched
+static file (breaks parity with upstream 2.0.1). No dependency, API, schema or
+scoring change.
+
+**UI-31. USER-DIRECTED - the globe depicts the recorded assessment, not CDN
+traffic:** PROJECT.md Stage 7. The user rejected the copied 21st.dev content
+(edge regions, "req/s" counters) and asked for project context. Markers are now
+the recorded systems of the selected run. Each label gives the hostname or IP,
+the inferred role and the stored top band, and marker colours use the band
+tokens. Arcs join systems with the same CVE, vector, base score, EPSS and KEV,
+which is the `_project_story` like-for-like rule. The arc label shows the base
+score and the two stored bands. The readout names the run and its provenance
+(synthetic or source unlabelled), and states that positions are illustrative.
+
+Conflict / resolution / why: a globe implies geography, but lab systems have
+private addresses and no location. Rejected: geolocating addresses (impossible
+for RFC1918, and it would be invented evidence); placing systems on arbitrary
+real cities (reads as geolocation). Chosen: a deterministic layout disclosed as
+illustrative. The globe spins a full 360 degrees; labels on the far side hide,
+and the recorded systems are front-facing when the page loads. The random traffic counter is removed
+as fabricated data. No run shows continents only, with an explicit notice.
+Reduced motion stops the spin. No backend, API, schema or scoring change.
+
+**UI-32. USER-DIRECTED - desktop scroll parallax on the hero:** PROJECT.md Stage
+7. The user asked for a proper scroll animation on the hero, after reviewing the
+21st.dev scroll heroes: Container Scroll Animation, Scroll Morph Hero and Parallax
+Scrolling. A first version pinned the hero and slid the globe section over it as
+a rounded, shadowed sheet. The user rejected it as a mobile-app pattern that
+doesn't suit a desktop product; it was removed. A second version, a generic
+layered fade-and-tilt parallax, was rejected as boring.
+
+Current: a scroll-scrubbed desktop scene that plays the research thesis from
+stored records. The hero is held on screen for about 190vh of scroll. Nothing
+slides over it, and the page scrolls on normally afterwards. The beats are:
+1. The title dissolves into one card for the stored like-for-like weakness
+   (`tour_finding` and its partner: same CVE, vector, base, EPSS and KEV).
+2. The card splits across the two recorded systems.
+3. Each card shows its stored role, exposure and Environmental modifications,
+   and the Environmental score moves from the base to the stored value.
+4. The priority meters fill to the stored risk and band, and "Not the same
+   priority." links to the evidence.
+Final numbers equal the stored values; the scene says "stored scores, not
+recalculated here" and labels the run synthetic or recorded. There is no scene
+without a pair, under 900px width, or with reduced motion; the hero then stays
+as it was. Native CSS/JS only, text via textContent, no model call.
+
+**UI-33. USER-DIRECTED - 21st.dev interaction components, rebuilt natively:**
+PROJECT.md Stage 7. The user asked for good hover effects, buttons and components
+from 21st.dev instead of a restrained style. The React/Tailwind/framer-motion
+sources cannot be imported, since they need dependencies, a build chain and
+downloads. Their behaviour was re-implemented in plain CSS and JS on the current
+project page:
+- Primary buttons, after Magic UI / designali's Shiny Button and Border Beam: a
+  rotating conic beam just outside the button (CSS `@property` angle), a shine
+  sweep on hover and a lift.
+- Framed panels (model panels, doors, door records, scene cards), after
+  Aceternity's Glowing Effect: a masked conic border glow in the signal and
+  critical tokens that faces the pointer when it comes within 70px.
+- List rows (outcomes, analyst path, workflow steps, FAQ): a spotlight that
+  follows the cursor.
+- Text links: an underline that draws in with the arrow moving.
+- Header navigation, after Cnippet's letter swap: each label's own letters
+  shuffle deterministically and then settle, with `aria-label` keeping the real
+  name.
+Constraints: colours come from existing tokens, with no inline styles (CSSOM
+only) and no `unsafe-inline`. The global reduced-motion rule stops the beam and
+the transitions, and the letter swap is skipped. The old workbench is untouched
+at the user's request.
+
+**UI-34. USER-DIRECTED - a plain-language scenario replaces the hero scroll
+scene:** PROJECT.md Stage 7. The user rejected the pinned two-card scene (UI-32)
+because showing two technical "surroundings" cards didn't explain anything to a
+non-technical visitor. They asked for a small scenario that can be understood by
+looking at it. The scene, its sticky track and its script are removed, and the
+hero scrolls normally. A new `#project-scenario` section follows the hero as
+three illustrated steps on a timeline:
+1. "Mon 09:00": two identical computers, each showing the same 9.8/10 warning.
+2. "09:01": one is open to the internet, the other is inside the office.
+3. "09:02": the order is "Fix first · Company database · Critical", then "Fix
+   next · Staff test page · High".
+The art is inline SVG line drawing, and the timeline draws in once when the
+section first scrolls into view (IntersectionObserver). The steps carry the
+UI-33 glow.
+Evidence boundary: the section is labelled "An illustration of the synthetic
+demo run". The outcome matches the stored demo pair: the internet-facing
+database is Critical, and the internal test web frontend is High. "Company" and
+"staff" are illustrative wording, not recorded facts. Rejected: a
+scroll-scrubbed version of the same story (the user called the pinned scroll
+stupid) and stock illustrations (downloads, licensing).
+
+**UI-35. USER-DIRECTED - the hero planet travels to the globe:** PROJECT.md
+Stage 7. The user specified the scroll animation: the planet on the hero's
+horizon moves down to become the background of the scenario, then shrinks into
+the small Cobe globe. A pinned, scroll-scrubbed scenario was tried first and
+reverted; the user said the animation belongs to the hero.
+Implementation:
+- A fixed, `contain: strict` layer holds a CSS planet: one radial gradient whose
+  stops copy the measured brightness profile of `project-horizon.png`. That
+  profile is a rim circle of radius 2000, centred at (800, 2732) in the
+  1600x1050 image, with a 1px rim, a 50px bright band and a 240px falloff.
+- The planet is resized in pixels every frame, not scaled, so its edge stays
+  sharp at any size.
+- Handover from the artwork: at 4px of scroll the lower part of the artwork is
+  masked away. Captures match the rim row exactly, glow within 3 grey levels
+  and body within 1, in both themes.
+- Behind the scenario, the rim sits at 70% of the viewport and dims to 65%.
+- Landing: the size settles before the position, and the position tracks the
+  visible rim so the planet never leaves the screen. Motion ends at 80% of the
+  landing; the last 20% crossfades in place onto Cobe's measured rim (0.797 of
+  the canvas radius, same radius and centre), and Cobe fades in as the planet
+  fades out.
+- Every frame is a pure function of scroll position, so scrolling back up
+  reverses it exactly. Reduced motion and widths under 900px keep the static
+  artwork and globe.
+Rejected: scaling a raster planet (blurred rim, expensive blurred shadows);
+pushing the planet sideways to avoid text (a visible jump). Text that can cross
+the planet gets a soft halo instead.

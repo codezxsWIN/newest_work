@@ -416,6 +416,8 @@ class TestUiServer(unittest.TestCase):
                 _, headers, _ = request(self.application, path)
                 self.assertEqual(headers["Content-Security-Policy"], CSP)
                 self.assertIn("default-src 'self'", CSP)
+                self.assertIn("img-src 'self' data:;", CSP)
+                self.assertIn("script-src 'self';", CSP)
                 self.assertNotIn("unsafe-inline", CSP)
                 self.assertEqual(headers["X-Content-Type-Options"], "nosniff")
 
@@ -1212,6 +1214,50 @@ class TestUiAssets(unittest.TestCase):
             self.assertIsNone(
                 re.search(r"#[0-9a-fA-F]{3,8}\b", path.read_text(encoding="utf-8")), path
             )
+
+    def test_globe_draws_recorded_systems_not_invented_traffic(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        globe = (static / "cobe-globe.js").read_text(encoding="utf-8")
+        for invented in ("req/s", "Math.random", "setInterval", "cdn-"):
+            with self.subTest(invented=invented):
+                self.assertNotIn(invented, globe)
+        for recorded in ("assessment.hosts", "assessment.scores", "base_vector", "epss_percentile"):
+            with self.subTest(recorded=recorded):
+                self.assertIn(recorded, globe)
+        self.assertIn("initialiseCobeGlobe(bootstrap.assessment)", (static / "app.js").read_text(encoding="utf-8"))
+        page = (static / "index.html").read_text(encoding="utf-8")
+        self.assertIn("data-globe-status", page)
+        self.assertIn("Positions are illustrative, not geolocated.", page)
+
+    def test_scenario_is_labelled_illustration_and_scroll_scene_is_gone(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        page = (static / "index.html").read_text(encoding="utf-8")
+        self.assertLess(page.index('id="hero"'), page.index('id="project-scenario"'))
+        self.assertLess(page.index('id="project-scenario"'), page.index('id="project-showcase"'))
+        self.assertEqual(page.count('class="scenario-step"'), 3)
+        self.assertIn("An illustration of the synthetic demo run", page)
+        self.assertEqual(page.count('role="img"', page.index('id="project-scenario"'), page.index('id="project-showcase"')), 3)
+        script = (static / "app.js").read_text(encoding="utf-8")
+        self.assertIn("window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;", script)
+        for removed in ("data-hero-track", "data-hero-scene", "initialiseHeroScene"):
+            with self.subTest(removed=removed):
+                self.assertNotIn(removed, page + script)
+
+    def test_planet_journey_matches_artwork_and_respects_reduced_motion(self) -> None:
+        static = ROOT / "vulnassess" / "ui" / "static"
+        page = (static / "index.html").read_text(encoding="utf-8")
+        self.assertIn('<div class="planet-journey" data-planet-journey aria-hidden="true" hidden>', page)
+        self.assertLess(page.index("data-planet-journey"), page.index('id="hero"'))
+        script = (static / "app.js").read_text(encoding="utf-8")
+        start = script.index("function initialisePlanetJourney()")
+        journey = script[start : script.index("\n}\n", start)]
+        self.assertIn("window.matchMedia('(prefers-reduced-motion: reduce)').matches", journey)
+        for measured in ("/ 1600", "/ 1050", "800 * scaleX", "2732 * scaleY", "2000 * scaleX", "* 0.797"):
+            with self.subTest(measured=measured):
+                self.assertIn(measured, journey)
+        tokens = (static / "tokens.css").read_text(encoding="utf-8")
+        self.assertEqual(tokens.count("--planet-body:"), 2)
+        self.assertEqual(tokens.count("--planet-rim:"), 2)
 
     def test_severity_colours_survive_simulations_and_text_contrast(self) -> None:
         results = validate_palette(read_tokens())

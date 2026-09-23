@@ -20,9 +20,11 @@ from vulnassess.ui.entry import render_entry
 from vulnassess.ui.reader import local_path, open_read_store
 
 STATIC_ROOT = Path(__file__).resolve().parent / "static"
+# data: images carry Cobe's embedded land-map texture; without it the globe has no continents.
 CSP = (
-    "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; "
-    "object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; "
+    "connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; "
+    "form-action 'none'"
 )
 CONTENT_TYPES = {
     ".html": "text/html; charset=utf-8",
