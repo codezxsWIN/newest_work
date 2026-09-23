@@ -850,6 +850,9 @@ class TestUiExport(unittest.TestCase):
         self.assertIn("connect-src 'none'", document)
         self.assertIn("data:image/png;base64,", document)
         self.assertNotIn("/static/project-horizon.png", document)
+        self.assertIn("font-src data:", document)
+        self.assertEqual(document.count("data:font/woff2;base64,"), 3)
+        self.assertNotIn("/static/vendor/fonts/", document)
         bootstrap = json.loads(
             re.search(
                 r'<script id="assessment-data" type="application/json">(.*?)</script>',
@@ -862,6 +865,23 @@ class TestUiExport(unittest.TestCase):
         self.assertEqual(len(bootstrap["cvss_fixture"]["vectors"]), 211)
         self.assertNotIn("import { scoreVector", document)
         self.assertNotIn("from './analyst-client.js'", document)
+        module_imports = re.findall(r"(?m)^import\s[^\n]*", document)
+        self.assertEqual(module_imports, [], "offline export must inline every module")
+        self.assertIn("const initialiseCobeGlobe = (() =>", document)
+        module_source = re.search(
+            r'<script type="module">(.*?)</script>', document, re.DOTALL
+        ).group(1)
+        node = shutil.which("node")
+        self.assertIsNotNone(node, "MISSING: node for the offline export syntax check")
+        checked = subprocess.run(
+            [node, "--input-type=module", "--check"],
+            input=module_source,
+            text=True,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(checked.returncode, 0, checked.stderr)
         self.assertIn("export function createAnalysisQueue", document)
         with ReadOnlyStore(DATABASE) as store:
             self.assertEqual(store.run(DEMO_RUN), before)

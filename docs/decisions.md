@@ -666,3 +666,51 @@ Implementation:
 Rejected: scaling a raster planet (blurred rim, expensive blurred shadows);
 pushing the planet sideways to avoid text (a visible jump). Text that can cross
 the planet gets a soft halo instead.
+
+## Standalone export asset bundling - 2026-09-23
+
+**UI-36. DECIDED - embed the existing globe and fonts in offline HTML:**
+PROJECT.md Stage 7 (Report) and cross-cutting reproducibility. The purpose is
+to let reviewers inspect the same stored assessment without a running server;
+this is not new evidence for the ranking hypotheses.
+
+Chosen: extend the existing explicit module bundler with the local Cobe adapter
+and its vendored renderer, isolating their names in function scopes. Refuse an
+unexpected import/export shape rather than silently emitting a broken bundle.
+Embed the three existing WOFF2 fonts as data URLs. Keep exact script/style hashes
+and `connect-src 'none'`; allow only `data:` font sources.
+Rejected: external module/font requests (break standalone operation), a new
+bundler dependency (unnecessary provisioning), and removing the globe (changes
+the shared view). No canonical model, API, scoring, dependency or live UI change.
+
+TESTED WITH MOCKS: the added assertion in
+`TestUiExport.test_export_is_self_contained` first failed on the unresolved
+`import { initialiseCobeGlobe } from './cobe-globe.js';`. After repair, the
+isolated-copy command `python -m pytest -q -p no:cacheprovider
+tests/test_ui.py::TestUiExport tests/test_ui.py::TestUiAssets
+tests/test_ui.py::TestAnalystChoices` returned
+`38 passed, 17 subtests passed in 9.72s`. The export test also runs
+`node --input-type=module --check` on the emitted JavaScript. These checks use
+synthetic stored records, not real scanner/feed/model integration evidence.
+
+VERIFIED: `python -m vulnassess ui --run demo --export <local HTML path> --json`
+against the isolated database returned `read_only: true`, `run_id: demo` and
+`EXPORT_EXIT 0`. Browser `page.reload()` and DOM/canvas probes on that file at
+1440x1000 and 390x844 returned `errors: []`, `blockedFetches: 0`, `csp: []`.
+All three fonts reported `loaded`; the desktop canvas sample had 4096 nonzero
+bytes, and the mobile draw-time sample had 256 nonzero RGB pixels. Selecting
+the Light and Dark buttons returned `themesWorking: true`. Fetch was replaced
+with a non-forwarding guard; no model or scanner integration was exercised.
+
+TESTED WITH MOCKS: the broader isolated run called
+`pytest.main(['-q', '--tb=no', '-ra', '-p', 'no:cacheprovider'])` with socket
+creation, connection and DNS blocked. It returned
+`8 failed, 295 passed, 375 subtests passed in 48.77s`, with zero skips. Five
+failures attempted sockets; three assert the previously removed UI. They remain
+unresolved and were not weakened or suppressed to make this checkpoint green.
+
+MISSING: `python scripts/check.py` reported
+`GATE INCOMPLETE: missing prerequisites: ruff lint, ruff format, pyright, pytest + coverage`.
+Source coverage remains unmeasured. `tests/fixtures/nikto/` still has no real
+human-captured Nikto JSON. That absence does not prevent testing offline asset
+bundling, but prevents a claim of real Nikto integration verification.

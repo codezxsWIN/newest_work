@@ -25,6 +25,27 @@ def _hash_source(text: str) -> str:
     return base64.b64encode(sha256(text.encode("utf-8")).digest()).decode("ascii")
 
 
+def _globe_module() -> str:
+    globe = _asset("cobe-globe.js")
+    renderer = _asset("vendor/cobe.js")
+    import_line = "import createGlobe from './vendor/cobe.js';"
+    renderer_export = "export{Pe as default};"
+    globe_export = "export function initialiseCobeGlobe"
+    if (
+        globe.count(import_line) != 1
+        or globe.count(globe_export) != 1
+        or renderer.count(renderer_export) != 1
+    ):
+        raise ConfigError("UI export requires the known local Cobe module imports and exports")
+    renderer = renderer.replace(renderer_export, "return Pe;", 1)
+    globe = globe.replace(import_line, f"const createGlobe = (() => {{\n{renderer}\n}})();", 1)
+    globe = globe.replace(globe_export, "function initialiseCobeGlobe", 1)
+    return (
+        f"const initialiseCobeGlobe = (() => {{\n{globe}\n"
+        "return initialiseCobeGlobe;\n})();"
+    )
+
+
 def export_html(application: UiApplication, destination: str | Path) -> Path:
     if application.run_id is None:
         raise ConfigError("UI export requires --run or --run-id naming an existing assessment")
@@ -63,15 +84,29 @@ def export_html(application: UiApplication, destination: str | Path) -> Path:
     except OSError as error:
         raise ConfigError(f"cannot read UI artwork {artwork_path}") from error
     style = style.replace("/static/project-horizon.png", f"data:image/png;base64,{artwork}")
+    for name in (
+        "InstrumentSans-Variable.woff2",
+        "InstrumentSans-VariableItalic.woff2",
+        "GeistMono-Variable.woff2",
+    ):
+        font_path = STATIC_ROOT / "vendor" / "fonts" / name
+        if not font_path.is_file():
+            raise ConfigError(f"MISSING: UI font {font_path}")
+        try:
+            font = base64.b64encode(font_path.read_bytes()).decode("ascii")
+        except OSError as error:
+            raise ConfigError(f"cannot read UI font {font_path}") from error
+        style = style.replace(f"/static/vendor/fonts/{name}", f"data:font/woff2;base64,{font}")
     app = _asset("app.js")
     modules: list[str] = []
     for import_line, name in (
         ("import { scoreVector, sandbox } from './cvss31.js';", "cvss31.js"),
         ("import { createAnalysisQueue } from './analyst-client.js';", "analyst-client.js"),
+        ("import { initialiseCobeGlobe } from './cobe-globe.js';", "cobe-globe.js"),
     ):
         if app.count(import_line) != 1:
             raise ConfigError(f"UI export requires the known local {name} module import")
-        modules.append(_asset(name))
+        modules.append(_globe_module() if name == "cobe-globe.js" else _asset(name))
         app = app.replace(import_line, "", 1)
     script = "\n".join([*modules, app])
     for name in ("tokens.css", "workbench.css"):
@@ -79,8 +114,8 @@ def export_html(application: UiApplication, destination: str | Path) -> Path:
     document = document.replace('<script type="module" src="/static/app.js"></script>', "")
     policy = (
         f"default-src 'none'; script-src 'sha256-{_hash_source(script)}'; "
-        f"style-src 'sha256-{_hash_source(style)}'; img-src data:; connect-src 'none'; "
-        "base-uri 'none'; form-action 'none'"
+        f"style-src 'sha256-{_hash_source(style)}'; img-src data:; font-src data:; "
+        "connect-src 'none'; base-uri 'none'; form-action 'none'"
     )
     document = document.replace(
         "</head>",
