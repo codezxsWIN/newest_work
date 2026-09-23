@@ -189,7 +189,9 @@ def _methodology(
         "environmental score alone ranks the finding. A CISA KEV listing forces the threat factor "
         f"to {threat['kev_multiplier']}, adds {threat['kev_boost']}, and &mdash; only when the host "
         f"is internet-facing &mdash; applies a floor of {threat['kev_floor_internet_facing']}. "
-        "Findings without a CVE fall back to the tool's own severity table. " + model_note
+        "Findings without a usable CVSS 3.1 vector fall back to the tool's own severity table. "
+        "Observed EPSS and KEV facts are retained; the configured KEV boost and exposure floor "
+        "still apply, but EPSS does not multiply a native-severity fallback. " + model_note
     )
     body = f"<h2>4. Methodology</h2><p>{text}</p>"
     body += _table(
@@ -336,15 +338,29 @@ def _audit(audit: dict[str, Any]) -> str:
                 f"<td>{_cell(item.get('confidence'))}</td>",
                 f"<td>{_cell(item.get('margin'))}</td>",
                 f"<td>{'yes' if item.get('abstained') else 'no'}</td>",
+                f"<td>{_cell(item.get('feature_coverage'))}</td>",
+                f"<td>{_cell(', '.join(item.get('out_of_vocabulary', [])))}</td>",
+                f"<td>{_cell(item.get('model_hash'))}</td>",
                 f"<td>{escape(_bounded(item.get('evidence', '')))}</td>",
             ]
         )
         for item in audit.get("model_cases", [])
     ]
     if model_rows:
-        body += "<h3>Shadow-model abstentions and disagreements</h3>"
+        body += "<h3>Shadow-model predictions (not scoring inputs)</h3>"
         body += _table(
-            ["Host", "Rule", "Model", "Confidence", "Margin", "Abstained", "Evidence"],
+            [
+                "Host",
+                "Rule",
+                "Model",
+                "Confidence",
+                "Margin",
+                "Abstained",
+                "Feature coverage",
+                "Out-of-vocabulary features",
+                "Model hash",
+                "Evidence",
+            ],
             model_rows,
         )
 

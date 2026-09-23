@@ -246,7 +246,7 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(missing, ["nmap", "zap-baseline.py"])
 
     def test_scope_and_canary_are_rejected_before_output_or_execution(self):
-        for target in ("8.8.8.8", "172.28.0.250"):
+        for target in ("8.8.8.8", "172.28.0.250", "portal.example.edu", "192.168.0.116"):
             with self.subTest(target=target), TemporaryDirectory() as directory:
                 output = Path(directory) / "captures"
                 with self.assertRaises(ScopeError):

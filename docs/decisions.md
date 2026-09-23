@@ -714,3 +714,87 @@ MISSING: `python scripts/check.py` reported
 Source coverage remains unmeasured. `tests/fixtures/nikto/` still has no real
 human-captured Nikto JSON. That absence does not prevent testing offline asset
 bundling, but prevents a claim of real Nikto integration verification.
+
+## Full two-prompt pipeline recheck - 2026-09-23
+
+**RECHECK-01. DECIDED - actual discovery and normalized persistence:** PROJECT.md
+stages 1-4. An exit-zero Nmap process without the requested host is failed
+discovery, not a completed assessment. Preserve its exit code, timing and raw
+path. The existing scan command now imports successful captures and retains all
+outcomes in the existing run summary; later web imports retain Nmap services.
+Apply the explicit named-target requirement to the older runner and importer as
+well as the main orchestrator. Rejected: counting every skip as success, treating
+a CIDR as target authorization, or leaving successful scans outside the store.
+No command shape, scope entry, SQL layout or exit code changes.
+
+**RECHECK-02. DECIDED - enforce the already-recorded model boundary:** PROJECT.md
+stage 5 and RQ1. MODEL-06/OPERATIONS-01 authorize shadow candidates only, even
+after a promotion attestation. Canonical profile construction and the pure
+scoring function now reject unapproved learned/LLM context. Training, prediction,
+evaluation and shadow recommendations remain available. Label templates leave
+independent groups unfilled; loading rejects null/blank groups instead of making
+`run:IP` look like reviewed independence. Rejected: silently enabling learned
+scoring, silently ignoring a model argument, or inventing independent hosts.
+Conflict / resolution / why: the requested canonical trained-context flow needs
+the human-approved context-source ADR; this pass does not fabricate that approval.
+
+**RECHECK-03. DECIDED - bounded, truthfully partial analyst cases:** PROJECT.md
+stage 5. Clean all model-facing strings, escape delimiters, include the required
+untrusted-data prefix, and never reuse a citation when its budget is exhausted.
+Use stored-risk ordering with stable finding-ID ties and expose included/omitted
+finding, service and intelligence counts. Partial coverage forces an uncertainty
+notice and conservative confidence. Preserve scanner provenance, match confidence,
+feed dates and weight hashes in included evidence. Rejected: pretending an
+oversized case was fully reviewed, silently dropping rows, or increasing an
+unmeasured context window until a demo passes. A bounded partial analysis still
+does not meet the original complete-case acceptance requirement.
+
+**RECHECK-04. DECIDED - injectable providers and shared grounding guards:**
+Keep the default provider local-only. A typed provider boundary preserves the
+injected source identity; it is not a cloud-provider implementation or approval.
+Validate a case before contacting its provider. Reject unsupported CVEs/numbers
+and malformed citations, including in corpus supervision. Bound streamed events,
+wire bytes and decoded content; require explicit completion and transmit the
+requested output schema. Rejected: false Ollama provenance, trusted streaming
+content, citation-only claims of factual truth, and corpus-only validation bypasses.
+These guards do not prove semantic entailment, useful reasoning or live inference.
+
+**RECHECK-05. DECIDED - preserve known threat inputs and isolate baselines:**
+Cross-cutting risk ranking and RQ2/RQ4. Missing CVSS must not erase observed EPSS
+or KEV. Keep the native-severity base and apply the existing configured KEV boost
+and exposure floor; do not apply an EPSS multiplier to a native fallback. Severity
+baselines use recorded native-severity provenance rather than final adjusted risk;
+absent EPSS remains unscored rather than being treated as an observed zero. Validate
+all required host context and calculate all scores before writing score rows.
+Rejected: discarding known threat data, contaminating baselines with KEV/context,
+and silently omitting findings without a context profile. Weights, thresholds,
+CVSS version policy and canonical fields are unchanged. This is a correctness
+repair, not a measured improvement against expert rankings.
+
+**RECHECK-06. DECIDED - network-free tests and visible shadow uncertainty:**
+Cross-cutting reproducibility and PROJECT.md stage 7. Reuse the existing in-memory
+HTTP harness for assessment-route tests and retain their assertions. Pytest blocks
+Python socket connection/bind/send and DNS operations by default; that is not a
+sandbox or permission for network-capable child processes. The detailed report
+includes all shadow predictions, including rule agreements, with coverage, OOV
+features, confidence, margin, abstention and model hash. Rejected: hiding low-coverage
+agreements, live sockets in unit tests, or weakening assertions to obtain a green gate.
+
+**RECHECK-07. NOT APPROVED - remaining product contracts and research inputs:**
+Writable intake/resolution and its identity record, canonical model activation,
+and durable structured-analysis/report bindings still need the prescribed review.
+No new authorization, cloud data flow, dependency provisioning, model-quality claim
+or unseen-environment result is implied. The complete evidence, remaining failures,
+and both prompts' acceptance checks are recorded in HANDOFF.md. Concurrent commits
+6f51bb5/b3e5dae were preserved; the removed offline-export bundling is reported as
+a regression, not silently restored during this backend-focused pass.
+
+**RECHECK-08. DECIDED - preserve and validate incoming model infrastructure:**
+Remote checkpoint 5b13059 added feature-family ablation and optional training-run
+registration. These were retained when rebasing the unpublished recheck. The
+ablation CLI now forwards its declared training options and rejects conflicting
+family selectors. Any synthetic labels classify the registered dataset as
+synthetic, rather than allowing one human-tagged row to label a mixed dataset
+`real_authorised`. Rejected: silently ignoring hyperparameters, overstating data
+provenance, or dropping the incoming work. Registration remains draft metadata;
+it is not independent test evidence, authorization verification or model promotion.

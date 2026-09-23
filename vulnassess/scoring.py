@@ -10,6 +10,7 @@ from dataclasses import replace
 from typing import Any, cast
 
 from vulnassess import cvss31
+from vulnassess.errors import ConfigError
 from vulnassess.schema import ContextProfile, Enrichment, Finding, ScoreBreakdown, Service
 
 Weights = dict[str, Any]
@@ -199,6 +200,16 @@ def score(
     host_services: tuple[Service, ...],
     weights: Weights,
 ) -> ScoreBreakdown:
+    features = (
+        profile.role,
+        profile.exposure,
+        *profile.controls.values(),
+        *profile.manual.values(),
+    )
+    if any(feature.source not in {"rule", "manual"} for feature in features):
+        raise ConfigError(
+            "canonical scoring from learned context requires a human-approved context-source ADR"
+        )
     internet_facing = profile.exposure.value == "internet_facing"
     inputs = {
         "role": profile.role.to_json(),
@@ -239,7 +250,9 @@ def score(
         )
     else:
         native_key, label = _native_value(finding, weights)
-        value, multiplier = risk(None, None, False, native_key, weights, internet_facing)
+        percentile = enrichment.epss_percentile if enrichment is not None else None
+        kev = enrichment.kev if enrichment is not None else False
+        value, multiplier = risk(None, percentile, kev, native_key, weights, internet_facing)
         breakdown = ScoreBreakdown(
             finding_id=finding.id,
             host_ip=finding.host_ip,
@@ -250,9 +263,9 @@ def score(
             env_vector=None,
             env_score=None,
             env_modifications={},
-            epss_percentile=None,
+            epss_percentile=percentile,
             threat_multiplier=multiplier,
-            kev=False,
+            kev=kev,
             native_fallback=label,
             risk=value,
             band=band(value, weights),

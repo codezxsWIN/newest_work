@@ -405,6 +405,71 @@ the final A-J review below will distinguish repaired paths from unproved claims.
 - Next action: verify partial-run persistence, then examine context-model
   promotion, independent labels, uncertainty retention and the analyst boundary.
 
+### Cycle 7 - model governance and actual dataset evidence
+
+- Objective: PROJECT.md stage 5 and RQ1; prevent an unevaluated model from
+  bypassing the approved context boundary while preserving shadow inference.
+- Current blocker: canonical learned-role activation still requires the
+  context-source ADR. A promotion manifest alone authorizes only a candidate.
+- Evidence for the blocker: TESTED WITH MOCKS, the new canonical-context test
+  initially returned `ConfigError not raised`. VERIFIED, an offline
+  `load_model`/`load_examples`/`evaluate` probe reported 54 training examples,
+  18 validation examples, 72 synthetic labels, zero shared group IDs and 17
+  shared feature vectors. Both datasets reported accuracy/macro-F1/coverage
+  1.0 and ECE `3e-07`; these are not human-held-out quality measurements.
+- Change made: `build_profile` now refuses the unapproved model activation
+  explicitly. Existing rule context remains unchanged; model prediction,
+  training, evaluation and hybrid candidate generation remain available.
+- Test performed: TESTED WITH MOCKS, `python -m pytest -q --tb=short
+  -p no:cacheprovider tests/test_model_governance.py tests/test_role_model.py
+  tests/test_context_eval.py`.
+- Result: TESTED WITH MOCKS, `26 passed, 10 subtests passed in 1.19s`.
+- Next action: keep independent human labels and unseen-environment evaluation
+  separate from the synthetic replay; examine AI2 case and provider boundaries.
+
+### Cycle 8 - analyst input, output and transport boundaries
+
+- Objective: PROJECT.md stage 5; preserve grounding without changing numerical
+  ranking or disguising partial analysis as a complete assessment.
+- Current blocker: a live local model is unavailable. Remote-provider runtime
+  use remains outside the current local-only policy.
+- Evidence for the blocker: TESTED WITH MOCKS, regressions reproduced citation
+  ID reuse, an uncapped 24,047-character service banner, unsupported CVE/number
+  claims, malformed citation exceptions, false Ollama provenance, and unbounded
+  or incomplete streamed responses.
+- Change made: all model-facing strings are cleaned and capped; JSON delimiters
+  are escaped and the required untrusted-data prefix is present. Cases use
+  stored-risk ordering, bounded evidence and explicit coverage counts. Omitted
+  records force a partial-coverage notice and low confidence, not silent loss.
+  Case evidence includes scanner provenance, match confidence, feed dates and
+  weight hashes. Providers are injectable, identify themselves, and are contacted
+  only after case validation. Unsupported CVEs/numbers and malformed citations
+  are rejected. Streaming uses the supplied schema, bounded event/content/wire
+  sizes and explicit completion. Broader prose truth is still not proven by IDs.
+- Test performed: TESTED WITH MOCKS, isolated-copy `python -m pytest -q
+  --tb=short -p no:cacheprovider tests/test_analyst.py tests/test_all.py::TestExplain`.
+- Result: TESTED WITH MOCKS, `31 passed, 15 subtests passed in 2.34s`.
+- Next action: replay real captures through these bounds and inspect report,
+  model and evaluation provenance rather than extrapolating from fake replies.
+
+### Cycle 9 - offline integration-test integrity
+
+- Objective: cross-cutting reproducibility and invariant I4; exercise actual
+  request handlers without test-generated network traffic.
+- Current blocker: the old full suite required loopback sockets for five
+  assessment-store tests, contrary to the standing no-network test rule.
+- Evidence for the blocker: TESTED WITH MOCKS, the previous guarded full run
+  reported five `NoBrowserWriteAccess` failures at socket creation.
+- Change made: those tests now use the existing in-memory HTTP request harness
+  and retain every response/write-refusal assertion. An autouse pytest fixture
+  blocks Python socket connection, binding, sending and DNS operations. This
+  guard is not permission to run network-capable child processes.
+- Test performed: TESTED WITH MOCKS, `python -m pytest -q --tb=short
+  -p no:cacheprovider tests/test_assessment_store.py tests/test_orchestrator.py`.
+- Result: TESTED WITH MOCKS, `39 passed, 7 subtests passed in 16.39s`.
+- Next action: recheck the complete offline suite; do not weaken the remaining
+  old-UI assertions or claim that HTTP transport mocks establish live operation.
+
 ## Complete source publication checkpoint - 2026-09-23
 
 PROJECT.md Stage 7 publication, including the pending stages 1-5 safety repairs.
@@ -478,3 +543,348 @@ EVIDENCE: quoted Git, test and gate results above. DEFERRED: build certification
 and real-integration evidence are separate from source synchronization and
 cannot be inferred from a successful push. NEXT: repair the offline-export
 regression in an authorized follow-up and provide reviewed quality tooling.
+
+### Cycle 10 - numerical, corpus and report evidence
+
+- Objective: PROJECT.md stages 5-7 and RQ1-RQ4; prevent hidden ranking omissions,
+  supervision validation bypasses, threat-data loss and missing model uncertainty.
+- Current blocker: real runtime and research inputs remain absent; the old
+  four-stage UI and concurrently removed export bundling remain separate failures.
+- Evidence for the blocker: TESTED WITH MOCKS, regressions reproduced accepted
+  unsupported corpus claims, discarded KEV without CVSS, automatic run-based
+  grouping, stored learned-context scoring and silently dropped findings.
+- Change made: corpus supervision reuses grounding validation; groups require
+  review; known threat facts survive missing CVSS; baselines do not inherit final
+  risk; ranking prevalidates context; detailed reports expose all shadow uncertainty.
+- Test performed: TESTED WITH MOCKS, the focused scoring/governance command
+  `python -m pytest -q --tb=short -p no:cacheprovider tests/test_all.py::TestScoring
+  tests/test_experiments.py tests/test_evaluate_research.py tests/test_model_governance.py`
+  returned `33 passed, 34 subtests passed in 2.19s`.
+- Result: VERIFIED, the fixture replay command
+  `python -m pytest -q -s --tb=short -p no:cacheprovider
+  tests/test_real_captures.py::TestRealCaptures::test_recorded_evidence_replays_to_ranked_report_without_network`
+  returned `1 passed in 4.89s` and printed `findings: 225`, `identical_rerank: true`,
+  `matched_identifiers: 3`, `cached_nvd_records: 0`, `run_endpoint: 200` and
+  analyst coverage `findings_included: 5`, `findings_omitted: 217` of 222.
+- Next action: publish the complete audit and checkpoint without claiming live
+  end-to-end acceptance, model generalisation or a passing quality gate.
+
+## Full two-prompt audit - 2026-09-23
+
+Scope: the original target-to-report implementation directive and every item in
+the second-pass adversarial prompt. PROJECT.md stages 1-7 plus ranking,
+evaluation and reproducibility. Mobile work was excluded at the user's request.
+Initial revision: fc2ba67. Concurrent checkpoints 6f51bb5 and b3e5dae were
+preserved; some repairs from this pass were included in those commits while the
+recheck continued. Statements in earlier audits are historical, not current proof.
+
+### A. EXECUTIVE VERDICT
+
+**NO: the requested new-target, live, trained-context-to-reasoning-to-report
+product is not demonstrated end to end.**
+
+VERIFIED: recorded-capture processing produces 225 normalized findings, 225
+repeatable scores and an audit-aware HTML report. The new replay test quoted
+above makes that result reproducible. It is not a new-target scan or an LLM run.
+
+TESTED WITH MOCKS: this pass repaired scan-to-store persistence, false discovery
+completion, inconsistent scope checks, model-governance bypasses, analyst input,
+output and streaming guards, partial-case disclosure, baseline isolation, and
+network-using tests. Those results establish the tested code paths only.
+
+MISSING: scanner/model executables, runtime feed snapshots, genuine canary
+evidence, human role labels, held-out environments and expert judgments. Target
+intake/resolution, one assessment coordinator, model activation and durable AI2
+report integration remain incomplete, not completed by the repairs.
+
+### B. COMPLETION CLAIMS VERIFIED
+
+| Claim | Evidence and exact check | Owning code |
+| --- | --- | --- |
+| Requested-host absence is not success; partial scans retain outcomes and successful evidence | TESTED WITH MOCKS: `python -m pytest -q --tb=short -p no:cacheprovider tests/test_orchestrator.py tests/test_operations_cli.py` -> `18 passed, 7 subtests passed in 3.62s` | `orchestrator.py`, `cli.py`, `pipeline.py`, `store.py` |
+| Explicit target checks cover the legacy runner/importer too | TESTED WITH MOCKS: `python -m pytest -q --tb=short -p no:cacheprovider tests/test_all.py::TestRunner tests/test_orchestrator.py tests/test_reader_security.py` -> `30 passed, 14 subtests passed in 1.88s` | `runner.py`, `pipeline.py`, `orchestrator.py` |
+| Real recorded formats reach normalized findings, rankings, the run API and a report | VERIFIED: `TestRealCaptures.test_recorded_evidence_replays_to_ranked_report_without_network` -> `1 passed`; printed 225 findings, identical rerank, API 200 and zero cached NVD matches | `readers/`, `intel.py`, `pipeline.py`, `report.py`, `ui/server.py` |
+| Canonical numerical calculations reject learned-context bypasses and missing host context | TESTED WITH MOCKS: focused scoring/ablation/evaluation/governance run -> `33 passed, 34 subtests passed` | `scoring.py`, `pipeline.py`, `context.py` |
+| Bounded analyst, provider and transport guards execute without a real model | TESTED WITH MOCKS: isolated `python -m pytest -q --tb=short -p no:cacheprovider tests/test_analyst.py tests/test_all.py::TestExplain` -> `31 passed, 15 subtests passed`; subsequent corpus/analyst run -> `19 passed` | `analyst.py`, `explain.py`, `finetune/build_corpus.py` |
+| Model training, shadow prediction and governance are actual implementations | TESTED WITH MOCKS: `python -m pytest -q --tb=short -p no:cacheprovider tests/test_role_model.py tests/test_model_governance.py tests/test_context_eval.py` -> `27 passed, 10 subtests passed` | `role_model.py`, `model_governance.py`, `context_eval.py` |
+| Detailed report exposes shadow uncertainty without activating it | TESTED WITH MOCKS: `python -m pytest -q -s --tb=short -p no:cacheprovider tests/test_audit_report.py tests/test_real_captures.py::TestRealCaptures::test_recorded_evidence_replays_to_ranked_report_without_network` -> `2 passed in 3.06s` | `audit.py`, `report.py` |
+
+### C. COMPLETION CLAIMS THAT ARE MISLEADING OR FALSE
+
+| Claimed behavior | Actual behavior and why the claim fails | Severity |
+| --- | --- | --- |
+| New target to complete assessment through the app | TESTED WITH MOCKS: in-memory handlers returned `new_target_get: 404`, `target_post: 405`, `legacy_run_get: 200`, `expanded_runs_get: 409` on the replay database. Viewing an existing run is not target onboarding. | BLOCKER |
+| Three matched CVEs prove intelligence coverage | VERIFIED: the replay has three explicit scanner IDs but `cached_nvd_records: 0`, `cvss31_vectors: 0`, `epss_values: 0`. Association confidence is not independent vulnerability confirmation. | HIGH |
+| Perfect classifier metrics prove generalisation | VERIFIED: 54 train + 18 calibration examples are all synthetic; 17 feature vectors overlap across splits. Accuracy/macro-F1/coverage 1.0 and ECE `3e-07` are replay measurements, not independent quality evidence. | BLOCKER |
+| Complete grounded target analysis | VERIFIED: the real web case includes 5/222 findings within the budget. TESTED WITH MOCKS: the response now discloses omitted records and lowers confidence; complete-case reasoning remains unproved. | HIGH |
+| A trained reasoning model exists | VERIFIED: corpus inspection found two supervision rows, one marked synthetic in its prompt, with no reviewer/approval metadata keys. MISSING: a completed training artifact and independent analyst evaluation. | HIGH |
+| Every context quote is verbatim raw evidence | VERIFIED: the `RAW_QUOTE_CHECK` probe found all three role and exposure strings absent as literal substrings from the copied raw artifacts; the strings are normalized descriptions or scope-derived explanations. | HIGH |
+| Full report includes all structured AI2 reasoning | NOT RUN: `analyze_target` is transient/read-only; the existing report binds stored rationales and optional research artifacts, not a persisted structured analyst response. | HIGH |
+| The gate is green or the offline export remains repaired | MISSING: Ruff/Pyright/coverage tools. TESTED WITH MOCKS: the full run retains old-UI failures and the export regression reintroduced by concurrent commit 6f51bb5. | HIGH |
+
+### D. TOP 10 TECHNICAL FAILURES
+
+Ranked by impact on the requested product/research acceptance, not by amount of code.
+
+| Rank | Failure and root cause | Affected modules | Exact next correction |
+| --- | --- | --- | --- |
+| 1 | TESTED WITH MOCKS: no writable new-target intake or hostname resolution; the app is a stored-run viewer | `cli.py`, `settings.py`, `ui/server.py` | Approve the target-intake/resolution contract, then preserve requested name, all reviewed resolved addresses, timestamp and actual scan identity; authorize before execution. |
+| 2 | NOT RUN: no single coordinator advances an authorized target through every stage; repaired scanning stops after normalized persistence | `cli.py`, `pipeline.py` | Add the approved assessment lifecycle that sequences enrichment, context, ranking, reasoning and report, preserving partial/error states. |
+| 3 | TESTED WITH MOCKS: legacy pipeline storage and expanded assessment storage are disconnected; expanded route returned 409 on the pipeline run | `store.py`, `repository.py`, `ui/server.py` | Agree the authoritative store/migration contract and connect writers/readers; do not fabricate assessment rows to make the dashboard appear populated. |
+| 4 | MISSING: live scanners, local model service and runtime inputs | scanner executables, Ollama, `data/feeds`, canary evidence | Human-provision approved tools/models/snapshots and actual lab instrumentation; demonstrate one explicitly authorized target without downloading or inventing inputs. |
+| 5 | MISSING: independent role truth, held-out environments and expert rankings | `role_model.py`, `context_eval.py`, `cohort.py`, `evaluate.py` | Collect reviewed host/clone groups, separate train/calibration/test environments, and expert rankings for a frozen cohort before claiming RQ1-RQ4 results. |
+| 6 | NOT RUN: learned context remains shadow-only by policy; activation cannot be inferred from a valid manifest | `context.py`, `model_governance.py`, `scoring.py` | Obtain the context-source ADR and real promotion evidence, then carry full prediction uncertainty/provenance through the approved canonical interface. |
+| 7 | VERIFIED: observed CVEs and supplied intelligence do not overlap | `intel.py`, fixture/runtime snapshots | Supply provenance-pinned snapshots containing the observed identifiers; distinguish extracted candidates, cached facts and confirmed findings. |
+| 8 | VERIFIED: normalized context descriptions are presented as verbatim evidence | `readers/`, `context.py`, `role_model.py`, report provenance | Bind context features to exact source spans/records under the required interface review; keep derived explanations separate and verify I3 on real captures. |
+| 9 | VERIFIED: bounded analyst coverage is partial; NOT RUN: useful full-case reasoning, provider switching and durable report integration | `analyst.py`, `explain.py`, `report.py` | Implement and evaluate complete-coverage batching/aggregation and an approved structured-analysis artifact binding; retain explicit omissions/failures and independent prose review. |
+| 10 | TESTED WITH MOCKS: full suite is not green, including a concurrent export regression; MISSING: required gate tools | `tests/test_ui.py`, `ui/export.py`, quality tooling | Resolve UI/export direction without weakening assertions, provision the reviewed tools, then rerun lint, format, types, tests and coverage. |
+
+### E. AI1 AUDIT — TRAINED CONTEXT MODEL
+
+VERIFIED: `load_model`, `load_examples`, `extract_features` and `evaluate` on
+`models/synthetic-role-model.json` printed:
+
+```text
+algorithm=multinomial_logistic_regression; model_hash=d1a13c5e7302dca5
+classes=9; features=134; temperature=0.25
+train_examples=54; train_groups=54; validation_examples=18; validation_groups=18
+label_sources={synthetic:72}; group_overlap=0; vector_overlap=17
+train/calibration accuracy=1.0; macro_f1=1.0; coverage=1.0; abstention_rate=0.0
+train/calibration expected_calibration_error=3e-07; log_loss=3e-07
+```
+
+VERIFIED: features are binary port/protocol/service/product/banner/CPE/OS/TLS
+tokens, not IP/hostname identifiers. Calibration is temperature-grid log-loss
+selection. The temperature sharpens probabilities; it is not evidence of good
+real-world calibration. Distinct declared group IDs do not establish independent
+machines, especially with duplicated feature vectors. New label templates no
+longer manufacture group IDs from run names.
+
+TESTED WITH MOCKS: grouped cross-validation, hash checking, malformed-input refusal,
+reviewer requirements, abstention and shadow non-mutation paths pass their tests.
+MISSING: human role labels, a untouched test environment and independently
+verified host/clone grouping. Confirmed independent real training groups: none
+provided. Canonical deployment use is not justified by this evidence.
+
+**AI1 STATUS: DEMO-ONLY.** The learning implementation is genuine; measured
+real-world model quality and research readiness are not established.
+
+### F. AI2 AUDIT — REASONING ANALYST
+
+TESTED WITH MOCKS: a typed `AnalystProvider` can supply a model and source without
+rewriting case construction or validation. The default remains loopback-only
+Ollama. There is no implemented/configurable remote-provider factory, credential
+workflow or cloud approval; injection is not live multi-provider verification.
+
+VERIFIED: the real-capture case now fits 10,970 prompt characters with 21 unique
+evidence records and coverage 5/222 findings. Model-facing fields include services,
+context, findings, available intelligence, deterministic scores and provenance.
+TESTED WITH MOCKS: delimiter/text caps, schema transmission, response-size and
+completion guards, unknown citations, unsupported CVEs/numbers and provider
+failure isolation passed. Cases are validated before provider access.
+
+NOT RUN: useful live reasoning and full-target aggregation. Correlations are
+within one supplied host, not cross-host attack paths. The returned confidence is
+conservatively capped for partial coverage, not independently calibrated. Missing
+provider service raises `LLMUnavailable`; it does not mutate the assessment or
+fabricate an analyst response. Deterministic rationale fallback is a separate path.
+Citation membership and numeric whitelists do not prove semantic entailment or
+that a recommended version is a verified fix. AI2 is more than a sentence wrapper
+in design, but its non-trivial practical value has not been measured.
+
+**AI2 STATUS: USEFUL BUT LIMITED**, describing the implemented structure, not
+a successful live-model evaluation.
+
+### G. GENERALISATION AUDIT
+
+VERIFIED: the committed capture README describes an owner-controlled Windows
+loopback lab using three IP aliases. No second independently reviewed environment
+was supplied. File names, IP counts and repeated fingerprints are not independent
+proof of physical-host identity. Production-code search found the hard-coded lab
+addresses/names in the explicitly named visual simulation, not a target-specific
+branch in the scanner readers or classifier.
+
+VERIFIED: shadow replay reported `(coverage, OOV count, confidence)` of
+`(.260870,17,.993953)`, `(.405405,22,.999975)` and `(.347826,15,.854620)`;
+none abstained. All three role labels agreed with the rules. Every replay score
+used a native fallback, so this run cannot establish the ranking value of learned
+roles even if their labels were different.
+
+MISSING: untouched environment evaluation and human per-host role truth.
+Correction to earlier audit wording: a `file_share` label on the Juice Shop
+alias is not by itself a proven misclassification; the capture also exposes SMB,
+and no independently reviewed host-role truth was provided. Likewise, identical
+rule/model rankings on this cohort do not prove the model has no value generally.
+
+**GENERALISATION STATUS: NOT PROVEN.**
+
+### H. LIVE PRODUCT FLOW AUDIT
+
+| Stage | Status | Evidence boundary |
+| --- | --- | --- |
+| New target | BROKEN | TESTED WITH MOCKS: no intake route; only existing named scope targets are accepted. |
+| Resolution/identity | BROKEN | NOT RUN: no resolver call chain or original-name/address/time binding; a scanner hostname is not the requested-target record. |
+| Authorization | WORKING for tested refusals | TESTED WITH MOCKS: explicit-target/canary checks precede the tested command/import paths; live authorization evidence remains required. |
+| Scanning | PARTIAL | TESTED WITH MOCKS: Nmap-first selection, observed web endpoints, partial outcomes and missing-host refusal. MISSING: scanner binaries and real canary evidence. |
+| Normalization/storage | WORKING for recorded replay | VERIFIED: 225 findings, raw provenance and retained services; TESTED WITH MOCKS: scan handoff works. No live scanner-to-store proof. |
+| Enrichment | PARTIAL | VERIFIED: three extracted IDs, zero matching cached NVD/EPSS records; missing facts are not substituted. |
+| Trained context | PARTIAL/shadow only | VERIFIED: classifier inference runs; MISSING: human validation and canonical activation approval. |
+| Scoring | WORKING for tested inputs | VERIFIED: two CLI `rank --json` calls exited 0 with byte-identical output for 225 findings. TESTED WITH MOCKS: missing-data, threat and baseline invariants pass. |
+| Reasoning | PARTIAL | TESTED WITH MOCKS: grounded structured boundary and failure isolation; NOT RUN: real inference, complete-case aggregation or provider switching. |
+| Report/review | PARTIAL | VERIFIED: detailed HTML includes raw paths, feed dates, weights and model hash; TESTED WITH MOCKS: full shadow uncertainty renders. NOT RUN: persisted AI2 artifact; export regression remains. |
+
+The first prompt's additional acceptance requirements are not lost in this table:
+MISSING: human-labelled model evaluation, unseen-environment proof and real expert
+rankings. VERIFIED: the real replay has no CVE shared across hosts, so it does not
+demonstrate the signature two-machine experiment. TESTED WITH MOCKS: model/AI
+failures leave canonical records unchanged and all three baseline orders retain
+the cohort. NOT RUN: complete uncertainty handoff from AI1 into AI2 and durable
+reasoning provenance in a final new-target report.
+
+### I. TEST QUALITY AUDIT
+
+| Class | What is exercised | What it does not prove |
+| --- | --- | --- |
+| Unit | TESTED WITH MOCKS: pure CVSS/risk/metrics, data validation, source policy and grouping logic | Live scanner/model quality or real labels |
+| Mocked integration | TESTED WITH MOCKS: fake scanner executor -> real importer/store; fake model transport; in-memory HTTP -> actual handlers | External tools, local-model behavior or new-target orchestration |
+| Fixture integration | VERIFIED: committed Nmap/ZAP captures and curated feed formats -> stored evidence, rankings, run API and report | An unseen environment, fresh scanning or useful intelligence coverage |
+| Real integration | NOT RUN: scanners and reasoning runtime unavailable | No claim of live integration success |
+| End-to-end | NOT RUN: new target -> final persisted AI2 report | The requested product acceptance remains unmet |
+
+TESTED WITH MOCKS: default pytest guards now reject Python socket connections,
+binds, sends and DNS. Five former loopback tests use the existing in-memory
+transport without losing assertions. These guards are not a network sandbox for
+arbitrary child processes. Synthetic fixtures and corpus rows remain synthetic;
+fixture-specific count assertions are regression checks, not generalisation proof.
+
+MISSING: the real Nikto capture, independent labels/rankings, current runtime
+feeds, and Ruff/Pyright/pytest-cov. Coverage is unmeasured. Old-UI assertions and
+the concurrent offline-export regression remain visible; no skip/xfail or
+assertion weakening was used. Final full-suite counts are recorded below after
+the last validation run.
+
+### J. REQUIRED FIX PLAN
+
+1. Obtain the target-intake/resolution and assessment-lifecycle contract approval;
+  define requested name, reviewed addresses, timestamp, scope decision and scan
+  identity without weakening explicit authorization or the canary wall.
+2. Reconcile the authoritative store and connect one coordinator through all
+  existing stages, retaining failed/partial outcomes and durable report bindings.
+3. Human-provision approved scanners, local model artifacts, matching intelligence
+  snapshots and genuine lab/canary evidence. An empty file alone is not scan-safety proof.
+4. Bind inferred features to raw source spans and distinguish normalized/rule/
+  manual descriptions from literal evidence; prove I3 on genuine captures.
+5. Collect independent human role/clone groups, calibrate separately and evaluate
+  an untouched environment. Obtain the context-source approval before canonical
+  activation; retain all prediction uncertainty and model identity.
+6. Implement and evaluate complete-case analyst aggregation and persistent
+  structured reasoning/report provenance. Add other providers only within an
+  explicitly approved data-flow policy; no remote credentials are requested here.
+7. Freeze a real same-CVE comparison and cohort, collect expert rankings, and run
+  the existing tie-aware baselines/ablations without tuning on the test judgments.
+8. Resolve the UI/export regression direction, provision the reviewed quality
+  tools, and run the entire gate plus a witnessed new-authorized-target assessment.
+
+**Evaluation infrastructure exists, but research evidence is still missing.**
+
+### Pre-integration verification and publication boundary
+
+TESTED WITH MOCKS: current source and tests were copied to an owned temporary
+directory; its working directory, database and generated reports were isolated
+from the workspace assessment. The pre-integration command was:
+
+```text
+python -m pytest -q --tb=no -ra -p no:cacheprovider
+4 failed, 326 passed, 388 subtests passed in 29.88s
+FINAL_OFFLINE_SUITE_EXIT 1
+```
+
+There were zero skips and no skip reasons. The four retained failures are:
+
+- `TestUiContract.test_decision_hero_leads_with_the_stored_top_priority`
+- `TestUiContract.test_decision_hero_names_missing_scores_instead_of_inventing_one`
+- `TestUiContract.test_workflow_is_independent_and_does_not_run_analyst`
+- `TestUiExport.test_export_is_self_contained`
+
+The first three refer to the previously removed UI. The fourth remains because
+concurrent commit 6f51bb5 removed the earlier globe/font export bundling. This
+pass does not silently undo that edit, suppress tests or resume mobile work.
+
+MISSING: `python scripts/check.py` reported Ruff lint, Ruff format, Pyright and
+pytest-cov unavailable, ending with `GATE INCOMPLETE`. Source coverage is
+unmeasured against the required 75% floor. `make`, `nmap`, `nikto`,
+`zap-baseline.py` and `ollama` were missing from PATH. Runtime `data/feeds`,
+`data/lab/canary.log`, `lab/canary_access.log` and a real Nikto capture were not
+provided. VERIFIED: local listener inventory returned `OLLAMA_LISTENERS_11434 0`.
+
+VERIFIED: the separate CLI rank probe invoked `main` twice with
+`['--db','data/audit-real-replay.db','rank','--run-id','audit-real-replay','--json']`
+and returned `first_exit: 0`, `second_exit: 0`, `byte_identical: true`,
+`findings: 225`. Report and route probes returned `DETAILED_REPORT_EXIT 0`,
+`new_target_get: 404`, `target_post: 405`, `legacy_run_get: 200`,
+`expanded_runs_get: 409`. These are local artifact/handler checks, not live scans.
+
+STATUS: EXTERNAL BLOCKER for live end-to-end acceptance, with remaining code and
+research gaps listed in A-J. BRANCH / COMMIT: `audit-no-assumptions`, based on
+concurrent checkpoint b3e5dae; the final push hash is verified separately.
+GATE: 326 passed / 4 failed / 0 skipped; lint/format/type/coverage prerequisites
+missing. BUILT: tested pipeline handoff, stronger inference/scoring boundaries,
+offline test enforcement and reproducible real-capture replay.
+CHANGED: `vulnassess/` pipeline/model/analyst/scoring/report code, `tests/`
+regressions and guard, `finetune/` validation/runbook, and these existing `docs/`.
+DECIDED: preserve evidence and explicit failure over fabricated completion;
+reject unsafe activation and baselines contaminated by final risk.
+DECISIONS: RECHECK-01 through RECHECK-07 in decisions.md.
+EVIDENCE: quoted executions above; no scanner, model-service, credential,
+download or cloud operation was performed by this recheck.
+DEFERRED: mobile work and existing UI direction; missing real inputs and approvals
+prevent live/research certification, not the demonstrated local code-path repairs.
+NEXT: supply the reviewed runtime/research artifacts and explicit contract
+approvals in J, resolve the four retained failures, and run a witnessed new-target
+assessment plus the full quality gate before claiming the project is complete.
+
+### Remote model-work integration - 2026-09-23
+
+VERIFIED: `git fetch privwork audit-no-assumptions` reported
+`b3e5dae..5b13059`. The incoming b5c4565/b436104/f16e59b changes add feature-family
+filtering, grouped family ablations, a model-ablation CLI and optional dataset/
+training-run registration. The local unpublished recheck was rebased on top;
+no remote commits were dropped and no force push was used.
+
+TESTED WITH MOCKS: the first combined isolated suite returned
+`4 failed, 337 passed, 388 subtests passed in 55.07s`, retaining the same four
+UI/export failures. Two additional integration regressions then reproduced
+`None != 7` for ignored ablation epochs and `real_authorised != synthetic` for
+mixed-label provenance. Both were repaired; conflicting family selectors now
+fail explicitly. `python -m pytest -q --tb=short -p no:cacheprovider
+tests/test_role_training.py tests/test_role_model.py tests/test_model_governance.py`
+returned `34 passed, 10 subtests passed in 24.91s`.
+
+The A-J verdict remains NO. The incoming work improves research infrastructure,
+not the missing new-target lifecycle, real datasets or live inference. Registered
+validation metrics are not an untouched test-set evaluation, and family-ablation
+results still require interpretation under the model's abstention/coverage policy.
+RECHECK-08 records the integration choice; final combined totals follow below.
+
+TESTED WITH MOCKS: after the incoming-work repairs, the final isolated command
+`python -m pytest -q --tb=no -ra -p no:cacheprovider` returned:
+
+```text
+4 failed, 340 passed, 388 subtests passed in 58.09s
+PUBLISHABLE_SUITE_EXIT 1
+```
+
+There are zero skips; the same four UI/export failures listed above remain.
+MISSING: the integrated `python scripts/check.py` run again reported Ruff lint,
+Ruff format, Pyright and pytest-cov unavailable, ending with `GATE INCOMPLETE`.
+No coverage percentage is claimed. This supersedes the earlier test totals, not
+the recorded failures or the A-J acceptance verdict.
+
+STATUS: recheck checkpoint ready to publish, live acceptance blocked.
+BRANCH / COMMIT: `audit-no-assumptions`, integrating remote 5b13059; final hashes
+are checked after push. GATE: 340 passed / 4 failed / 0 skipped; required tools
+missing. BUILT / CHANGED: the full backend/research repairs above plus the incoming
+model-infrastructure corrections. DECIDED / DECISIONS: preserve incoming work and
+honest provenance; RECHECK-01 through RECHECK-08. EVIDENCE: the quoted combined
+suite and gate executions. DEFERRED / NEXT: resolve the recorded acceptance,
+approval, runtime, research-input and UI/export blockers before certification.

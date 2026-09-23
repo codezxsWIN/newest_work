@@ -36,9 +36,10 @@ def do_import(
             f"{target_ip} is the canary in {settings.config_dir / 'scope.yaml'}; "
             "it must never be scanned or imported; nothing was read"
         )
-    if not scope.contains(target_ip):
+    if not scope.contains(target_ip) or scope.name(target_ip) is None:
         raise ScopeError(
-            f"{target_ip} is not in {settings.config_dir / 'scope.yaml'} "
+            f"{target_ip} is not an explicitly listed target in "
+            f"{settings.config_dir / 'scope.yaml'} "
             f"(allowed: {scope.allowed()}); nothing was read"
         )
 
@@ -118,11 +119,15 @@ def do_rank(settings: Settings, store: Store, run_id: str) -> list[ScoreBreakdow
             f"no context profiles for run {run_id!r}; run 'vulnassess context --run-id {run_id}' first"
         )
     services = {host.ip: host.services for host in store.hosts(run_id)}
+    findings = store.findings(run_id)
+    missing_context = sorted({finding.host_ip for finding in findings} - profiles.keys())
+    if missing_context:
+        raise ConfigError(
+            f"MISSING: context profiles for hosts {missing_context} in run {run_id!r}"
+        )
     scores: list[ScoreBreakdown] = []
-    for finding in store.findings(run_id):
-        profile = profiles.get(finding.host_ip)
-        if profile is None:
-            continue
+    for finding in findings:
+        profile = profiles[finding.host_ip]
         breakdown = scoring.score(
             finding,
             scoring.best_enrichment(store.enrichments(finding.id)),
@@ -130,8 +135,9 @@ def do_rank(settings: Settings, store: Store, run_id: str) -> list[ScoreBreakdow
             services.get(finding.host_ip, ()),
             settings.weights,
         )
-        store.upsert_score(run_id, breakdown)
         scores.append(breakdown)
+    for breakdown in scores:
+        store.upsert_score(run_id, breakdown)
     return sorted(scores, key=lambda item: (-item.risk, item.finding_id))
 
 
@@ -165,15 +171,30 @@ def baseline_orders(store: Store, run_id: str) -> dict[str, list[str]]:
     ours = sorted(scores, key=lambda item: (-item.risk, item.finding_id))
 
     def base_of(item: ScoreBreakdown) -> float:
-        return item.base_score if item.base_score is not None else item.risk / 10.0
+        if item.base_score is not None:
+            return item.base_score
+        if item.native_fallback is None:
+            return 0.0
+        try:
+            native = float(item.native_fallback.rpartition("=")[2])
+        except ValueError as error:
+            raise ConfigError(
+                f"invalid native severity provenance for {item.finding_id}"
+            ) from error
+        if not 0 <= native <= 100:
+            raise ConfigError(f"invalid native severity provenance for {item.finding_id}")
+        return native / 10.0
+
+    def with_epss(item: ScoreBreakdown) -> float:
+        base = base_of(item)
+        if item.base_score is None or item.epss_percentile is None:
+            return base
+        return base * (0.5 + 0.5 * item.epss_percentile)
 
     cvss_only = sorted(scores, key=lambda item: (-base_of(item), item.finding_id))
     cvss_epss = sorted(
         scores,
-        key=lambda item: (
-            -(base_of(item) * (0.5 + 0.5 * (item.epss_percentile or 0.0))),
-            item.finding_id,
-        ),
+        key=lambda item: (-with_epss(item), item.finding_id),
     )
     return {
         "ours": [item.finding_id for item in ours],

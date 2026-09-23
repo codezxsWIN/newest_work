@@ -143,6 +143,8 @@ def validate(sentence: str, facts: dict[str, str]) -> tuple[bool, dict[str, obje
 class OllamaClient:
     """A thin local Ollama caller. Absence is reported, never worked around."""
 
+    source = "local_ollama_grounded_analysis"
+
     def __init__(
         self, host: str = DEFAULT_HOST, model: str = DEFAULT_MODEL, timeout: float = 30.0
     ) -> None:

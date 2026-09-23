@@ -9,6 +9,7 @@ import json
 import socket
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -302,6 +303,50 @@ class TestScoring(unittest.TestCase):
         self.assertEqual(breakdown.band, "Medium")
         self.assertEqual(breakdown.native_fallback, "zap:Medium=40")
 
+    def test_missing_cvss_does_not_discard_observed_threat_facts(self) -> None:
+        finding = make_finding(tool="zap", native_severity="Medium")
+        enrichment = make_enrichment(
+            finding_id=finding.id, cvss31_vector=None, cvss31_base=None
+        )
+        profile = make_profile(exposure="internet_facing")
+
+        breakdown = scoring.score(finding, enrichment, profile, (), WEIGHTS)
+
+        self.assertTrue(breakdown.kev)
+        self.assertEqual(breakdown.epss_percentile, enrichment.epss_percentile)
+        self.assertIsNone(breakdown.env_score)
+        self.assertIsNone(breakdown.threat_multiplier)
+        self.assertEqual(breakdown.native_fallback, "zap:Medium=40")
+        self.assertGreaterEqual(breakdown.risk, WEIGHTS["threat"]["kev_floor_internet_facing"])
+        self.assertIn("KEV", breakdown.reason)
+
+    def test_severity_baselines_do_not_inherit_a_native_kev_floor(self) -> None:
+        listed = make_finding(
+            tool="zap", tool_native_id="synthetic-kev", native_severity="Low"
+        )
+        unlisted = make_finding(
+            tool="zap", tool_native_id="synthetic-unlisted", native_severity="High", cve_ids=[]
+        )
+        enrichment = make_enrichment(
+            finding_id=listed.id, cvss31_vector=None, cvss31_base=None
+        )
+        profile = make_profile(exposure="internet_facing")
+        with (
+            TemporaryDirectory() as directory,
+            Store(Path(directory) / "synthetic_baselines.db") as store,
+        ):
+            store.start_run("synthetic-baselines", SETTINGS.config_hash())
+            store.upsert_findings("synthetic-baselines", [listed, unlisted])
+            for finding, matched in ((listed, enrichment), (unlisted, None)):
+                store.upsert_score(
+                    "synthetic-baselines", scoring.score(finding, matched, profile, (), WEIGHTS)
+                )
+            orders = pipeline.baseline_orders(store, "synthetic-baselines")
+
+        self.assertEqual(orders["ours"][0], listed.id)
+        self.assertEqual(orders["cvss_only"][0], unlisted.id)
+        self.assertEqual(orders["cvss_epss"][0], unlisted.id)
+
     def test_scoring_is_deterministic(self):
         finding = make_finding()
         enrichment = make_enrichment(finding_id=finding.id)
@@ -312,6 +357,31 @@ class TestScoring(unittest.TestCase):
             json.dumps(first.to_json(), sort_keys=True),
             json.dumps(second.to_json(), sort_keys=True),
         )
+
+    def test_stored_model_context_cannot_bypass_canonical_policy(self) -> None:
+        finding = make_finding()
+        enrichment = make_enrichment(finding_id=finding.id)
+        for source in ("model", "llm"):
+            with self.subTest(source=source):
+                profile = make_profile()
+                profile = replace(profile, role=replace(profile.role, source=source))
+                with self.assertRaisesRegex(ConfigError, "context-source ADR"):
+                    scoring.score(finding, enrichment, profile, (), WEIGHTS)
+
+    def test_ranking_refuses_missing_host_context_without_dropping_findings(self) -> None:
+        with (
+            TemporaryDirectory() as directory,
+            Store(Path(directory) / "synthetic_missing_context.db") as store,
+        ):
+            store.start_run("synthetic-context", SETTINGS.config_hash())
+            store.upsert_profile("synthetic-context", make_profile(host_ip="172.28.0.10"))
+            store.upsert_findings(
+                "synthetic-context",
+                [make_finding(host_ip="172.28.0.10"), make_finding(host_ip="172.28.0.12")],
+            )
+            with self.assertRaisesRegex(ConfigError, "172.28.0.12"):
+                pipeline.do_rank(SETTINGS, store, "synthetic-context")
+            self.assertEqual(store.scores("synthetic-context"), [])
 
     def test_scoring_module_is_pure(self):
         source = (ROOT / "vulnassess" / "scoring.py").read_text(encoding="utf-8")
@@ -1034,11 +1104,22 @@ class TestExplain(unittest.TestCase):
 # --------------------------------------------------------------------------- scan orchestration
 class TestRunner(unittest.TestCase):
     def test_planning_refuses_an_out_of_scope_target_and_the_canary(self):
-        for target in ("8.8.8.8", "172.28.0.250"):
+        for target in ("8.8.8.8", "172.28.0.250", "192.168.0.116"):
             with self.subTest(target=target):
                 with self.assertRaises(ScopeError) as caught:
                     runner.plan(SETTINGS, target, ["nmap"], "data/captures")
                 self.assertIn("no command was built", str(caught.exception))
+
+    def test_import_refuses_an_unlisted_target_before_creating_a_run(self) -> None:
+        with (
+            TemporaryDirectory() as directory,
+            Store(Path(directory) / "synthetic_scope.db") as store,
+        ):
+            with self.assertRaises(ScopeError):
+                pipeline.do_import(
+                    SETTINGS, store, "synthetic-unlisted", "192.168.0.116", NMAP_SYNTH
+                )
+            self.assertIsNone(store.run_info("synthetic-unlisted"))
 
     def test_planning_builds_fixed_argument_lists_and_writes_nothing(self):
         with TemporaryDirectory() as directory:
