@@ -28,11 +28,14 @@ everywhere it appears.)
 
 ## Quickstart
 
-Python 3.11+, two runtime dependencies (`pyyaml`, `packaging`), everything else stdlib.
+Python 3.11+. See [Getting Started](docs/GETTING_STARTED.md) for the Windows and
+macOS/Linux setup, demo, authorized scan/import, feed, and local UI instructions.
+
+This repository intentionally keeps dependency provisioning closed by default;
+read [the security/provisioning policy](docs/security.md) before installing
+packages. `make install` refuses to install dependencies.
 
 ```bash
-pip install -r requirements.txt
-
 # 1. Fetch the real public feeds once (KEV ~3 MB, EPSS ~3 MB, NVD mirror ~1 GB):
 python scripts/fetch_feeds.py          # rate-limited, resumable, provenance-logged
 
