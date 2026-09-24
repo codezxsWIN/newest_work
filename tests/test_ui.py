@@ -131,6 +131,15 @@ def request(
 
 
 class TestUiContract(unittest.TestCase):
+    def test_live_result_cannot_collapse_the_workflow_canvas(self) -> None:
+        css = (ROOT / "vulnassess" / "ui" / "static" / "workflow.css").read_text(encoding="utf-8")
+        javascript = (ROOT / "vulnassess" / "ui" / "static" / "workflow.js").read_text(encoding="utf-8")
+        live_panel = re.search(r"\.live-execution\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(live_panel)
+        self.assertRegex(live_panel.group(1), r"max-height\s*:")
+        self.assertRegex(live_panel.group(1), r"overflow-y\s*:\s*auto")
+        self.assertIn("new ResizeObserver", javascript)
+
     def test_workflow_graph_is_grounded_and_read_only(self) -> None:
         node = shutil.which("node")
         self.assertIsNotNone(node, "MISSING: node for the pure workflow graph check")

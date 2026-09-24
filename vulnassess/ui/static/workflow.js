@@ -1114,5 +1114,8 @@ viewport.addEventListener('keydown', event => {
 });
 document.addEventListener('keydown', event => { if (event.key === 'Escape' && !inspector.hidden) document.getElementById('close-node').click(); });
 window.addEventListener('resize', () => liveState.previewState !== 'idle' ? fitPreviewPath() : fit());
+new ResizeObserver(() => {
+  if (viewport.clientHeight > 0) liveState.previewState !== 'idle' ? fitPreviewPath() : fit();
+}).observe(viewport);
 setViewMode(view.mode);
 loadWorkflow();
