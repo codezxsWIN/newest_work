@@ -270,7 +270,7 @@ class UiApplication:
             ),
         }
 
-    def live_report(self, target: str, provider: str, on_progress: Callable[[str, str, str], None], on_capture: Callable[[dict[str, Any]], None] | None = None) -> dict[str, Any]:
+    def live_report(self, target: str, provider: str, on_progress: Callable[[str, str, str], None], on_capture: Callable[[dict[str, Any]], None] | None = None, *, reuse_recent: bool = False) -> dict[str, Any]:
         on_progress("scope", "running", "Resolving and checking the entered target")
         check = self.target_check(target)
         addresses = check.get("resolved_ips") or []
@@ -283,6 +283,10 @@ class UiApplication:
             now = time.monotonic()
             recent = self._recent_live_cases.get(target_ip)
             case = recent[1] if recent and now - recent[0] < 600 else None
+            if case is not None and not reuse_recent:
+                raise ConfigError("This target was scanned in the last 10 minutes. Choose re-analyze recent evidence, or wait before a new Nmap scan.")
+            if case is None and reuse_recent:
+                raise ConfigError("No recent scan is available to re-analyze; choose a new Nmap scan.")
             if case is None:
                 previous = self._last_live_scan.get(target_ip, 0.0)
                 if now - previous < 600:
@@ -531,7 +535,7 @@ class UiRequestHandler(BaseHTTPRequestHandler):
             except (BrokenPipeError, ConnectionResetError):
                 return
 
-    def _stream_live(self, target: str, provider: str) -> None:
+    def _stream_live(self, target: str, provider: str, reuse_recent: bool = False) -> None:
         self.send_response(200)
         for name, value in (
             ("Content-Type", "application/x-ndjson; charset=utf-8"),
@@ -556,6 +560,7 @@ class UiRequestHandler(BaseHTTPRequestHandler):
                 target, provider,
                 lambda stage, state, detail: send({"type": "stage", "stage": stage, "state": state, "detail": detail}),
                 lambda capture: send({"type": "scan", "scan": capture}),
+                reuse_recent=reuse_recent,
             )
             send({"type": "result", "result": result})
         except (BrokenPipeError, ConnectionResetError):
@@ -625,15 +630,16 @@ class UiRequestHandler(BaseHTTPRequestHandler):
         if self.path == "/api/live-assessment/events":
             if (
                 not isinstance(body, dict)
-                or set(body) != {"target", "provider", "share_evidence"}
+                or set(body) not in ({"target", "provider", "share_evidence"}, {"target", "provider", "share_evidence", "reuse_recent"})
                 or not isinstance(body["target"], str)
                 or not 0 < len(body["target"]) <= 512
                 or body["provider"] not in ("ollama", "openrouter", "groq")
                 or body["share_evidence"] is not (body["provider"] in ("openrouter", "groq"))
+                or type(body.get("reuse_recent", False)) is not bool
             ):
                 self._reply(error_response(400, "Invalid live assessment request"))
                 return
-            self._stream_live(body["target"], body["provider"])
+            self._stream_live(body["target"], body["provider"], body.get("reuse_recent", False))
             return
         if (
             not isinstance(body, dict)

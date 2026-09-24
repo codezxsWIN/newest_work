@@ -695,7 +695,7 @@ def analyze_target(
         raise ConfigError(f"MISSING: host {host_ip!r} in selected run")
     active_client = client or (
         OpenRouterClient() if provider == "openrouter" else
-        GroqClient() if provider == "groq" else OllamaClient(ollama_host, model, timeout=2100.0)
+        GroqClient() if provider == "groq" else OllamaClient(ollama_host, model, timeout=180.0)
     )
     source = getattr(active_client, "source", "custom_grounded_analysis")
     if not isinstance(source, str) or not source.strip():
@@ -725,7 +725,8 @@ def analyze_target(
         generation_options["on_progress"] = lambda received_bytes: progress(
             "generation", "running", f"Receiving model output · {received_bytes} bytes"
         )
-    for attempt in range(2):
+    max_attempts = 1 if provider == "ollama" and client is None else 2
+    for attempt in range(max_attempts):
         raw = active_client.generate_structured(
             prompt, ANALYSIS_SCHEMA, num_ctx=ANALYST_CONTEXT_TOKENS, **generation_options
         )
@@ -741,7 +742,7 @@ def analyze_target(
                 f"{str(exc)[:180]}. Correct the response using only the same supplied evidence. "
                 "Unknown controls remain unknown. Return the full required JSON shape."
             )
-            if attempt or len(prompt) + len(correction) > MAX_PROMPT_CHARS:
+            if attempt + 1 >= max_attempts or len(prompt) + len(correction) > MAX_PROMPT_CHARS:
                 raise
             prompt += correction
             progress("validation", "running", "Unsupported claim detected; requesting one correction")

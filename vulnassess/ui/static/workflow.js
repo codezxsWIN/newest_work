@@ -31,11 +31,11 @@ const liveStages = [
   ['scope', 'Authorise target'], ['scanner', 'Scan services'], ['context', 'Infer context'],
   ...analysisStages.filter(([id]) => id !== 'records'),
 ];
-const liveState = {active: false, busy: false, previewState: 'idle', previewScenario: null, target: '', provider: '', stages: new Map(), scan: null, result: null, error: ''};
+const liveState = {active: false, busy: false, previewState: 'idle', previewScenario: null, target: '', provider: '', reuseRecent: false, stages: new Map(), scan: null, result: null, error: ''};
 let previewSequence = 0;
 const executionSteps = () => liveState.previewState !== 'idle' && liveState.previewScenario
   ? liveState.previewScenario.steps
-  : liveStages.map(([id, label]) => ({id, label}));
+  : liveStages.map(([id, label]) => ({id, label: liveState.reuseRecent && id === 'scanner' ? 'Reuse recent Nmap evidence' : liveState.reuseRecent && id === 'context' ? 'Reuse recorded context' : label}));
 
 function appendInvestigation(holder, analyst) {
   const evidence = new Map((analyst.evidence || []).map(item => [item.id, item]));
@@ -149,10 +149,11 @@ function renderLiveExecution() {
   if (!liveState.active) return;
   const isPreview = liveState.previewState !== 'idle';
   const steps = executionSteps();
+  document.getElementById('live-path-boundary').hidden = isPreview;
   const context = document.getElementById('live-execution-context');
   context.hidden = !isPreview;
   context.textContent = isPreview ? liveState.previewScenario.context : '';
-  document.getElementById('live-execution-mode').textContent = isPreview ? 'SIMULATED PREVIEW / NO SCAN OR MODEL CALL' : 'LIVE RUN / EVENT STREAM';
+  document.getElementById('live-execution-mode').textContent = isPreview ? 'SIMULATED PREVIEW / NO SCAN OR MODEL CALL' : liveState.reuseRecent ? 'RE-ANALYSIS / RECENT SCAN / NO NMAP' : 'LIVE NMAP + AI / EVENT STREAM';
   const current = [...liveState.stages.entries()].find(([, entry]) => entry.state === 'running');
   const finished = [...liveState.stages.values()].filter(entry => ['complete', 'skipped'].includes(entry.state)).length;
   const currentLabel = current ? steps.find(step => step.id === current[0])?.label : liveState.error ? 'Run stopped' : liveState.result || finished === steps.length ? 'Run complete' : 'Preparing run';
@@ -161,7 +162,7 @@ function renderLiveExecution() {
     : `${liveState.target} · ${currentLabel}`;
   document.getElementById('live-execution-count').textContent = isPreview
     ? `${finished} / ${steps.length} simulated stages`
-    : `${finished} / ${steps.length} stages`;
+    : `${finished} / ${steps.length} Nmap + AI path steps`;
   const last = [...liveState.stages.values()].at(-1);
   document.getElementById('live-execution-detail').textContent = current?.[1].detail
     || (isPreview ? last?.detail || `Preview ${liveState.previewState}. No scan or model call was made.`
@@ -191,7 +192,7 @@ function renderLiveExecution() {
   output.replaceChildren();
   const analysis = liveState.result?.analyst;
   const frame = liveState.scan?.decision_frame || liveState.result?.decision_frame;
-  output.hidden = !analysis && !frame;
+  document.getElementById('live-execution-details').hidden = !analysis && !frame;
   appendDecisionFrame(output, frame);
   if (analysis) {
     output.append(element('h3', '', `${analysis.model} · ${analysis.analysis.confidence} confidence · validated output`));
@@ -214,7 +215,13 @@ function applyLiveRunToNodes(nodes) {
     const stage = liveState.previewState !== 'idle'
       ? executionSteps().filter(step => step.node === node.id).map(step => step.id)
       : liveStages.map(([id]) => id).filter(id => stageNode[id] === node.id);
-    if (!stage.length) continue;
+    if (!stage.length) {
+      if (liveState.previewState === 'idle') {
+        node.state = 'skipped';
+        node.status = 'Not run in this Nmap + AI path';
+      }
+      continue;
+    }
     const mostRecent = stage.map(id => [id, liveState.stages.get(id)]).filter(([, entry]) => entry).at(-1);
     const entry = mostRecent?.[1];
     node.state = entry?.state || 'pending';
@@ -241,7 +248,7 @@ function liveFlowEdges() {
   const current = [...liveState.stages.entries()].find(([, entry]) => entry.state === 'running')?.[0];
   if (liveState.previewState !== 'idle') return executionSteps().find(step => step.id === current)?.edges || [];
   if (current === 'scanner') return ['scope:nmap'];
-  if (current === 'context') return ['nmap:canonical', 'canonical:context'];
+  if (current === 'context') return ['nmap:context'];
   if (['model', 'evidence', 'prompt', 'generation', 'validation'].includes(current)) return ['context:analyst'];
   return [];
 }
@@ -255,8 +262,7 @@ function completedFlowEdges() {
   if (liveState.stages.get('scanner')?.state === 'complete') completed.add('scope:nmap');
   if (liveState.stages.get('context')?.state === 'complete'
       || liveStages.slice(3).some(([id]) => liveState.stages.has(id))) {
-    completed.add('nmap:canonical');
-    completed.add('canonical:context');
+    completed.add('nmap:context');
   }
   if (liveStages.slice(3).some(([id]) => liveState.stages.has(id))) completed.add('context:analyst');
   return [...completed];
@@ -266,6 +272,7 @@ async function startLiveRun() {
   if (liveState.busy) return;
   const target = document.getElementById('new-target').value.trim();
   const provider = providerSelect.value;
+  const reuseRecent = document.getElementById('live-run-mode').value === 'reuse';
   if (!target) {
     document.getElementById('target-check-result').textContent = 'Enter a target address first.';
     return;
@@ -281,6 +288,7 @@ async function startLiveRun() {
   liveState.active = true;
   liveState.target = target;
   liveState.provider = provider;
+  liveState.reuseRecent = reuseRecent;
   liveState.stages = new Map();
   liveState.scan = null;
   liveState.result = null;
@@ -319,7 +327,7 @@ async function startLiveRun() {
     const response = await fetch('/api/live-assessment/events', {
       method: 'POST', cache: 'no-store', credentials: 'same-origin',
       headers: {'Content-Type': 'application/json', 'X-VulnAssess-Action': 'live-assessment'},
-      body: JSON.stringify({target, provider, share_evidence: provider !== 'ollama'}),
+      body: JSON.stringify({target, provider, share_evidence: provider !== 'ollama', reuse_recent: reuseRecent}),
     });
     if (!response.ok) {
       const failure = await response.json().catch(() => null);
@@ -344,7 +352,6 @@ async function startLiveRun() {
     buffer += decoder.decode();
     if (buffer.trim()) accept(JSON.parse(buffer));
     if (!liveState.result) throw new Error('Live assessment ended without a model result.');
-    document.getElementById('live-result').scrollIntoView({block: 'nearest'});
   } catch (error) {
     liveState.error = error instanceof Error ? error.message : 'Live assessment failed.';
     const running = [...liveState.stages].reverse().find(([, entry]) => entry.state === 'running');
@@ -648,7 +655,7 @@ function renderGraph() {
   document.getElementById('canvas-status').textContent = liveState.previewState !== 'idle'
     ? `Simulated preview / ${liveState.previewScenario.label} / ${currentLive ? executionSteps().find(step => step.id === currentLive[0])?.label : liveState.previewState}`
     : liveState.active
-    ? `Live run / ${currentLive ? `${liveStages.find(([id]) => id === currentLive[0])?.[1]} · ${currentLive[1].detail}` : liveState.result ? 'complete · model output validated' : liveState.error ? 'stopped · stage failed' : 'starting'}`
+    ? `Live run / ${currentLive ? `${executionSteps().find(step => step.id === currentLive[0])?.label} · ${currentLive[1].detail}` : liveState.result ? 'complete · model output validated' : liveState.error ? 'stopped · stage failed' : 'starting'}`
     : analysis?.status === 'running'
     ? `Local analyst / ${analysisStages.find(([id]) => id === analysis.stage)?.[1] || 'Starting'}`
     : analysis?.status === 'complete' ? 'Local analyst complete / stored scores unchanged'
@@ -679,17 +686,19 @@ function renderGraph() {
     if (active) paths.append(svgElement('path', {d: edgePath(from, to), class: 'connection-trace', pathLength: 100}));
     if (flowEdges.has(identity)) paths.append(svgElement('path', {d: edgePath(from, to), class: 'connection-flow', pathLength: 100, 'data-live-edge': identity}));
   }
-  if (flowEdges.has('context:analyst') || completedEdges.has('context:analyst')) {
-    const flow = edgePath(nodeMap.get('context'), nodeMap.get('analyst'));
-    paths.append(svgElement('path', {d: flow, class: 'connection optional', 'data-edge': 'context:analyst'}));
-    if (completedEdges.has('context:analyst')) paths.append(svgElement('path', {d: flow, class: 'connection-flow-done', 'data-flow-complete': 'context:analyst'}));
-    if (flowEdges.has('context:analyst')) paths.append(svgElement('path', {d: flow, class: 'connection-flow', pathLength: 100, 'data-live-edge': 'context:analyst'}));
+  for (const identity of ['nmap:context', 'context:analyst']) {
+    if (!flowEdges.has(identity) && !completedEdges.has(identity)) continue;
+    const [from, to] = identity.split(':');
+    const flow = edgePath(nodeMap.get(from), nodeMap.get(to));
+    paths.append(svgElement('path', {d: flow, class: 'connection optional', 'data-edge': identity}));
+    if (completedEdges.has(identity)) paths.append(svgElement('path', {d: flow, class: 'connection-flow-done', 'data-flow-complete': identity}));
+    if (flowEdges.has(identity)) paths.append(svgElement('path', {d: flow, class: 'connection-flow', pathLength: 100, 'data-live-edge': identity}));
   }
   const list = document.getElementById('node-list');
   list.replaceChildren();
   const previewPath = liveState.previewState !== 'idle'
     ? new Set(executionSteps().flatMap(step => [step.node, ...step.edges.flatMap(edge => edge.split(':'))]))
-    : new Set(['scope', 'nmap', 'canonical', 'context', 'analyst']);
+    : new Set(['scope', 'nmap', 'context', 'analyst']);
   for (const node of nodes) {
     const button = element('button', `flow-node group-${node.group} state-${node.state}`);
     button.type = 'button';
@@ -775,7 +784,7 @@ function selectNode(identity) {
 
 function renderInspector() {
   if (!view.node || !view.assessment) return;
-  const nodes = buildNodes(view.assessment, view.scope, selection(), currentAnalysis());
+  const nodes = applyLiveRunToNodes(buildNodes(view.assessment, view.scope, selection(), currentAnalysis()));
   const node = nodes.find(item => item.id === view.node);
   const details = nodeDetails(view.node, view.assessment, view.scope, view.weights, selection(), currentAnalysis());
   content.replaceChildren();
@@ -786,6 +795,9 @@ function renderInspector() {
   title.tabIndex = -1;
   heading.append(glyph, title);
   content.append(heading, element('p', 'node-description', node.subtitle), element('span', `detail-status state-${node.state}`, node.status));
+  if (liveState.active && node.state === 'skipped' && liveState.previewState === 'idle') {
+    content.append(element('p', 'boundary-note', 'Not run in this Nmap + AI path. Any records below belong to the selected stored assessment, not this live run.'));
+  }
   const logic = element('div', 'node-operation');
   for (const [label, value] of [['INPUT', details.input], ['OPERATION', details.operation], ['OUTPUT', details.output]]) {
     const section = element('div', 'operation-row');

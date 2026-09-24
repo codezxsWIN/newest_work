@@ -307,6 +307,16 @@ def test_invalid_control_assertion_gets_one_grounded_correction_attempt():
     assert result["analysis"]["recommended_actions"][0]["reason"] == good["recommended_actions"][0]["reason"]
 
 
+def test_local_model_wait_is_bounded_before_generation():
+    payload = demo_payload()
+    from unittest.mock import patch
+
+    with patch.object(analyst, "OllamaClient", side_effect=RuntimeError("constructor checked")) as client:
+        with pytest.raises(RuntimeError, match="constructor checked"):
+            analyst.analyze_target(payload, "172.28.0.12", provider="ollama")
+    assert client.call_args.kwargs["timeout"] <= 180
+
+
 def test_analysis_reports_only_completed_real_stages():
     payload = demo_payload()
     case, evidence, _ = analyst.build_case(payload, "172.28.0.12")

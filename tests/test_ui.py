@@ -140,6 +140,16 @@ class TestUiContract(unittest.TestCase):
         self.assertRegex(live_panel.group(1), r"overflow-y\s*:\s*auto")
         self.assertIn("new ResizeObserver", javascript)
 
+    def test_live_path_does_not_claim_unrun_pipeline_stages(self) -> None:
+        javascript = (ROOT / "vulnassess" / "ui" / "static" / "workflow.js").read_text(encoding="utf-8")
+        document = (ROOT / "vulnassess" / "ui" / "static" / "workflow.html").read_text(encoding="utf-8")
+        completed = javascript.split("function completedFlowEdges()", 1)[1].split("function startLiveRun()", 1)[0]
+        self.assertIn("nmap:context", completed)
+        self.assertNotIn("nmap:canonical", completed)
+        self.assertIn("Not run in this Nmap + AI path", javascript)
+        self.assertIn('id="live-execution-details"', document)
+        self.assertIn('id="live-path-boundary"', document)
+
     def test_workflow_graph_is_grounded_and_read_only(self) -> None:
         node = shutil.which("node")
         self.assertIsNotNone(node, "MISSING: node for the pure workflow graph check")

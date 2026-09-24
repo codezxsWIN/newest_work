@@ -91,7 +91,9 @@ def test_model_retry_reuses_recent_scan_without_starting_nmap():
          patch("vulnassess.ui.server.analyst.analyze_target", return_value={"analysis": {"summary": "SSH observed"}}):
         with pytest.raises(RuntimeError, match="model unavailable"):
             app.live_report("scanme.nmap.org", "openrouter", lambda *event: events.append(event), captures.append)
-        result = app.live_report("scanme.nmap.org", "openrouter", lambda *event: events.append(event), captures.append)
+        with pytest.raises(ConfigError, match="Choose re-analyze recent evidence"):
+            app.live_report("scanme.nmap.org", "openrouter", lambda *event: events.append(event), captures.append)
+        result = app.live_report("scanme.nmap.org", "openrouter", lambda *event: events.append(event), captures.append, reuse_recent=True)
 
     assert scanner.call_count == 1
     assert result["reused_scan"] is True

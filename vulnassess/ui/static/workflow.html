@@ -26,7 +26,8 @@
   <section id="live-execution" class="live-execution" aria-label="Live assessment execution" aria-live="polite" hidden>
     <div class="live-execution-heading"><div><span id="live-execution-mode" class="eyebrow">LIVE RUN / EVENT STREAM</span><h2 id="live-execution-title" tabindex="-1">Waiting for the target</h2><p id="live-execution-context" class="live-execution-context" hidden></p><p id="live-execution-detail" class="live-execution-detail">Stage details appear here.</p></div><span id="live-execution-count" class="live-execution-count">0 / 8 stages</span></div>
     <ol id="live-execution-steps" class="live-execution-steps" aria-label="Live workflow stages"></ol>
-    <div id="live-execution-output" class="live-execution-output" hidden></div>
+    <p id="live-path-boundary" class="live-execution-detail" hidden>This quick check runs Nmap and AI only. It does not run ZAP, Nikto, finding enrichment, risk scoring, or report generation. Grey canvas nodes are outside this run.</p>
+    <details id="live-execution-details" class="live-execution-details" hidden><summary>View collected evidence and model output</summary><div id="live-execution-output" class="live-execution-output"></div></details>
   </section>
   <section id="run-panel" class="run-panel" aria-label="Run analysis" hidden>
     <div class="run-panel-heading"><div><span class="eyebrow">ASSESSMENT RUN</span><h2>Run analysis</h2></div><button id="close-run" class="tool" type="button" aria-label="Close run panel">×</button></div>
@@ -35,6 +36,8 @@
     <select id="analyst-provider"><option value="ollama">Local Ollama</option><option value="openrouter">DeepSeek V4 Flash · OpenRouter free</option><option value="groq">GPT-OSS 120B · Groq</option></select>
     <label id="cloud-consent" class="cloud-consent" hidden><input id="share-evidence" type="checkbox"> I understand this sends the target’s bounded scan evidence to the selected model provider. No key is sent to the browser.</label>
     <div class="new-target-check"><label class="run-label" for="new-target">Target address</label><div><input id="new-target" type="text" placeholder="Authorised IP or hostname" spellcheck="false"><button id="check-target" class="tool-text" type="button">Check scope</button></div><p id="target-check-result" role="status">The live run pins the address, scans the top 100 TCP ports, and reports each stage.</p></div>
+    <label class="run-label" for="live-run-mode">Run mode</label>
+    <select id="live-run-mode"><option value="new">New Nmap scan + AI</option><option value="reuse">Re-analyze recent Nmap evidence · no scan</option></select>
     <button id="start-live-run" class="run-button" type="button">Run live target</button>
     <ol id="live-progress" class="run-progress" aria-label="Live assessment stages" aria-live="polite"></ol>
     <section id="live-result" class="live-result" aria-label="Live assessment result" hidden></section>
