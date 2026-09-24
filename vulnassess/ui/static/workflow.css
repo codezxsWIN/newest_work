@@ -235,6 +235,14 @@ select { background: var(--flow-paper); padding: 8px 24px 8px 10px; border: 1px 
 .analysis-action { border-top: 1px solid var(--flow-line); padding-top: 16px; }
 .analysis-action h3 { font-size: 13px; }
 .analysis-action p { font-size: 12px; line-height: 1.7; }
+.decision-frame, .analysis-context-effect { margin: 16px 0; padding: 16px; border: 1px solid var(--flow-line); border-radius: 6px; background: var(--flow-paper); }
+.decision-frame h3, .analysis-context-effect h3 { margin: 0 0 10px; font-size: 12px; }
+.decision-frame p, .analysis-context-effect p { font-size: 12px; line-height: 1.6; }
+.decision-frame ol, .decision-frame ul { padding-left: 19px; font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.recorded-analysis-card { margin: 16px 0; padding: 16px; border: 1px solid var(--flow-line); border-radius: 6px; }
+.recorded-analysis-card > h3 { margin: 0 0 12px; font-size: 14px; }
+.recorded-action-list { padding-left: 19px; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.recorded-analysis-card > .run-button { width: 100%; margin-top: 8px; }
 .viewport[data-view="stages"] { overflow-y: auto; touch-action: pan-y; }
 .viewport[data-view="stages"] .trace-controls { position: sticky; top: 0; left: auto; padding: 16px 28px; border-bottom: 1px solid var(--flow-line); background: var(--flow-bg); }
 .viewport[data-view="stages"] .graph { position: relative; width: auto; height: auto; padding: 24px 28px; }

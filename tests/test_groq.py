@@ -30,6 +30,7 @@ def test_groq_uses_bounded_structured_request():
     assert request.full_url == "https://api.groq.com/openai/v1/chat/completions"
     assert request.get_header("User-agent") == "VulnAssess/0.1"
     assert body["model"] == MODEL
+    assert body["model"] == "openai/gpt-oss-120b"
     assert body["response_format"]["json_schema"]["strict"] is True
     assert body["max_completion_tokens"] <= 800
     assert "test-only" not in json.dumps(body)

@@ -55,6 +55,44 @@ function appendInvestigation(holder, analyst) {
   }
 }
 
+function appendDecisionFrame(holder, frame) {
+  if (!frame) return;
+  const section = element('section', 'decision-frame');
+  section.append(element('h3', '', 'Context-aware priority boundary'));
+  const context = frame.context || {};
+  section.append(element('p', '', `Recorded role: ${String(context.role?.value || 'unknown').replaceAll('_', ' ')} · exposure: ${String(context.exposure?.value || 'unknown').replaceAll('_', ' ')}.`));
+  const controls = Object.entries(context.controls || {}).map(([name, feature]) => `${name.replaceAll('_', ' ')}: ${feature.value === null ? 'unknown' : String(feature.value)}`);
+  if (controls.length) section.append(element('p', '', `Recorded controls · ${controls.join(' · ')}`));
+  if (frame.mode === 'verification_only') {
+    section.append(element('p', 'boundary-note', 'No vulnerability findings were recorded, so there is no scored finding-priority queue. The services below are verification candidates, not ranked vulnerabilities.'));
+    const list = element('ul', '');
+    for (const item of frame.verification_candidates || []) list.append(element('li', '', `${item.port}/${item.protocol} ${item.service || 'service'} · ${item.evidence_id}`));
+    section.append(list);
+  } else {
+    section.append(element('p', '', frame.mode === 'scored_findings' ? 'Stored deterministic priority order · AI does not change these scores.' : 'Findings exist, but no stored risk scores are available. No risk order is claimed.'));
+    const list = element('ol', '');
+    for (const item of frame.priorities || []) {
+      const cvss = item.base_score == null ? '' : ` · CVSS base ${item.base_score} → environmental ${item.env_score}`;
+      const changes = Object.entries(item.env_modifications || {}).map(([metric, value]) => `${metric}:${value}`).join(', ');
+      list.append(element('li', '', `${item.title} · ${item.band} ${item.risk}${cvss}${changes ? ` · recorded environmental changes ${changes}` : ''} · ${item.reason || 'No stored reason'} [${item.score_evidence_id}]`));
+    }
+    for (const item of frame.unscored_findings || []) list.append(element('li', '', `${item.title} · unscored [${item.finding_evidence_id}]`));
+    section.append(list);
+  }
+  holder.append(section);
+}
+
+function appendModelContextEffect(holder, analyst) {
+  const effect = analyst?.analysis?.context_effect;
+  if (!effect) return;
+  const section = element('section', 'analysis-context-effect');
+  section.append(element('h3', '', 'AI context effect · cited interpretation'));
+  section.append(element('p', '', effect.explanation));
+  const evidence = new Map((analyst.evidence || []).map(item => [item.id, item]));
+  appendQuotes(section, effect.evidence_ids.map(id => ({label: `Citation ${id}`, quote: evidence.get(id)?.text || 'Citation unavailable', source: analyst.model})));
+  holder.append(section);
+}
+
 function renderLiveResult() {
   const holder = document.getElementById('live-result');
   holder.replaceChildren();
@@ -69,11 +107,13 @@ function renderLiveResult() {
       list.append(element('li', '', `${service.port}/${service.protocol} ${service.name || 'unknown'} · ${service.product || 'product unknown'} ${service.version || ''}`));
     }
     holder.append(list);
+    appendDecisionFrame(holder, scan.decision_frame || liveState.result?.decision_frame);
   }
   if (liveState.result?.analyst) {
     const analyst = liveState.result.analyst;
     holder.append(element('h3', '', `${analyst.model} · confidence ${analyst.analysis.confidence}`));
     holder.append(element('p', '', analyst.analysis.summary));
+    appendModelContextEffect(holder, analyst);
     appendInvestigation(holder, analyst);
     for (const action of analyst.analysis.recommended_actions) {
       holder.append(element('p', 'analysis-action', `${action.order}. ${action.action} — ${action.reason} [${action.evidence_ids.join(', ')}]`));
@@ -150,10 +190,13 @@ function renderLiveExecution() {
   const output = document.getElementById('live-execution-output');
   output.replaceChildren();
   const analysis = liveState.result?.analyst;
-  output.hidden = !analysis;
+  const frame = liveState.scan?.decision_frame || liveState.result?.decision_frame;
+  output.hidden = !analysis && !frame;
+  appendDecisionFrame(output, frame);
   if (analysis) {
     output.append(element('h3', '', `${analysis.model} · ${analysis.analysis.confidence} confidence · validated output`));
     output.append(element('p', '', analysis.analysis.summary));
+    appendModelContextEffect(output, analysis);
     appendInvestigation(output, analysis);
     const actions = element('ul');
     for (const action of analysis.analysis.recommended_actions) {
@@ -401,12 +444,41 @@ function renderRunTargets() {
 
 function renderRunProgress() {
   runProgress.replaceChildren();
+  const results = document.getElementById('recorded-analysis-results');
+  results.replaceChildren();
   for (const host of runState.targets) {
     const entry = runState.entries.get(host) || {status: 'pending'};
     const item = element('li', `run-progress-item state-${entry.status}`);
     item.append(element('strong', '', host), element('span', '', entry.status === 'running' ? `${entry.stage || 'Preparing'} · ${entry.detail || 'Starting'}` : entry.status));
     if (entry.error) item.append(element('small', '', entry.error));
     runProgress.append(item);
+    const analysis = view.analyses.get(`${view.assessment?.run.run_id}/${host}`)?.result;
+    if (!analysis || !['complete', 'reused'].includes(entry.status)) continue;
+    const card = element('section', 'recorded-analysis-card');
+    card.append(element('h3', '', `Assessment · ${host}`));
+    appendDecisionFrame(card, analysis.decision_frame);
+    appendModelContextEffect(card, analysis);
+    const actions = analysis.analysis?.recommended_actions || [];
+    if (actions.length) {
+      card.append(element('h3', '', analysis.decision_frame?.mode === 'verification_only' ? 'AI verification order · unscored' : 'AI remediation sequence · stored scores unchanged'));
+      const actionList = element('ol', 'recorded-action-list');
+      for (const action of actions) actionList.append(element('li', '', `${action.action} — ${action.reason} [${action.evidence_ids.join(', ')}]`));
+      card.append(actionList);
+    }
+    const open = element('button', 'run-button', 'Open full context and AI assessment');
+    open.type = 'button';
+    open.addEventListener('click', () => {
+      view.host = host;
+      view.finding = '';
+      hostSelect.value = host;
+      populateFindings();
+      updateLocation();
+      runPanel.hidden = true;
+      document.getElementById('open-run').setAttribute('aria-expanded', 'false');
+      selectNode('analyst');
+    });
+    card.append(open);
+    results.append(card);
   }
   document.getElementById('start-run').disabled = runState.busy;
   document.getElementById('stop-run').hidden = !runState.busy;
@@ -450,7 +522,7 @@ async function startRun() {
       renderInspector();
     }
     const cached = view.analyses.get(`${runId}/${host}`);
-    const source = {openrouter: 'openrouter_deepseek_grounded_analysis', groq: 'groq_gpt_oss_20b_grounded_analysis', ollama: 'local_ollama_grounded_analysis'}[provider];
+    const source = {openrouter: 'openrouter_deepseek_grounded_analysis', groq: 'groq_gpt_oss_120b_grounded_analysis', ollama: 'local_ollama_grounded_analysis'}[provider];
     const sameProvider = cached?.result?.source === source;
     const result = cached?.status === 'complete' && sameProvider ? cached : await analyzeTarget(host, runId, provider);
     runState.entries.set(host, result.status === 'complete' ? {status: sameProvider ? 'reused' : 'complete'} : {status: 'error', error: result.error});
@@ -792,7 +864,9 @@ function renderAnalyst() {
   if (live?.status === 'error') holder.append(element('p', 'analysis-error', live.error));
   if (live?.result) {
     const result = live.result;
+    appendDecisionFrame(holder, result.decision_frame);
     holder.append(element('p', 'analysis-summary', result.analysis.summary));
+    appendModelContextEffect(holder, result);
     const evidenceMap = new Map(result.evidence.map(item => [item.id, item]));
     for (const action of result.analysis.recommended_actions) {
       const record = element('div', 'analysis-action');

@@ -55,6 +55,10 @@ def test_live_scan_uses_pinned_ip_and_sends_fresh_services_to_analyst():
     assert result["resolved_ip"] == "45.33.32.156"
     assert result["services"][0]["port"] == 22
     assert captures[0]["finding_count"] == 0
+    assert captures[-1]["decision_frame"]["mode"] == "verification_only"
+    assert captures[-1]["decision_frame"]["context"]["exposure"]["value"] == "internet_facing"
+    assert captures[-1]["decision_frame"]["priorities"] == []
+    assert result["decision_frame"] == captures[-1]["decision_frame"]
     assert ("scanner", "complete") in [(stage, state) for stage, state, _ in events]
 
 

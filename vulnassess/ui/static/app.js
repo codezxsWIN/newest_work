@@ -430,7 +430,7 @@ function renderAnalystResult(result, output) {
   const title = document.createElement('div');
   const eyebrow = document.createElement('span');
   eyebrow.className = 'eyebrow';
-  eyebrow.textContent = `${result.model} / LOCAL OLLAMA`;
+  eyebrow.textContent = `${result.model} / ${result.source || 'analyst model'}`;
   const summary = document.createElement('strong');
   summary.textContent = analysis.summary;
   title.append(eyebrow, summary);
@@ -443,7 +443,25 @@ function renderAnalystResult(result, output) {
   confidence.append(confidenceLabel, confidenceValue);
   header.append(title, confidence);
   output.append(header);
-  output.append(analystSection('Suggested remediation sequence', analysis.recommended_actions, item => {
+  const frame = result.decision_frame;
+  if (frame) {
+    const scored = frame.mode === 'scored_findings';
+    output.append(analystSection(scored ? 'Stored priority order · scores unchanged' : 'Verification only · no scored findings', scored ? frame.priorities : frame.verification_candidates || [], item => {
+      const row = document.createElement('li');
+      row.textContent = scored ? `${item.title} · ${item.band} ${item.risk} · ${item.reason || 'No stored reason'}` : `${item.port}/${item.protocol} ${item.service || 'service'} · verify with authorised tests`;
+      return row;
+    }));
+  }
+  if (analysis.context_effect) output.append(analystSection('AI context effect · cited interpretation', [analysis.context_effect], item => {
+    const row = document.createElement('li');
+    const explanation = document.createElement('p');
+    explanation.textContent = item.explanation;
+    const citations = document.createElement('small');
+    citations.textContent = item.evidence_ids.map(identity => `${identity}: ${evidence.get(identity)?.text || 'Citation unavailable'}`).join(' / ');
+    row.append(explanation, citations);
+    return row;
+  }));
+  output.append(analystSection(frame?.mode === 'verification_only' ? 'Suggested verification steps' : 'Suggested remediation sequence', analysis.recommended_actions, item => {
     const row = document.createElement('li');
     const action = document.createElement('strong');
     action.textContent = `${item.order}. ${item.action}`;

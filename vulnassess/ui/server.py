@@ -292,7 +292,7 @@ class UiApplication:
             on_progress("scope", "complete", f"{target} pinned to authorised {target_ip}")
             on_progress("scanner", "complete", "Reused the recent live scan; Nmap was not run again")
             if on_capture is not None:
-                on_capture({key: case[key] for key in ("target", "resolved_ip", "services", "finding_count")})
+                on_capture({key: case[key] for key in ("target", "resolved_ip", "services", "finding_count", "decision_frame") if key in case})
             on_progress("context", "complete", "Reused context from the recent live scan")
             result = analyst.analyze_target(case["payload"], target_ip, provider=provider, on_progress=on_progress)
             return {key: value for key, value in case.items() if key != "payload"} | {"analyst": result, "reused_scan": True}

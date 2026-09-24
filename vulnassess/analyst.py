@@ -31,6 +31,12 @@ UNSUPPORTED_ASSURANCE = re.compile(
     r"(?:service|host|protocol|system)\s+(?:is|was|are|were)\s+(?:considered\s+)?secure)\b",
     re.IGNORECASE,
 )
+UNKNOWN_CONTROL_ASSERTIONS = {
+    "auth_required": re.compile(r"\bunauthenticated\s+(?:ssh|http|service|access)\b|\b(?:no|without)\s+authentication\b(?!\s+evidence)", re.IGNORECASE),
+    "rate_limiting": re.compile(r"\b(?:no|without)\s+rate[ -]limiting\b(?!\s+evidence)", re.IGNORECASE),
+    "tls": re.compile(r"\b(?:no|without)\s+tls\b(?!\s+evidence)", re.IGNORECASE),
+    "waf": re.compile(r"\b(?:no|without)\s+waf\b(?!\s+evidence)", re.IGNORECASE),
+}
 
 ANALYSIS_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -39,6 +45,7 @@ ANALYSIS_SCHEMA: dict[str, object] = {
         "summary",
         "confidence",
         "recommended_actions",
+        "context_effect",
         "correlations",
         "investigations",
         "uncertainties",
@@ -46,6 +53,15 @@ ANALYSIS_SCHEMA: dict[str, object] = {
     "properties": {
         "summary": {"type": "string"},
         "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+        "context_effect": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["explanation", "evidence_ids"],
+            "properties": {
+                "explanation": {"type": "string"},
+                "evidence_ids": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"type": "string"}},
+            },
+        },
         "recommended_actions": {
             "type": "array",
             "maxItems": 2,
@@ -286,7 +302,7 @@ def build_case(
             # deltas stay in the store and the evidence quote carries the reason.
             brief_score = {
                 key: score[key]
-                for key in ("base_score", "env_score", "risk", "band", "reason", "weights_hash")
+                for key in ("base_score", "env_score", "env_modifications", "risk", "band", "reason", "weights_hash")
                 if key in score
             }
             if "reason" in brief_score:
@@ -333,10 +349,66 @@ def build_case(
     return _clean_record(case), evidence, alias_map
 
 
+def build_decision_frame(case: dict[str, Any]) -> dict[str, Any]:
+    """Make the context and the existing score boundary explicit to the analyst."""
+    context = case["context"]
+
+    def feature(item: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: item.get(key)
+            for key in ("value", "confidence", "source", "evidence_id")
+        }
+
+    priorities = []
+    unscored = []
+    for finding in case["findings"]:
+        score = finding.get("deterministic_score")
+        if score is None:
+            unscored.append({
+                "finding_id": finding["id"], "title": finding["title"],
+                "finding_evidence_id": finding["evidence_id"],
+            })
+            continue
+        priorities.append({
+            "finding_id": finding["id"], "title": finding["title"],
+            "risk": score["risk"], "band": score["band"],
+            "base_score": score.get("base_score"),
+            "env_score": score.get("env_score"),
+            "env_modifications": score.get("env_modifications", {}),
+            "reason": score.get("reason"),
+            "score_evidence_id": score["evidence_id"],
+            "finding_evidence_id": finding["evidence_id"],
+        })
+    priorities.sort(key=lambda item: (-item["risk"], item["finding_id"]))
+    for rank, item in enumerate(priorities, 1):
+        item["rank"] = rank
+    mode = "scored_findings" if priorities else "unscored_findings" if case["findings"] else "verification_only"
+    return {
+        "mode": mode,
+        "context": {
+            "role": feature(context["role"]),
+            "exposure": feature(context["exposure"]),
+            "controls": {key: feature(value) for key, value in context["controls"].items()},
+            "manual": {key: feature(value) for key, value in context["manual"].items()},
+        },
+        "priorities": priorities,
+        "unscored_findings": unscored,
+        "verification_candidates": [
+            {"port": item["port"], "protocol": item["protocol"],
+             "service": item.get("name"), "evidence_id": item["evidence_id"]}
+            for item in case["services"]
+        ] if mode == "verification_only" else [],
+        "scanner_coverage": case["scanner_coverage"],
+        "case_coverage": case["coverage"],
+    }
+
+
 def build_prompt(case: dict[str, Any], evidence: list[dict[str, str]], alias_count: int) -> str:
     evidence_count = len(evidence)
+    frame = json.dumps(build_decision_frame(case), ensure_ascii=True)
     untrusted = (
-        json.dumps({"case": case, "evidence": evidence}, ensure_ascii=True)
+        ("DECISION FRAME (derived index, not new evidence):\n" + frame + "\nFULL CASE AND EVIDENCE:\n"
+         + json.dumps({"case": case, "evidence": evidence}, ensure_ascii=True))
         .replace("<", "\\u003c")
         .replace(">", "\\u003e")
         .replace("&", "\\u0026")
@@ -346,7 +418,8 @@ def build_prompt(case: dict[str, Any], evidence: list[dict[str, str]], alias_cou
         '{"summary":"...","confidence":"low|medium|high","recommended_actions":'
         '[{"order":1,"action":"...","reason":"...","finding_ids":["F1"],'
         '"evidence_ids":["E1"]}],"correlations":[{"observation":"...",'
-        '"finding_ids":["F1"],"evidence_ids":["E1"]}],"investigations":'
+        '"finding_ids":["F1"],"evidence_ids":["E1"]}],"context_effect":'
+        '{"explanation":"...","evidence_ids":["E1"]},"investigations":'
         '[{"hypothesis":"...","verification":"...","alternative":"...",'
         '"finding_ids":["F1"],"evidence_ids":["E1"]}],"uncertainties":["..."]}. '
         f"Valid finding IDs: {f'F1 through F{alias_count}' if alias_count else 'none'}. Valid evidence IDs: E1 through "
@@ -357,6 +430,18 @@ def build_prompt(case: dict[str, Any], evidence: list[dict[str, str]], alias_cou
         "Coverage states what is included and omitted; do not imply omitted records were reviewed. "
         "Scanner coverage is explicit: a tool marked not run was not checked, and absent "
         "coverage is unknown. Distinguish not checked from checked with no findings. "
+        "Use the decision frame to explain which recorded role and exposure facts affect "
+        "verification urgency or an existing scored priority. If its mode is verification_only, "
+        "there is no vulnerability priority queue or risk score; order only verification steps. "
+        "Never present a verification candidate as a scored finding. "
+        "The context_effect field must state a causal link from recorded role or exposure "
+        "to the verification order or stored priority, citing the role/exposure evidence ID. "
+        "With zero findings, cite the exposure evidence ID in context_effect; cite an "
+        "observed service in each verification action. "
+        "Do not merely restate the role or exposure label. "
+        "A control value of null means unknown, not absent: never claim unauthenticated "
+        "access, no WAF, no TLS, or no rate limiting from a null control. Phrase these "
+        "as questions to verify, and distinguish missing evidence from a negative test. "
         "Correlate scanner findings, services, asset context, CVSS, EPSS and KEV. Identify likely "
         "duplicates or interacting weaknesses and produce a practical remediation sequence. "
         "The investigations array must contain exactly one item, even with zero findings. "
@@ -369,8 +454,7 @@ def build_prompt(case: dict[str, Any], evidence: list[dict[str, str]], alias_cou
         "If the case has zero vulnerability findings, explicitly state that this limited scan did not "
         "establish a vulnerability; never say that no vulnerabilities exist, were found or detected, "
         "or that a service is secure. Provide only cautious service-exposure observations or "
-        "verification steps, with empty finding_ids arrays. Each action must cite both an "
-        "observed service evidence ID and the exposure context evidence ID. Explain how the "
+        "verification steps, with empty finding_ids arrays. Explain how the "
         "exposure changes the verification priority; treat unknown controls as unknown, not absent. "
         "Never invent F0 or another finding label when there are no valid findings. "
         "Do not label an observed service or version as a vulnerability without supporting finding evidence. "
@@ -405,7 +489,7 @@ def validate_analysis(
     # sometimes hoist citation arrays to the top level; both are formatting noise. The
     # rendered claims - summary, confidence, action citations, uncertainties - stay
     # strictly required and strictly checked.
-    required = {"summary", "confidence", "recommended_actions", "uncertainties"}
+    required = {"summary", "confidence", "context_effect", "recommended_actions", "uncertainties"}
     confidence = str(result.get("confidence", "")).lower()
     if not required <= set(result) or confidence not in {"low", "medium", "high"}:
         raise LLMUnavailable(
@@ -418,6 +502,20 @@ def validate_analysis(
     investigations = result.get("investigations", [])
     if investigations is None:
         investigations = []
+    effect = result["context_effect"]
+    if not isinstance(effect, dict):
+        raise LLMUnavailable("analyst context effect must be an object")
+    effect_ids = effect.get("evidence_ids")
+    if (
+        not isinstance(effect_ids, list) or not effect_ids
+        or not all(isinstance(identity, str) for identity in effect_ids)
+        or not set(effect_ids) <= evidence_ids
+    ):
+        raise LLMUnavailable("analyst context effect cites unknown evidence")
+    context_effect = {
+        "explanation": _validated_text(effect.get("explanation"), "context effect", 400),
+        "evidence_ids": effect_ids,
+    }
 
     def validate_cited(items: Any, label: str) -> list[dict[str, Any]]:
         if not isinstance(items, list):
@@ -506,6 +604,7 @@ def validate_analysis(
     return {
         "summary": _validated_text(result["summary"], "summary", 600),
         "confidence": confidence,
+        "context_effect": context_effect,
         "recommended_actions": sorted(
             validate_cited(result["recommended_actions"], "recommended_actions"),
             key=lambda item: item["order"],
@@ -529,7 +628,7 @@ def validate_grounding(result: dict[str, Any], case: dict[str, Any]) -> None:
         if item.get("cve_id")
     )
     numbers = allowed_numbers({"case": json.dumps(case, ensure_ascii=True)})
-    prose = [result["summary"], *result["uncertainties"]]
+    prose = [result["summary"], result["context_effect"]["explanation"], *result["uncertainties"]]
     prose.extend(
         item[field]
         for item in result["recommended_actions"]
@@ -546,18 +645,30 @@ def validate_grounding(result: dict[str, Any], case: dict[str, Any]) -> None:
             raise LLMUnavailable("analyst output contains unsupported CVE identifiers")
         if set(NUMBER.findall(text)) - numbers:
             raise LLMUnavailable("analyst output contains unsupported numbers")
+    context_ids = {
+        case["context"][key]["evidence_id"] for key in ("role", "exposure")
+    }
+    if not context_ids & set(result["context_effect"]["evidence_ids"]):
+        raise LLMUnavailable("analyst context effect lacks role or exposure context evidence")
+    asserted_text = [result["summary"], result["context_effect"]["explanation"]]
+    asserted_text.extend(item["reason"] for item in result["recommended_actions"])
+    asserted_text.extend(item["observation"] for item in result["correlations"])
+    for key, pattern in UNKNOWN_CONTROL_ASSERTIONS.items():
+        if case["context"]["controls"].get(key, {}).get("value") is None:
+            if any(pattern.search(text) for text in asserted_text):
+                raise LLMUnavailable(f"analyst output makes an unsupported control assertion about {key}")
     if not case["findings"]:
+        exposure_id = case["context"]["exposure"]["evidence_id"]
+        if exposure_id not in result["context_effect"]["evidence_ids"]:
+            raise LLMUnavailable("analyst context effect lacks exposure context citation")
         if any(UNSUPPORTED_ASSURANCE.search(text) for text in prose):
             raise LLMUnavailable(
                 "Model response makes an unsupported assurance after a limited scan; "
                 "response rejected and no assessment stored"
             )
         service_ids = {item["evidence_id"] for item in case["services"]}
-        exposure_id = case["context"]["exposure"]["evidence_id"]
         for action in result["recommended_actions"]:
             cited = set(action["evidence_ids"])
-            if exposure_id not in cited:
-                raise LLMUnavailable("analyst action lacks exposure context citation")
             if not cited & service_ids:
                 raise LLMUnavailable("analyst action lacks observed service citation")
 
@@ -614,17 +725,27 @@ def analyze_target(
         generation_options["on_progress"] = lambda received_bytes: progress(
             "generation", "running", f"Receiving model output · {received_bytes} bytes"
         )
-    raw = active_client.generate_structured(
-        prompt, ANALYSIS_SCHEMA, num_ctx=ANALYST_CONTEXT_TOKENS, **generation_options
-    )
-    progress("generation", "complete", "Structured model response received")
-    progress("validation", "running", "Checking fields, citations, and score boundary")
-    result = validate_analysis(
-        raw,
-        set(alias_map),
-        {item["id"] for item in evidence},
-    )
-    validate_grounding(result, case)
+    for attempt in range(2):
+        raw = active_client.generate_structured(
+            prompt, ANALYSIS_SCHEMA, num_ctx=ANALYST_CONTEXT_TOKENS, **generation_options
+        )
+        progress("generation", "complete", "Structured model response received")
+        progress("validation", "running", "Checking fields, citations, and score boundary")
+        try:
+            result = validate_analysis(raw, set(alias_map), {item["id"] for item in evidence})
+            validate_grounding(result, case)
+            break
+        except LLMUnavailable as exc:
+            correction = (
+                "\nYour previous response failed local evidence validation: "
+                f"{str(exc)[:180]}. Correct the response using only the same supplied evidence. "
+                "Unknown controls remain unknown. Return the full required JSON shape."
+            )
+            if attempt or len(prompt) + len(correction) > MAX_PROMPT_CHARS:
+                raise
+            prompt += correction
+            progress("validation", "running", "Unsupported claim detected; requesting one correction")
+            progress("generation", "running", "Requesting one corrected model response")
     coverage = case["coverage"]
     if any(coverage[key] for key in ("findings_omitted", "services_omitted", "intelligence_omitted")):
         notice = (
@@ -644,5 +765,6 @@ def analyze_target(
         "source": _clean(source, 120),
         "canonical_scores_changed": False,
         "analysis": result,
+        "decision_frame": build_decision_frame(case),
         "evidence": evidence,
     }

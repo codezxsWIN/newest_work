@@ -54,6 +54,10 @@ def valid_result(finding_id, evidence_id):
             }
         ],
         "correlations": [],
+        "context_effect": {
+            "explanation": "Internet exposure increases verification urgency for this recorded finding.",
+            "evidence_ids": ["E4"],
+        },
         "uncertainties": ["No authenticated validation or exploit attempt was performed."],
     }
 
@@ -71,6 +75,42 @@ def test_case_packages_all_target_evidence_without_mutating_records():
     assert any(item["kind"] == "nmap_service" for item in evidence)
     assert any(item["kind"] == "vulnerability_intelligence" for item in evidence)
     assert any(item["kind"] == "deterministic_priority" for item in evidence)
+
+
+def test_decision_frame_exposes_context_and_stored_priority_to_model_and_output():
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+
+    frame = analyst.build_decision_frame(case)
+
+    assert frame["mode"] == "scored_findings"
+    assert frame["context"]["role"]["value"] == "database"
+    assert frame["context"]["exposure"]["value"] == "internet_facing"
+    assert frame["context"]["exposure"]["evidence_id"] in {item["id"] for item in evidence}
+    assert frame["priorities"][0]["rank"] == 1
+    assert frame["priorities"][0]["risk"] == 100.0
+    assert frame["priorities"][0]["base_score"] == 9.8
+    assert frame["priorities"][0]["env_score"] == 9.8
+    assert frame["priorities"][0]["env_modifications"] == {"AR": "H", "CR": "H", "IR": "H"}
+    assert frame["priorities"][0]["score_evidence_id"] in {item["id"] for item in evidence}
+    assert "DECISION FRAME" in analyst.build_prompt(case, evidence, len(case["findings"]))
+
+
+def test_zero_finding_frame_has_verification_candidates_not_fake_risk_scores():
+    payload = demo_payload()
+    payload["findings"] = []
+    payload["scores"] = []
+    payload["enrichments"] = []
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+
+    frame = analyst.build_decision_frame(case)
+
+    assert frame["mode"] == "verification_only"
+    assert frame["priorities"] == []
+    assert len(frame["verification_candidates"]) == len(case["services"])
+    assert all("risk" not in item for item in frame["verification_candidates"])
+    assert frame["context"]["exposure"]["value"] == "internet_facing"
+    assert "verification_only" in analyst.build_prompt(case, evidence, 0)
 
 
 def test_legacy_unobserved_controls_are_unknown_in_model_case():
@@ -105,6 +145,18 @@ def test_analysis_runs_local_model_and_preserves_canonical_scores():
     canonical = {finding["id"] for finding in payload["findings"]}
     cited = result["analysis"]["recommended_actions"][0]["finding_ids"]
     assert cited and set(cited) <= canonical
+    assert result["analysis"]["context_effect"]["explanation"].startswith("Internet exposure")
+    assert result["decision_frame"]["priorities"][0]["risk"] == 100.0
+
+
+def test_context_effect_must_cite_recorded_context_not_just_a_service():
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+    response = valid_result(case["findings"][0]["id"], evidence[0]["id"])
+    response["context_effect"]["evidence_ids"] = [case["services"][0]["evidence_id"]]
+
+    with pytest.raises(LLMUnavailable, match="context effect.*context evidence"):
+        analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
 
 
 def test_analysis_can_assess_live_services_when_scan_has_no_vulnerability_findings():
@@ -119,6 +171,10 @@ def test_analysis_can_assess_live_services_when_scan_has_no_vulnerability_findin
     response = {
         "summary": "The light scan observed SSH and HTTP; it did not establish a vulnerability.",
         "confidence": "low",
+        "context_effect": {
+            "explanation": "Internet exposure makes the observed services worth verifying before internal-only assets.",
+            "evidence_ids": [exposure_id],
+        },
         "recommended_actions": [{
             "order": 1,
             "action": "Verify service versions and restrict exposure to intended users.",
@@ -147,6 +203,10 @@ def test_zero_finding_case_rejects_clean_bill_of_health():
     response = {
         "summary": "No known vulnerabilities found; the SSH protocol is considered secure.",
         "confidence": "low",
+        "context_effect": {
+            "explanation": "Internet exposure increases verification urgency.",
+            "evidence_ids": [case["context"]["exposure"]["evidence_id"]],
+        },
         "recommended_actions": [{
             "order": 1,
             "action": "Review the exposed service.",
@@ -164,7 +224,7 @@ def test_zero_finding_case_rejects_clean_bill_of_health():
         analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
 
 
-def test_zero_finding_action_must_cite_service_and_exposure():
+def test_zero_finding_context_effect_cites_exposure_and_action_cites_service():
     payload = demo_payload()
     payload["findings"] = []
     payload["scores"] = []
@@ -173,6 +233,10 @@ def test_zero_finding_action_must_cite_service_and_exposure():
     response = {
         "summary": "This light scan did not establish a vulnerability.",
         "confidence": "low",
+        "context_effect": {
+            "explanation": "Internet exposure increases verification urgency.",
+            "evidence_ids": [case["context"]["exposure"]["evidence_id"]],
+        },
         "recommended_actions": [{
             "order": 1,
             "action": "Review the exposed SSH service.",
@@ -183,8 +247,64 @@ def test_zero_finding_action_must_cite_service_and_exposure():
         "correlations": [],
         "uncertainties": ["No authenticated testing was performed."],
     }
+    result = analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+    assert result["analysis"]["context_effect"]["evidence_ids"] == [
+        case["context"]["exposure"]["evidence_id"]
+    ]
+
+    response["context_effect"]["evidence_ids"] = [case["context"]["role"]["evidence_id"]]
     with pytest.raises(LLMUnavailable, match="exposure context"):
         analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+
+
+def test_unknown_auth_control_cannot_be_asserted_absent_in_action_reason():
+    payload = demo_payload()
+    payload["findings"] = []
+    payload["scores"] = []
+    payload["enrichments"] = []
+    case, _, _ = analyst.build_case(payload, "172.28.0.12")
+    response = {
+        "summary": "This light scan did not establish a vulnerability.",
+        "confidence": "low",
+        "context_effect": {
+            "explanation": "Internet exposure raises verification urgency.",
+            "evidence_ids": [case["context"]["exposure"]["evidence_id"]],
+        },
+        "recommended_actions": [{
+            "order": 1,
+            "action": "Review SSH access policy.",
+            "reason": "Unauthenticated SSH is exposed to the internet.",
+            "finding_ids": [],
+            "evidence_ids": [case["services"][0]["evidence_id"]],
+        }],
+        "correlations": [],
+        "uncertainties": ["Authentication was not assessed."],
+    }
+    with pytest.raises(LLMUnavailable, match="unsupported control assertion"):
+        analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+
+
+def test_invalid_control_assertion_gets_one_grounded_correction_attempt():
+    payload = demo_payload()
+    case, evidence, _ = analyst.build_case(payload, "172.28.0.12")
+    good = valid_result(case["findings"][0]["id"], evidence[0]["id"])
+    bad = copy.deepcopy(good)
+    bad["recommended_actions"][0]["reason"] = "There is no TLS on this host."
+
+    class CorrectingClient(FakeClient):
+        def __init__(self):
+            super().__init__(None)
+            self.prompts = []
+
+        def generate_structured(self, prompt, schema, **kwargs):
+            self.prompts.append(prompt)
+            return bad if len(self.prompts) == 1 else good
+
+    client = CorrectingClient()
+    result = analyst.analyze_target(payload, "172.28.0.12", client)
+    assert len(client.prompts) == 2
+    assert "unsupported control assertion about tls" in client.prompts[1]
+    assert result["analysis"]["recommended_actions"][0]["reason"] == good["recommended_actions"][0]["reason"]
 
 
 def test_analysis_reports_only_completed_real_stages():
@@ -242,6 +362,7 @@ def test_investigation_cannot_cite_unknown_evidence_or_finding():
         ([], [], "unknown evidence"),
     ]:
         response = valid_result("F1", "E1")
+        response["context_effect"]["evidence_ids"] = ["E1"]
         response["investigations"] = [{
             "hypothesis": "Review the observed service.",
             "verification": "Check the approved configuration.",
@@ -255,6 +376,7 @@ def test_investigation_cannot_cite_unknown_evidence_or_finding():
 
 def test_investigation_rejects_a_non_action_and_repeated_claims():
     response = valid_result("F1", "E1")
+    response["context_effect"]["evidence_ids"] = ["E1"]
     response["summary"] = "No vulnerability found."
     response["investigations"] = [{
         "hypothesis": "No vulnerability found.",

@@ -188,9 +188,9 @@ export function nodeDetails(identity, assessment, scope, weights, selection = {}
     message: 'The optional live target analyst below is a different operation, not the scorer.', provenance: 'scoring.describe / explain.py'};
   if (identity === 'analyst') {
     const response = analysis?.runId === assessment.run.run_id && analysis?.hostIp === selection.host ? analysis : null;
-    return {...base, input: 'Selected host, findings, context, scores and cited evidence', operation: 'An explicit Analyze target request calls the existing local Ollama endpoint and validates its structured response.', output: 'Model-written assessment with citations',
+    return {...base, input: 'Selected host, findings, context, scores and cited evidence', operation: 'An explicit Analyze target request calls the selected analyst provider and validates its structured response.', output: 'Model-written assessment with citations',
       rows: response?.result ? [{label: 'Model', value: response.result.model}, {label: 'Response source', value: response.result.source}, {label: 'Advisory confidence', value: response.result.analysis?.confidence}, {label: 'Scores changed', value: response.result.canonical_scores_changed}] : [], records: response?.result ? [response.result] : [],
-      message: response?.status === 'error' ? response.error : 'No model runs when this page opens or when nodes are selected. An AI response never feeds back into risk scoring.', provenance: 'analyst.analyze_target / local Ollama'};
+      message: response?.status === 'error' ? response.error : 'No model runs when this page opens or when nodes are selected. An AI response never feeds back into risk scoring.', provenance: 'analyst.analyze_target / selected provider'};
   }
   if (identity === 'report') return {...base, input: 'Priorities, explanations and provenance', operation: 'The CLI can produce a report or an offline viewer export from these records.', output: 'Shareable assessment artifact',
     rows: [{label: 'Selected run', value: assessment.run.run_id}], message: 'A report artifact is not attached to this API payload; its existence is not inferred from a scored run.', provenance: 'pipeline.do_report / report.py / ui export'};

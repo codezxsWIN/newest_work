@@ -9,7 +9,7 @@ from typing import Any, Callable
 
 from vulnassess.errors import ConfigError, LLMUnavailable
 
-MODEL = "openai/gpt-oss-20b"
+MODEL = "openai/gpt-oss-120b"
 ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 MAX_PROMPT_BYTES = 20 * 1024
 MAX_RESPONSE_BYTES = 64 * 1024
@@ -35,7 +35,7 @@ def load_api_key() -> str:
 
 class GroqClient:
     model = MODEL
-    source = "groq_gpt_oss_20b_grounded_analysis"
+    source = "groq_gpt_oss_120b_grounded_analysis"
 
     def __init__(self, api_key: str | None = None, timeout: float = 120.0) -> None:
         if not 0 < timeout <= 120:

@@ -89,6 +89,14 @@ def run(
             "nikto": "not run",
         },
     }
+    model_case, _, _ = analyst.build_case(payload, target_ip)
+    decision_frame = analyst.build_decision_frame(model_case)
+    if on_capture is not None:
+        on_capture({
+            "target": target, "resolved_ip": target_ip,
+            "services": [service.to_json() for service in host.services],
+            "finding_count": len(findings), "decision_frame": decision_frame,
+        })
     if on_case is not None:
         on_case({
             "target": target,
@@ -96,6 +104,7 @@ def run(
             "scan_profile": "Nmap top 100 TCP ports, light service detection",
             "services": [service.to_json() for service in host.services],
             "finding_count": len(findings),
+            "decision_frame": decision_frame,
             "payload": payload,
         })
     result = analyst.analyze_target(payload, target_ip, provider=provider, on_progress=on_progress)
@@ -105,5 +114,6 @@ def run(
         "scan_profile": "Nmap top 100 TCP ports, light service detection",
         "services": [service.to_json() for service in host.services],
         "finding_count": len(findings),
+        "decision_frame": decision_frame,
         "analyst": result,
     }

@@ -32,7 +32,7 @@
     <div class="run-panel-heading"><div><span class="eyebrow">ASSESSMENT RUN</span><h2>Run analysis</h2></div><button id="close-run" class="tool" type="button" aria-label="Close run panel">×</button></div>
     <p>Enter an authorised target to run a light Nmap scan, then assess its fresh evidence with the selected model.</p>
     <label class="run-label" for="analyst-provider">Analyst model</label>
-    <select id="analyst-provider"><option value="ollama">Local Ollama</option><option value="openrouter">DeepSeek V4 Flash · OpenRouter free</option><option value="groq">GPT-OSS 20B · Groq</option></select>
+    <select id="analyst-provider"><option value="ollama">Local Ollama</option><option value="openrouter">DeepSeek V4 Flash · OpenRouter free</option><option value="groq">GPT-OSS 120B · Groq</option></select>
     <label id="cloud-consent" class="cloud-consent" hidden><input id="share-evidence" type="checkbox"> I understand this sends the target’s bounded scan evidence to the selected model provider. No key is sent to the browser.</label>
     <div class="new-target-check"><label class="run-label" for="new-target">Target address</label><div><input id="new-target" type="text" placeholder="Authorised IP or hostname" spellcheck="false"><button id="check-target" class="tool-text" type="button">Check scope</button></div><p id="target-check-result" role="status">The live run pins the address, scans the top 100 TCP ports, and reports each stage.</p></div>
     <button id="start-live-run" class="run-button" type="button">Run live target</button>
@@ -46,6 +46,7 @@
       <p id="run-selection-note" class="run-selection-note" role="status"></p>
       <div class="run-actions"><button id="start-run" class="run-button" type="button">Run selected targets</button><button id="stop-run" class="tool-text" type="button" hidden>Stop after current</button></div>
       <ol id="run-progress" class="run-progress" aria-label="Stored run progress"></ol>
+      <div id="recorded-analysis-results" aria-live="polite"></div>
     </details>
   </section>
   <main class="flow-workspace">
