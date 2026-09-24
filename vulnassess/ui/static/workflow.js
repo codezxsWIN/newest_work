@@ -1037,6 +1037,29 @@ document.getElementById('close-run').addEventListener('click', () => {
 });
 document.getElementById('start-run').addEventListener('click', startRun);
 document.getElementById('start-live-run').addEventListener('click', startLiveRun);
+document.getElementById('import-nessus').addEventListener('click', async () => {
+  const status = document.getElementById('nessus-import-status');
+  const button = document.getElementById('import-nessus');
+  const file = document.getElementById('nessus-file').files[0];
+  const target = document.getElementById('nessus-target').value.trim() || view.host;
+  const newRun = document.getElementById('nessus-destination').value === 'new';
+  const run = newRun ? `nessus-${Date.now()}-${crypto.randomUUID().slice(0, 8)}` : view.assessment?.run?.run_id;
+  if (!run || !target || !file) { status.textContent = 'Enter an authorised target IP and choose a .nessus export.'; return; }
+  if (!file.name.toLowerCase().endsWith('.nessus') || file.size > 16 * 1024 * 1024) { status.textContent = 'Choose a .nessus export smaller than 16 MB.'; return; }
+  button.disabled = true;
+  status.textContent = 'Checking the report and updating the assessment…';
+  try {
+    const response = await fetch('/api/nessus-import', {method: 'POST', headers: {
+      'Content-Type': 'application/xml', 'X-VulnAssess-Action': 'nessus-import',
+      'X-VulnAssess-Run': run, 'X-VulnAssess-Target': target, 'X-VulnAssess-New-Run': String(newRun),
+    }, body: file});
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error?.message || 'Report import failed');
+    status.textContent = `${result.import.findings.nessus} Nessus findings stored; ${result.scores} priorities calculated. Opening assessment…`;
+    location.href = `/workflow?run=${encodeURIComponent(result.run_id)}#host=${encodeURIComponent(target)}`;
+  } catch (error) { status.textContent = error.message; }
+  finally { button.disabled = false; }
+});
 document.getElementById('preview-flow').addEventListener('click', previewLiveFlow);
 document.getElementById('stop-run').addEventListener('click', () => { runState.stop = true; document.getElementById('stop-run').disabled = true; });
 providerSelect.addEventListener('change', () => {
@@ -1057,7 +1080,11 @@ document.getElementById('check-target').addEventListener('click', async () => {
   output.textContent = 'Checking the local authorization scope and scanner availability…';
   try {
     const result = await getRecord(`/api/target-check?target=${encodeURIComponent(target)}`);
-    output.textContent = `${result.submitted || result.target}: ${result.reason}${result.missing?.length ? ` Missing: ${result.missing.join(', ')}.` : ''}`;
+    const scanners = await getRecord('/api/scanner-status');
+    const nikto = scanners.nikto.status === 'available'
+      ? `Nikto executable found (${scanners.nikto.detail});`
+      : `Nikto ${scanners.nikto.status}: ${scanners.nikto.detail};`;
+    output.textContent = `${result.submitted || result.target}: ${result.reason}${result.missing?.length ? ` Missing: ${result.missing.join(', ')}.` : ''} ${nikto} Nessus: ${scanners.nessus.detail}`;
   } catch (error) {
     output.textContent = error.message;
   }

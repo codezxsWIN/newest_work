@@ -3,12 +3,14 @@
 Tests inject an executor. The agent never invokes a scanner through this module.
 """
 
+import os
 import re
 import shutil
 import subprocess
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +20,73 @@ from vulnassess.schema import Host, Service
 
 WEB_PORTS = {80, 443, 3000, 8000, 8080, 8443}
 WEB_SERVICE = re.compile(r"(?:^|/)(?:https?|ssl/http)(?:$|[-_])", re.IGNORECASE)
-TOOLS = ("nmap", "nikto", "zap")
-BINARIES = {"nmap": "nmap", "nikto": "nikto", "zap": "zap-baseline.py"}
+TOOLS = ("nmap", "nikto")
+BINARIES = {"nmap": "nmap", "nikto": "nikto"}
 NOT_RUN_BY_AGENT = "not run by the agent"
 MAX_EXECUTION_DETAIL = 2048
+NIKTO_DEFAULT = Path.home() / "Tools" / "nikto" / "program" / "nikto.pl"
+PERL_DEFAULT = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "usr" / "bin" / "perl.exe"
+
+
+def _nikto_argv() -> tuple[str, ...] | None:
+    """Resolve Nikto from an explicit executable, or the user's downloaded checkout."""
+    configured = os.environ.get("VULNASSESS_NIKTO_BIN")
+    if configured:
+        found = shutil.which(configured)
+        if found:
+            return (found,)
+        candidate = Path(configured)
+        if candidate.is_file():
+            if candidate.suffix.lower() == ".pl":
+                perl = os.environ.get("VULNASSESS_PERL_BIN") or shutil.which("perl")
+                if not perl and PERL_DEFAULT.is_file():
+                    perl = str(PERL_DEFAULT)
+                return (perl, str(candidate)) if perl else None
+            return (str(candidate),)
+        return None
+
+    executable = shutil.which("nikto")
+    if executable:
+        return (executable,)
+
+    script_value = os.environ.get("VULNASSESS_NIKTO_SCRIPT")
+    script = Path(script_value) if script_value else NIKTO_DEFAULT
+    perl = os.environ.get("VULNASSESS_PERL_BIN") or shutil.which("perl")
+    if not perl and PERL_DEFAULT.is_file():
+        perl = str(PERL_DEFAULT)
+    if script.is_file() and perl:
+        return (perl, str(script))
+    return None
+
+
+def scanner_argv(tool: str) -> tuple[str, ...] | None:
+    if tool == "nikto":
+        return _nikto_argv()
+    if tool not in TOOLS:
+        raise ConfigError(f"unknown locally executable scanner {tool!r}")
+    executable = os.environ.get("VULNASSESS_NMAP_BIN", BINARIES[tool])
+    found = shutil.which(executable)
+    return (found,) if found else None
+
+
+def scanner_status(tool: str) -> dict[str, str]:
+    """Return truthful local readiness without starting a scanner or contacting a manager."""
+    argv = scanner_argv(tool)
+    if argv is None:
+        if tool == "nikto":
+            return {"status": "unavailable", "detail": "Nikto script or Perl runtime not found"}
+        return {"status": "unavailable", "detail": "Nmap is not installed/configured"}
+    if tool == "nikto" and len(argv) > 1:
+        try:
+            version = subprocess.run(
+                [*argv, "-Version"], capture_output=True, text=True, timeout=10, check=False
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return {"status": "dependency-error", "detail": f"Nikto preflight failed: {error}"}
+        if version.returncode != 0:
+            detail = (version.stderr or version.stdout or "Nikto preflight failed").strip()
+            return {"status": "dependency-error", "detail": detail[:MAX_EXECUTION_DETAIL]}
+    return {"status": "available", "detail": "Local executable found; target authorization still required"}
 
 
 @dataclass(frozen=True)
@@ -122,7 +187,7 @@ def missing_binaries(tools: Sequence[str]) -> list[str]:
     unknown = sorted(set(required) - set(TOOLS))
     if unknown:
         raise ConfigError(f"unknown scanner {unknown[0]!r}; expected one of {TOOLS}")
-    return [BINARIES[tool] for tool in required if shutil.which(BINARIES[tool]) is None]
+    return [tool for tool in required if scanner_status(tool)["status"] != "available"]
 
 
 def execute_local(command: ScannerCommand, timeout: float = 1800.0) -> Execution:
@@ -161,6 +226,12 @@ def _authorize(settings, target_ip: str) -> None:
         raise ScopeError(
             f"{target_ip} is outside the authorised addresses in "
             f"{settings.config_dir / 'scope.yaml'}; no scanner command was built"
+        )
+    if ip_address(target_ip).is_global:
+        raise ScopeError(
+            f"{target_ip} is a public target; the Nmap-first Nikto orchestrator is limited "
+            "to explicitly authorised local lab addresses. Public scan exceptions permit "
+            "only the separate light-scan path."
         )
 
 
@@ -204,12 +275,15 @@ def plan(
     unknown = sorted(set(requested) - set(TOOLS))
     if unknown:
         raise ConfigError(f"unknown scanner {unknown[0]!r}; expected one of {TOOLS}")
-    web_tools = tuple(tool for tool in requested if tool in ("nikto", "zap"))
+    web_tools = tuple(tool for tool in requested if tool == "nikto")
     root = Path(output_dir)
     output = root / f"{target_ip}-nmap.xml"
+    nmap = scanner_argv("nmap")
+    if nmap is None:
+        nmap = (BINARIES["nmap"],)
     discovery = ScannerCommand(
         tool="nmap",
-        argv=("nmap", "-sV", "-O", "--script", "vulners", "-oX", str(output), target_ip),
+        argv=(*nmap, "-sV", "-O", "--script", "vulners", "-oX", str(output), target_ip),
         output=output,
     )
     return OrchestrationPlan(
@@ -277,9 +351,10 @@ def web_plan(plan: OrchestrationPlan, host: Host) -> tuple[list[ScannerCommand],
         suffix = f"{endpoint.port}-{endpoint.scheme}"
         for tool in plan.web_tools:
             output = plan.output_dir / f"{plan.target_ip}-{suffix}-{tool}.json"
+            nikto = scanner_argv("nikto") or ("nikto",)
             argv = (
                 (
-                    "nikto",
+                    *nikto,
                     "-h",
                     endpoint.url,
                     "-Format",
@@ -288,13 +363,7 @@ def web_plan(plan: OrchestrationPlan, host: Host) -> tuple[list[ScannerCommand],
                     str(output),
                 )
                 if tool == "nikto"
-                else (
-                    "zap-baseline.py",
-                    "-t",
-                    endpoint.url,
-                    "-J",
-                    str(output),
-                )
+                else ()
             )
             commands.append(
                 ScannerCommand(

@@ -17,13 +17,13 @@ export const PREVIEW_SCENARIOS = {
   },
   web: {
     label: 'Full web assessment',
-    context: 'Orchestrated example: Nmap finds HTTP, so ZAP and Nikto can contribute findings. The current live button does not launch them.',
+    context: 'Preview only: Nmap discovery, a completed Nessus report import and Nikto web checks are shown as distinct evidence paths. No scanner is launched by this animation.',
     steps: [
       step('scope', 'Authorise target', 'scope', [], 'Simulated: authorize and pin the lab target.'),
       step('scanner', 'Discover services', 'nmap', ['scope:nmap'], 'Simulated: Nmap observes an HTTP endpoint on the authorized target.'),
-      step('zap', 'ZAP web checks', 'zap', ['scope:zap'], 'Simulated: ZAP baseline inspects the observed web endpoint.'),
-      step('nikto', 'Nikto checks', 'nikto', ['scope:nikto'], 'Simulated: Nikto inspects the same observed web server.'),
-      step('canonical', 'Normalize findings', 'canonical', ['nmap:canonical', 'zap:canonical', 'nikto:canonical'], 'Simulated: retain original scanner provenance while normalizing findings.'),
+      step('nessus', 'Import Nessus report', 'nessus', ['scope:nessus'], 'Simulated: ingest a completed .nessus XML export for the authorized target. Nessus runs separately.'),
+      step('nikto', 'Nikto checks', 'nikto', ['scope:nikto'], 'Simulated: Nikto inspects an observed HTTP(S) service on the authorized lab target.'),
+      step('canonical', 'Normalize findings', 'canonical', ['nmap:canonical', 'nessus:canonical', 'nikto:canonical'], 'Simulated: retain original scanner provenance while normalizing findings.'),
       step('intel', 'Enrich findings', 'intel', ['canonical:intel', 'nvd:intel', 'epss:intel', 'kev:intel'], 'Simulated: match supported CVEs to NVD, EPSS and KEV snapshots; unmatched findings stay unmatched.'),
       step('context', 'Infer context', 'context', ['canonical:context'], 'Simulated: infer role, exposure and controls from the authorized asset evidence.'),
       step('score', 'Calculate risk', 'score', ['intel:score', 'context:score'], 'Simulated: deterministic risk combines the stored findings, threat data and context.'),
@@ -40,7 +40,7 @@ export const PREVIEW_SCENARIOS = {
     steps: [
       step('scope', 'Authorise target', 'scope', [], 'Simulated: authorize the target.'),
       step('scanner', 'Discover services', 'nmap', ['scope:nmap'], 'Simulated: Nmap observes SSH but no HTTP(S) endpoint.'),
-      step('zap', 'ZAP skipped', 'zap', [], 'Skipped: ZAP needs an observed HTTP(S) endpoint.', 'skipped'),
+      step('nessus', 'Nessus report', 'nessus', [], 'Not imported: no completed .nessus export is attached to this assessment.', 'skipped'),
       step('nikto', 'Nikto skipped', 'nikto', [], 'Skipped: Nikto needs an observed HTTP(S) endpoint.', 'skipped'),
       step('context', 'Infer context', 'context', ['nmap:canonical', 'canonical:context'], 'Simulated: infer context from the observed non-web service.'),
       step('model', 'Check model', 'analyst', ['context:analyst'], 'Simulated: verify model availability.'),

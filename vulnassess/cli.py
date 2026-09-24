@@ -152,7 +152,8 @@ def cmd_import(args: argparse.Namespace) -> int:
     settings = _settings(args)
     with _store(args) as store:
         summary = pipeline.do_import(
-            settings, store, args.run_id, args.target_ip, args.nmap, args.zap, args.nikto
+            settings, store, args.run_id, args.target_ip, args.nmap, args.zap, args.nikto,
+            args.nessus,
         )
     counts = ", ".join(f"{tool} {count}" for tool, count in sorted(summary["findings"].items()))
     _emit(
@@ -185,7 +186,7 @@ def cmd_scan(args: argparse.Namespace) -> int:
             "missing": missing,
             "next_stage": (
                 "run Nmap discovery first; only observed HTTP(S) endpoints may produce "
-                "Nikto/ZAP commands"
+                "Nikto commands"
             ),
         }
         summary = {**core, "summary_hash": _payload_digest(core)}
@@ -194,10 +195,13 @@ def cmd_scan(args: argparse.Namespace) -> int:
             summary["summary_output"] = output
         lines = [
             f"{notice}: {' '.join(scan_plan.discovery.argv)}",
-            "Nikto/ZAP commands are deferred until successful Nmap output proves web endpoints.",
+            "Nikto commands are deferred until successful Nmap output proves web endpoints.",
         ]
         if missing:
-            lines.append(f"MISSING binaries: {', '.join(missing)}; a human must provision them")
+            details = "; ".join(
+                f"{tool}: {orchestrator.scanner_status(tool)['detail']}" for tool in missing
+            )
+            lines.append(f"MISSING scanner requirements: {details}")
         lines.append("Planned only. A human may pass --execute for the authorised lab target.")
         _emit(summary, "\n".join(lines), args.json)
         return 0
@@ -1082,8 +1086,8 @@ def cmd_ui(args: argparse.Namespace) -> int:
     with UiServer(application, port=args.port) as server:
         url = f"http://127.0.0.1:{server.server_port}/"
         _emit(
-            {"url": url, "run_id": args.run_id, "read_only": True},
-            f"VulnAssess: {url}\nRead-only viewer. Press Ctrl-C to stop.",
+            {"url": url, "run_id": args.run_id, "read_only": False},
+            f"VulnAssess: {url}\nLocal workbench. Press Ctrl-C to stop.",
             args.json,
         )
         try:
@@ -1152,7 +1156,7 @@ def build_parser() -> argparse.ArgumentParser:
         sub.set_defaults(handler=handler)
         return sub
 
-    viewer = add("ui", cmd_ui, run_id=False, help="view stored records on loopback, read-only")
+    viewer = add("ui", cmd_ui, run_id=False, help="view assessments and import Nessus reports on loopback")
     viewer.add_argument("--run", "--run-id", dest="run_id", help="initial run identifier")
     viewer.add_argument("--port", type=int, default=8765, help="loopback HTTP port")
     viewer.add_argument("--db", default=argparse.SUPPRESS, help="existing SQLite store path")
@@ -1170,11 +1174,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     importer = add("import", cmd_import, help="import existing scanner output for one target")
     importer.add_argument("--target-ip", required=True)
-    importer.add_argument("--nmap", required=True)
+    importer.add_argument("--nmap", help="optional Nmap XML for observed services")
     importer.add_argument("--zap")
     importer.add_argument("--nikto")
+    importer.add_argument("--nessus", help="completed .nessus XML scan export for this target")
 
-    scanner = add("scan", cmd_scan, help="plan Nmap-first scanning for one authorised target")
+    scanner = add("scan", cmd_scan, help="plan Nmap-first scanning for one authorised lab target")
     scanner.add_argument("--target-ip", required=True)
     scanner.add_argument("--tool", action="append", default=None, choices=orchestrator.TOOLS)
     scanner.add_argument("--out-dir", default="data/captures")

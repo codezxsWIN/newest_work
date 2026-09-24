@@ -506,7 +506,7 @@ class TestUiServer(unittest.TestCase):
             {
                 "url": "http://127.0.0.1:8765/",
                 "run_id": DEMO_RUN,
-                "read_only": True,
+                "read_only": False,
             },
         )
         server_class.return_value.__exit__.assert_called_once()

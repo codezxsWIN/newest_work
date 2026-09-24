@@ -3,7 +3,7 @@ export const SIZE = Object.freeze({width: 1500, height: 740});
 export const NODE_SPECS = Object.freeze([
   {id: 'scope', title: 'Target & scope', subtitle: 'Permission boundary', icon: 'target', x: 100, y: 365, group: 'source'},
   {id: 'nmap', title: 'Nmap', subtitle: 'Ports & services', icon: 'radar', x: 270, y: 170, group: 'source'},
-  {id: 'zap', title: 'ZAP', subtitle: 'Web application findings', icon: 'browser', x: 270, y: 365, group: 'source'},
+  {id: 'nessus', title: 'Nessus report', subtitle: 'Imported network findings', icon: 'browser', x: 270, y: 365, group: 'source'},
   {id: 'nikto', title: 'Nikto', subtitle: 'Web server findings', icon: 'terminal', x: 270, y: 560, group: 'source'},
   {id: 'canonical', title: 'Normalize & store', subtitle: 'Canonical finding records', icon: 'merge', x: 465, y: 365, group: 'transform'},
   {id: 'nvd', title: 'NVD', subtitle: 'CVEs & CVSS vectors', icon: 'database', x: 600, y: 90, group: 'intel'},
@@ -22,8 +22,8 @@ export const NODE_SPECS = Object.freeze([
 ]);
 
 export const EDGES = Object.freeze([
-  {from: 'scope', to: 'nmap'}, {from: 'scope', to: 'zap'}, {from: 'scope', to: 'nikto'},
-  {from: 'nmap', to: 'canonical'}, {from: 'zap', to: 'canonical'}, {from: 'nikto', to: 'canonical'},
+  {from: 'scope', to: 'nmap'}, {from: 'scope', to: 'nessus'}, {from: 'scope', to: 'nikto'},
+  {from: 'nmap', to: 'canonical'}, {from: 'nessus', to: 'canonical'}, {from: 'nikto', to: 'canonical'},
   {from: 'canonical', to: 'intel'}, {from: 'canonical', to: 'context'},
   {from: 'nvd', to: 'intel'}, {from: 'epss', to: 'intel'}, {from: 'kev', to: 'intel'},
   {from: 'canonical', to: 'shadow', optional: true}, {from: 'shadow', to: 'context', optional: true},
@@ -89,7 +89,7 @@ export function buildNodes(assessment, scope, selection = {}, analysis = null) {
     report: {state: 'optional', status: 'Artifact not attached'}, analyst: {state: 'optional', status: 'Not run'},
     evaluation: {state: 'optional', status: 'No result attached'}, rescan: {state: 'optional', status: 'No comparison attached'},
   };
-  for (const tool of ['nmap', 'zap', 'nikto']) states[tool] = hasSource(tool) ? {state: 'stored', status: 'Import recorded'} : {state: 'missing', status: 'No import recorded'};
+  for (const tool of ['nmap', 'nessus', 'nikto']) states[tool] = hasSource(tool) ? {state: 'stored', status: tool === 'nessus' ? 'Report imported' : 'Scanner evidence stored'} : {state: 'missing', status: tool === 'nessus' ? 'No .nessus report imported' : 'No scan evidence recorded'};
   for (const feed of ['nvd', 'epss', 'kev']) states[feed] = recordState(assessment.feeds_meta.filter(item => item.feed === feed), 'Snapshot loaded');
   if (analysis && analysis.runId === assessment.run.run_id && analysis.hostIp === selection.host) {
     const activeStage = {
@@ -122,7 +122,7 @@ export function evidenceBasis(assessment, hostIp) {
   const findings = (assessment.findings || []).filter(item => item.host_ip === hostIp);
   const hasTool = tool => imports.some(item => Object.hasOwn(item.findings || {}, tool)) || findings.some(item => item.tool === tool);
   const notChecked = [];
-  for (const [tool, name] of [['zap', 'ZAP'], ['nikto', 'Nikto']]) {
+  for (const [tool, name] of [['nessus', 'Nessus'], ['nikto', 'Nikto']]) {
     if (!hasTool(tool)) notChecked.push(`No ${name} evidence attached; its coverage is unknown.`);
   }
   for (const [key, label] of [['waf', 'WAF'], ['auth_required', 'Authentication'], ['rate_limiting', 'Rate limiting'], ['tls', 'TLS']]) {
@@ -150,13 +150,13 @@ export function nodeDetails(identity, assessment, scope, weights, selection = {}
   if (identity === 'scope') return {...base, input: 'Target addresses', operation: 'Check current lab configuration before any import or scanner command.', output: 'Explicit target boundary',
     rows: (scope?.values.lab_targets || []).map(target => ({label: target.name, value: target.ip})), records: scope ? [scope] : [],
     message: 'This shows configuration, not proof of a past safety check or canary request count.', provenance: 'config/scope.yaml'};
-  if (['nmap', 'zap', 'nikto'].includes(identity)) {
+  if (['nmap', 'nessus', 'nikto'].includes(identity)) {
     const imports = (assessment.run.summary.imports || []).filter(item => (!selection.host || item.target_ip === selection.host) && Object.hasOwn(item.findings || {}, identity));
     const findings = slice.findings.filter(finding => finding.tool === identity);
-    return {...base, input: 'Human-provided scanner artifact', operation: 'Scope-checked import; retain the native identity and original evidence.', output: 'Imported observations',
+    return {...base, input: identity === 'nessus' ? 'Completed .nessus XML export' : 'Scanner artifact', operation: 'Scope-checked import; retain the native identity and original evidence.', output: 'Stored observations',
       rows: imports.flatMap(item => [{label: 'Recorded target', value: item.target_ip}, {label: 'Stored import counter', value: item.findings[identity]}]),
       quotes: findings.map(finding => ({label: finding.title, quote: finding.evidence, source: finding.provenance.raw_path})), records: findings,
-      message: 'No scanner is launched here. An import record is not evidence that this viewer performed a scan.', provenance: `readers/${identity === 'nmap' ? 'nmap_xml' : `${identity}_json`}.py`};
+      message: identity === 'nessus' ? 'Nessus runs separately. Import its completed .nessus XML export for an authorized target to populate this path. A zero-finding import still records coverage.' : 'The quick live button does not launch this scanner. Scanner artifacts retain their source and run.', provenance: `readers/${identity === 'nmap' ? 'nmap_xml' : identity === 'nessus' ? 'nessus_xml' : 'nikto_json'}.py`};
   }
   if (identity === 'canonical') return {...base, input: 'Scanner-native findings', operation: 'Normalize identities and provenance into the canonical schema, then persist records in SQLite.', output: 'One inspectable record per finding',
     rows: slice.findings.map(finding => ({label: finding.tool_native_id, value: finding.id})), quotes: findingQuotes, records: slice.findings,

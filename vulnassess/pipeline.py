@@ -6,7 +6,7 @@ from typing import Any, Sequence
 
 from vulnassess import context, evaluate, report, scoring
 from vulnassess.errors import ConfigError, ScopeError
-from vulnassess.readers import parse_nikto_json, parse_nmap_xml, parse_zap_json
+from vulnassess.readers import parse_nessus_xml, parse_nikto_json, parse_nmap_xml, parse_zap_json
 from vulnassess.role_model import load_model
 from vulnassess.schema import Host, ScoreBreakdown
 from vulnassess.settings import Settings
@@ -28,6 +28,7 @@ def do_import(
     nmap_path: str | Path | None,
     zap_path: str | Path | None = None,
     nikto_path: str | Path | None = None,
+    nessus_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Authorise first. No scan file is opened until the target is inside the fence."""
     scope = settings.scope
@@ -72,6 +73,13 @@ def do_import(
             shutil.copy2(nikto_path, copy)
         findings = parse_nikto_json(copy, run_id, host_ip=target_ip)
         counts["nikto"] = store.upsert_findings(run_id, findings)
+
+    if nessus_path:
+        copy = raw_dir / f"nessus-{Path(nessus_path).name}"
+        if Path(nessus_path).resolve() != copy.resolve():
+            shutil.copy2(nessus_path, copy)
+        findings = parse_nessus_xml(copy, run_id, host_ip=target_ip)
+        counts["nessus"] = store.upsert_findings(run_id, findings)
 
     if not hosts:
         hosts = [host for host in store.hosts(run_id) if host.ip == target_ip]

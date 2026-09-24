@@ -27,7 +27,7 @@ Every error must name the missing path, command, or configuration key. The CLI m
 Use Pydantic v2. `Finding`, `Enrichment`, and `ScoreBreakdown` must use `ConfigDict(frozen=True)`. Nullable fields remain required unless the specification gives a default. The sole field default specified below is `Service.tls=False`.
 
 ```python
-Tool = Literal["nmap", "nikto", "zap"]
+Tool = Literal["nmap", "nikto", "zap", "nessus"]
 Role = Literal[
     "database",
     "web_frontend",
@@ -123,7 +123,7 @@ Every command must support `--json` and `--run-id`, with the exit codes above:
 
 ```text
 vulnassess doctor
-vulnassess scan <target> [--tools nmap,nikto,zap]
+vulnassess scan <target> [--tools nmap,nikto]
 vulnassess intel refresh [--nvd --epss --kev]
 vulnassess intel load --from-dir data/feeds
 vulnassess intel status
@@ -145,6 +145,7 @@ These signatures are normative, including parameter names. No implementation is 
 ```python
 def parse_nmap_xml(path: Path, run_id: str) -> tuple[list[Host], list[Finding]]: ...
 def parse_nikto_json(path: Path, run_id: str) -> list[Finding]: ...
+def parse_nessus_xml(path: Path, run_id: str, host_ip: str | None = None) -> list[Finding]: ...
 def parse_zap_json(path: Path, run_id: str) -> list[Finding]: ...
 def run_tool(tool: Tool, target: str, scope: Scope, out_dir: Path) -> Path: ...
 def load_feeds(feed_dir: Path, store: Store) -> dict[str, FeedMeta]: ...
@@ -202,7 +203,7 @@ environmental:
   environment_test: {CR: L, IR: L, AR: L}
   criticality_step_above: 3
 threat: {base_multiplier: 0.5, epss_weight: 0.5, missing_epss: unscored, kev_floor: 90}
-native_fallback: {zap: {High: 60, Medium: 40, Low: 20, Informational: 5}, nikto: 30, nmap: 25}
+native_fallback: {nessus: {Critical: 80, High: 60, Medium: 40, Low: 20}, zap: {High: 60, Medium: 40, Low: 20, Informational: 5}, nikto: 30, nmap: 25}
 bands: {Critical: 80, High: 60, Medium: 35}
 ```
 

@@ -29,6 +29,7 @@ threat:
   kev_floor_internet_facing: 90            # ...and floors risk here ONLY if the host is internet-facing
 
 native_fallback:                           # findings with no CVE rank on the tool's own severity
+  nessus: {Critical: 80, High: 60, Medium: 40, Low: 20}
   zap: {High: 60, Medium: 40, Low: 20, Informational: 5}
   nikto: 30
   nmap: 25

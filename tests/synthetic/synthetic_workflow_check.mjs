@@ -19,7 +19,7 @@ for (const edge of workflow.EDGES) {
   assert.ok(nodes.some(node => node.id === edge.to));
   assert.notEqual(edge.from, edge.to);
 }
-for (const identity of ['scope', 'nmap', 'zap', 'nikto', 'canonical', 'nvd', 'epss', 'kev', 'intel', 'context', 'shadow', 'score', 'queue', 'rationale', 'report', 'analyst', 'evaluation', 'rescan']) assert.ok(nodes.some(node => node.id === identity));
+for (const identity of ['scope', 'nmap', 'nessus', 'nikto', 'canonical', 'nvd', 'epss', 'kev', 'intel', 'context', 'shadow', 'score', 'queue', 'rationale', 'report', 'analyst', 'evaluation', 'rescan']) assert.ok(nodes.some(node => node.id === identity));
 assert.equal(nodes.find(node => node.id === 'analyst').status, 'Not run');
 assert.equal(nodes.find(node => node.id === 'report').status, 'Artifact not attached');
 assert.equal(nodes.find(node => node.id === 'evaluation').status, 'No result attached');
@@ -41,7 +41,7 @@ assert.equal(oldProfile.controls.waf.value, false);
 const basis = workflow.evidenceBasis(oldAssessment, oldProfile.host_ip);
 assert.equal(basis.observed.length, oldAssessment.hosts.find(item => item.ip === oldProfile.host_ip).services.length);
 assert.ok(basis.context.some(line => line.includes('Role')));
-assert.ok(basis.notChecked.some(line => line.includes('ZAP')));
+assert.ok(basis.notChecked.some(line => line.includes('Nessus')));
 assert.ok(basis.notChecked.some(line => line.includes('WAF')));
 assert.ok(basis.nextVerification.includes('authorised'));
 const selected = {host};
@@ -51,7 +51,7 @@ assert.equal(workflow.buildNodes(input.assessment, input.scope, {host: 'syntheti
 assert.equal(workflow.buildNodes(input.assessment, input.scope, selected, {...result, status: 'error'}).find(node => node.id === 'analyst').status, 'Request failed');
 const empty = {...input.assessment, hosts: [], findings: [], scores: [], enrichments: [], context: [], rationales: [], feeds_meta: [], run: {...input.assessment.run, summary: {}}};
 assert.equal(workflow.buildNodes(empty, null).find(node => node.id === 'score').status, 'No stored output');
-assert.equal(workflow.buildNodes(empty, null).find(node => node.id === 'nmap').status, 'No import recorded');
+assert.equal(workflow.buildNodes(empty, null).find(node => node.id === 'nmap').status, 'No scan evidence recorded');
 assert.equal(JSON.stringify(input.assessment), before);
 console.log(`WORKFLOW: ${nodes.length} nodes; graph links, stored score fidelity, empty states and analyst isolation passed`);
 

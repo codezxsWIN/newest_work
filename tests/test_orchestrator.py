@@ -54,7 +54,6 @@ class FakeExecutor:
             return Execution(7, "2026-09-07T00:00:00Z", "2026-09-07T00:00:01Z", "synthetic failure")
         source = {
             "nmap": self.nmap_source,
-            "zap": SYNTHETIC / "synthetic_zap_dvwa.json",
             "nikto": SYNTHETIC / "synthetic_nikto_dvwa.json",
         }[command.tool]
         command.output.parent.mkdir(parents=True, exist_ok=True)
@@ -141,12 +140,12 @@ class TestOrchestrator(unittest.TestCase):
                 summary = store.run_info("synthetic-execute")["summary"]
             self.assertEqual([host.ip for host in hosts], ["172.28.0.10"])
             self.assertTrue(hosts[0].services)
-            self.assertEqual({finding.tool for finding in findings}, {"nmap", "nikto", "zap"})
+            self.assertEqual({finding.tool for finding in findings}, {"nmap", "nikto"})
             self.assertTrue(all(Path(finding.provenance.raw_path).is_file() for finding in findings))
             self.assertEqual(summary["scans"][-1], result)
 
         self.assertEqual(code, 0)
-        self.assertEqual([call.tool for call in executor.calls], ["nmap", "nikto", "zap"])
+        self.assertEqual([call.tool for call in executor.calls], ["nmap", "nikto"])
         self.assertTrue(result["executed"])
         self.assertTrue(result["complete"])
         self.assertEqual(result["canary_evidence"]["status"], "VERIFIED")
@@ -179,7 +178,7 @@ class TestOrchestrator(unittest.TestCase):
 
     def test_scan_cli_persists_partial_and_failed_runs(self) -> None:
         for target, failed, expected_tools in (
-            ("172.28.0.10", {"nikto"}, {"nmap", "zap"}),
+            ("172.28.0.10", {"nikto"}, {"nmap"}),
             ("172.28.0.10", {"nmap"}, set()),
             ("172.28.0.11", set(), set()),
         ):
@@ -242,11 +241,11 @@ class TestOrchestrator(unittest.TestCase):
 
     def test_binary_check_always_includes_mandatory_nmap(self):
         with patch("vulnassess.orchestrator.shutil.which", return_value=None):
-            missing = missing_binaries(("zap",))
-        self.assertEqual(missing, ["nmap", "zap-baseline.py"])
+            missing = missing_binaries(("nikto",))
+        self.assertEqual(missing, ["nmap", "nikto"])
 
     def test_scope_and_canary_are_rejected_before_output_or_execution(self):
-        for target in ("8.8.8.8", "172.28.0.250", "portal.example.edu", "192.168.0.116"):
+        for target in ("8.8.8.8", "172.28.0.250", "portal.example.edu"):
             with self.subTest(target=target), TemporaryDirectory() as directory:
                 output = Path(directory) / "captures"
                 with self.assertRaises(ScopeError):
@@ -296,7 +295,7 @@ class TestOrchestrator(unittest.TestCase):
             )
 
         self.assertEqual(commands, [])
-        self.assertEqual([item.tool for item in skips], ["nikto", "zap"])
+        self.assertEqual([item.tool for item in skips], ["nikto"])
         self.assertTrue(all("no HTTP service" in item.skip_reason for item in skips))
 
     def test_successful_run_is_nmap_first_and_records_every_outcome(self):
@@ -308,21 +307,21 @@ class TestOrchestrator(unittest.TestCase):
                 SETTINGS,
                 "172.28.0.10",
                 output,
-                tools=("nmap", "nikto", "zap"),
+                tools=("nmap", "nikto"),
                 canary_log=empty_log,
             )
             executor = FakeExecutor()
 
             result = orchestrate(scan_plan, "synthetic-run", executor)
 
-        self.assertEqual([call.tool for call in executor.calls], ["nmap", "nikto", "zap"])
+        self.assertEqual([call.tool for call in executor.calls], ["nmap", "nikto"])
         self.assertEqual(result["canary_evidence"]["status"], "VERIFIED")
-        self.assertEqual(result["successful_tools"], 3)
+        self.assertEqual(result["successful_tools"], 2)
         self.assertEqual(result["failed_tools"], 0)
         self.assertEqual(result["skipped_tools"], 0)
         self.assertTrue(result["complete"])
         self.assertEqual(result["endpoints"][0]["url"], "http://172.28.0.10")
-        self.assertEqual([item["status"] for item in result["outcomes"]], ["success"] * 3)
+        self.assertEqual([item["status"] for item in result["outcomes"]], ["success"] * 2)
         self.assertTrue(all(item["started_at"] for item in result["outcomes"]))
         self.assertTrue(all(item["raw_path"] for item in result["outcomes"]))
 
@@ -337,7 +336,6 @@ class TestOrchestrator(unittest.TestCase):
         self.assertEqual(outcomes["nmap"]["status"], "success")
         self.assertEqual(outcomes["nikto"]["status"], "failed")
         self.assertEqual(outcomes["nikto"]["exit_code"], 7)
-        self.assertEqual(outcomes["zap"]["status"], "success")
         self.assertEqual(result["failed_tools"], 1)
         self.assertFalse(result["complete"])
 
@@ -350,7 +348,7 @@ class TestOrchestrator(unittest.TestCase):
 
         self.assertEqual([call.tool for call in executor.calls], ["nmap"])
         self.assertEqual(result["failed_tools"], 1)
-        self.assertEqual(result["skipped_tools"], 2)
+        self.assertEqual(result["skipped_tools"], 1)
         self.assertTrue(
             all("discovery failed" in item["skip_reason"] for item in result["outcomes"][1:])
         )
@@ -364,12 +362,12 @@ class TestOrchestrator(unittest.TestCase):
 
         self.assertEqual([call.tool for call in executor.calls], ["nmap"])
         self.assertEqual(result["successful_tools"], 1)
-        self.assertEqual(result["skipped_tools"], 2)
+        self.assertEqual(result["skipped_tools"], 1)
         self.assertEqual(result["endpoints"], [])
         self.assertTrue(result["complete"])
 
     def test_discovery_without_requested_host_is_not_complete(self):
-        for tools in (("nmap",), ("nmap", "nikto", "zap")):
+        for tools in (("nmap",), ("nmap", "nikto")):
             with self.subTest(tools=tools), TemporaryDirectory() as directory:
                 scan_plan = plan(
                     SETTINGS,

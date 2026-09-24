@@ -15,7 +15,6 @@ from vulnassess.errors import ConfigError
 from vulnassess.readers import parse_nmap_xml
 from vulnassess.settings import Settings
 
-
 Progress = Callable[[str, str, str], None]
 
 
@@ -85,8 +84,8 @@ def run(
         "context": [profile.to_json()],
         "scanner_coverage": {
             "nmap": "top 100 TCP ports, light service detection",
-            "zap": "not run",
-            "nikto": "not run",
+            "nikto": "not run; separate authorized web scan required",
+            "nessus": "no .nessus report imported; no Nessus scan claimed",
         },
     }
     model_case, _, _ = analyst.build_case(payload, target_ip)

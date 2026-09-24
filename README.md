@@ -115,8 +115,8 @@ defensive prioritiser: it consumes scanner output; it ships no attack capability
 ## Commands
 
 ```text
-vulnassess scan      --run-id R --target-ip IP [--tool nmap|nikto|zap] [--execute]
-vulnassess import    --run-id R --target-ip IP --nmap out.xml [--zap out.json] [--nikto out.json]
+vulnassess scan      --run-id R --target-ip IP [--tool nmap|nikto] [--execute]
+vulnassess import    --run-id R --target-ip IP [--nmap out.xml] [--nikto out.json] [--nessus report.nessus]
 vulnassess intel     load --from-dir data/feeds | status
 vulnassess enrich    --run-id R          # match CVEs against the offline snapshots
 vulnassess context   --run-id R          # infer role/exposure/controls with quotes
@@ -138,7 +138,7 @@ The four-stage workbench presents the stored assessment. A separate Make-style
 workflow canvas shows the project's data dependencies and inspects the same records:
 
 ```text
-vulnassess ui --run R --port 8765                 # loopback, read-only
+vulnassess ui --run R --port 8765                 # loopback workbench; explicit Nessus import
 vulnassess ui --run R --model llama3.2:3b         # enable explicit local target analysis
 vulnassess ui --run R --export reports/R-ui.html  # one offline HTML file
 python run_visual_simulation.py                    # same UI, synthetic demo data
@@ -158,10 +158,25 @@ memory and does not require a recorded assessment or write scores. Nmap must be 
 the server's PATH or supplied as `VULNASSESS_NMAP_BIN` in the server process
 environment. A completed scan is held in server memory for 10 minutes so a failed model request can be retried without running Nmap again. Another live scan of the same target is blocked during that period; restarting the server clears the in-memory evidence.
 Use **Preview example** and **Preview flow** to watch five labelled simulations:
-light Nmap with no findings, a full web path, skipped web tools when HTTP is absent,
+light Nmap with no findings, a full web path, skipped Nikto when HTTP is absent,
 model unavailability, and a target outside scope. The full web path illustrates
-the CLI orchestrator's Nmap-to-ZAP/Nikto branch; the live Run button still starts
-only light Nmap. Preview mode contacts no target or model and does not create evidence.
+the CLI orchestrator's Nmap-to-Nikto branch plus a separately imported Nessus report;
+the live Run button still starts only light Nmap. Preview mode contacts no target or
+model and does not create evidence. Nikto is resolved from `VULNASSESS_NIKTO_BIN` or
+the downloaded `~/Tools/nikto/program/nikto.pl` checkout with Perl. Its `-Version`
+preflight reports missing Perl modules before a scan is planned. Set
+`VULNASSESS_PERL_BIN` or `VULNASSESS_NIKTO_SCRIPT` when using a different local install.
+The Nmap-first Nikto orchestrator is limited to local targets; scanme's exception
+remains light-Nmap-only. Export a completed `.nessus` XML scan from Nessus, then use
+**Run → Import Nessus findings** to create a new assessment (the default) or add to
+the selected assessment for an authorised target IP,
+or run `vulnassess import --run-id R --target-ip IP --nessus report.nessus`.
+The import verifies every report host against the selected target, skips informational
+inventory plugins, preserves plugin identity and evidence, and recalculates stored
+context and deterministic priorities in the local viewer. NVD/EPSS/KEV enrichment
+uses local feed snapshots when available. The viewer does not start a Nessus scan.
+Tenable Nessus Essentials cannot export scan reports; an edition with `.nessus`
+export capability is required for this path.
 The default local Ollama model keeps evidence on this machine. The optional
 `deepseek/deepseek-v4-flash-0731:free` model uses
 OpenRouter only after selecting it and confirming evidence sharing. Put your key
@@ -181,8 +196,8 @@ hypothesis, a concrete verification action and an alternative explanation. The
 viewer shows the actual cited evidence alongside it. Unknown citations and a
 non-actionable verification are rejected. Model prose can still be wrong: the
 investigation is advice, not a vulnerability finding, executed test or risk score.
-The live Nmap case explicitly records that ZAP and Nikto were not run, so the
-analyst can distinguish missing web coverage from a clean web scan.
+The live Nmap case explicitly records that Nikto was not run and no Nessus report
+was imported, so the analyst can distinguish missing coverage from a clean scan.
 
 The **Check scope** control checks an IP, HTTP(S) lab-instance URL, or project link
 without scanning. The live Run action starts a scan only for an authorised target.
@@ -213,7 +228,7 @@ commands, output and verification limits are recorded in [the UI guide](docs/ui.
 ## Layout
 
 ```text
-vulnassess/   the package: schema, settings, store, readers/ (nmap, nikto, zap),
+vulnassess/   the package: schema, settings, store, readers/ (nmap, nikto, nessus, legacy zap),
               intel, cvss31, context, role_model, scoring, experiments, report, cli
 config/       scope.yaml (the fence), weights.yaml (the frozen formula), roles, controls
 data/feeds/   real public feed snapshots + fetchers (gitignored; provenance in docs/)

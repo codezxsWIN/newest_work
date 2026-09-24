@@ -1,4 +1,4 @@
-"""Loopback workbench with explicit analyst requests and no writable Store."""
+"""Loopback workbench with explicit analyst requests and a scoped report import."""
 
 import json
 import os
@@ -17,12 +17,14 @@ from urllib.parse import parse_qs, unquote, urlsplit
 import yaml
 
 import vulnassess.analyst as analyst
-import vulnassess.orchestrator as orchestrator
 import vulnassess.live_assessment as live_assessment
-from vulnassess.target_intake import resolve_addresses
-from vulnassess.errors import ConfigError, LLMUnavailable
+import vulnassess.orchestrator as orchestrator
+from vulnassess.errors import AdapterError, ConfigError, LLMUnavailable, ScopeError
+from vulnassess.nessus_import import import_nessus_report
+from vulnassess.readers._input import MAX_CAPTURE_BYTES
 from vulnassess.repository import ENV_VAR, AssessmentRepository
 from vulnassess.settings import CONFIG_FILES, Settings
+from vulnassess.target_intake import resolve_addresses
 from vulnassess.ui.entry import render_entry
 from vulnassess.ui.reader import local_path, open_read_store
 
@@ -307,6 +309,10 @@ class UiApplication:
 
         return live_assessment.run(target, check, self.config_dir, provider=provider, on_progress=on_progress, on_capture=on_capture, on_case=remember_case)
 
+    def import_nessus_report(self, run_id: str, target_ip: str, content: bytes, *, new_run: bool = False) -> dict[str, Any]:
+        """Import one completed export into an existing local run, then update its analysis."""
+        return import_nessus_report(self.database, self.config_dir, run_id, target_ip, content, new_run=new_run)
+
     def _repository(self) -> AssessmentRepository:
         """Open the expanded assessment store strictly read-only."""
         value = self.database if isinstance(self.database, str) else str(self.database)
@@ -410,6 +416,11 @@ class UiApplication:
                 return json_response(200, self.target_check(parameters["target"][0]))
             except ConfigError as error:
                 return error_response(400, str(error))
+        if parts == ["api", "scanner-status"]:
+            return json_response(200, {
+                "nikto": orchestrator.scanner_status("nikto"),
+                "nessus": {"status": "import-only", "detail": "Completed .nessus XML scan exports can be imported for an authorized target; the app does not launch Nessus."},
+            })
         if parts[0] != "api":
             return error_response(404, "UI route not found")
         try:
@@ -606,15 +617,32 @@ class UiRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         server = cast(UiServer, self.server)
-        if self.path != "/api/live-assessment/events" and not self.path.startswith("/api/analyst/"):
-            self._reply(error_response(405, "POST is supported only for an explicit cloud analyst request"))
+        if self.path != "/api/live-assessment/events" and self.path != "/api/nessus-import" and not self.path.startswith("/api/analyst/"):
+            self._reply(error_response(405, "POST route not found"))
             return
         if not self._same_origin():
             return
         authority = f"127.0.0.1:{server.server_address[1]}"
-        action = "live-assessment" if self.path == "/api/live-assessment/events" else "cloud-analyst"
+        action = "nessus-import" if self.path == "/api/nessus-import" else "live-assessment" if self.path == "/api/live-assessment/events" else "cloud-analyst"
         if self.headers.get("Origin") != f"http://{authority}" or self.headers.get("X-VulnAssess-Action") != action:
-            self._reply(error_response(403, "Cloud analyst requires an explicit same-origin action"))
+            self._reply(error_response(403, "Explicit same-origin action required"))
+            return
+        if self.path == "/api/nessus-import":
+            try:
+                size = int(self.headers.get("Content-Length", "-1"))
+                run_id = self.headers.get("X-VulnAssess-Run", "")
+                target_ip = self.headers.get("X-VulnAssess-Target", "")
+                new_run = self.headers.get("X-VulnAssess-New-Run", "false")
+                if (self.headers.get("Content-Type") != "application/xml" or not 0 < size <= MAX_CAPTURE_BYTES
+                    or not 0 < len(run_id) <= 128 or not 0 < len(target_ip) <= 45
+                    or new_run not in ("true", "false")):
+                    raise ValueError("invalid Nessus report request")
+                ip_address(target_ip)
+                result = server.application.import_nessus_report(run_id, target_ip, self.rfile.read(size), new_run=new_run == "true")
+            except (ValueError, AdapterError, ConfigError, ScopeError, OSError) as error:
+                self._reply(error_response(400, str(error)))
+                return
+            self._reply(json_response(200, result))
             return
         try:
             size = int(self.headers.get("Content-Length", "-1"))

@@ -39,8 +39,8 @@ def test_live_scan_uses_pinned_ip_and_sends_fresh_services_to_analyst():
         assert payload["scores"] == []
         assert payload["scanner_coverage"] == {
             "nmap": "top 100 TCP ports, light service detection",
-            "zap": "not run",
-            "nikto": "not run",
+            "nikto": "not run; separate authorized web scan required",
+            "nessus": "no .nessus report imported; no Nessus scan claimed",
         }
         assert kwargs["provider"] == "openrouter"
         return {"host_ip": host_ip, "analysis": {"summary": "SSH observed."}}

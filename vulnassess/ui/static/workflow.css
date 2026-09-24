@@ -41,6 +41,9 @@ select { background: var(--flow-paper); padding: 8px 24px 8px 10px; border: 1px 
 .cloud-consent { display: flex; align-items: flex-start; gap: 9px; margin: 12px 0; padding: 10px; border: 1px solid var(--flow-line-strong); border-radius: 5px; font-size: 11px; line-height: 1.5; }
 .cloud-consent input { flex: none; margin-top: 2px; accent-color: var(--flow-accent); }
 #run-target-search { width: 100%; padding: 10px; border: 1px solid var(--flow-line-strong); border-radius: 5px; background: var(--flow-bg); }
+#nessus-target, #nessus-file { width: 100%; padding: 9px; border: 1px solid var(--flow-line-strong); border-radius: 5px; background: var(--flow-bg); }
+#nessus-destination { width: 100%; max-width: none; }
+#import-nessus { width: 100%; margin-top: 12px; }
 .run-targets { max-height: 210px; overflow: auto; margin: 10px 0; border: 1px solid var(--flow-line); border-radius: 5px; }
 .run-target { display: flex; align-items: center; gap: 10px; padding: 10px; border-bottom: 1px solid var(--flow-line); cursor: pointer; }
 .run-target:last-child { border-bottom: 0; }

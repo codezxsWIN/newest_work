@@ -337,14 +337,24 @@ class Settings:
             raise ConfigError(f"{path}: threat.kev_multiplier must not be below base_multiplier")
 
         native = self.weights["native_fallback"]
-        self._unknown(path, native, {"zap", "nikto", "nmap"}, "native_fallback")
+        self._unknown(path, native, {"nessus", "zap", "nikto", "nmap"}, "native_fallback")
         for key in ("nikto", "nmap"):
             self._number(path, native.get(key), f"native_fallback.{key}", 0, 100)
-        zap = self._mapping(path, native.get("zap"), "native_fallback.zap")
-        severities = {"High", "Medium", "Low", "Informational"}
-        self._unknown(path, zap, severities, "native_fallback.zap")
-        for severity in severities:
-            self._number(path, zap.get(severity), f"native_fallback.zap.{severity}", 0, 100)
+        severities = {"Critical", "High", "Medium", "Low", "Informational"}
+        for tool in ("nessus", "zap"):
+            severity_weights = self._mapping(
+                path, native.get(tool), f"native_fallback.{tool}"
+            )
+            allowed_severities = severities - ({"Informational"} if tool == "nessus" else {"Critical"})
+            self._unknown(path, severity_weights, allowed_severities, f"native_fallback.{tool}")
+            for severity in allowed_severities:
+                self._number(
+                    path,
+                    severity_weights.get(severity),
+                    f"native_fallback.{tool}.{severity}",
+                    0,
+                    100,
+                )
 
         bands = self.weights["bands"]
         self._unknown(path, bands, {"Critical", "High", "Medium"}, "bands")
