@@ -494,13 +494,14 @@ class TestContext(unittest.TestCase):
         self.assertEqual(routable.value, "internet_facing")
         self.assertIn("globally routable", routable.evidence)
 
-    def test_waf_is_detected_and_absent_controls_say_none_observed(self):
+    def test_waf_is_detected_and_unobserved_controls_remain_unknown(self):
         quiet = Host(ip="172.28.0.10", services=(service(80, "http", "80/tcp http nginx"),))
         controls = context.detect_controls(quiet, [], CONTROLS)
         self.assertEqual(sorted(controls), ["auth_required", "rate_limiting", "tls", "waf"])
         for key, feature in controls.items():
             with self.subTest(control=key):
-                self.assertFalse(feature.value)
+                self.assertIsNone(feature.value)
+                self.assertEqual(feature.confidence, 0.0)
                 self.assertEqual(feature.evidence, "none observed")
 
         behind = Host(

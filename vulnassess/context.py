@@ -138,15 +138,28 @@ def detect_controls(
                 break
             if found is not None:
                 break
-        controls[key] = found or Feature(False, 0.5, "rule", "none observed")
+        controls[key] = found or Feature(None, 0.0, "rule", "none observed")
 
     tls_service = next((service for service in host.services if service.tls), None)
     controls["tls"] = (
         Feature(True, 0.9, "rule", tls_service.banner or f"{tls_service.port}/tcp")
         if tls_service is not None
-        else Feature(False, 0.5, "rule", "none observed")
+        else Feature(None, 0.0, "rule", "none observed")
     )
     return controls
+
+
+def interpreted_control(record: dict[str, Any]) -> dict[str, Any]:
+    """Read old rule-generated 'none observed' values as unknown without rewriting history."""
+    feature = dict(record)
+    if (
+        feature.get("value") is False
+        and feature.get("source") == "rule"
+        and feature.get("evidence") == "none observed"
+    ):
+        feature["value"] = None
+        feature["confidence"] = 0.0
+    return feature
 
 
 def build_profile(

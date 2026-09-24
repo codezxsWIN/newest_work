@@ -301,7 +301,14 @@ def evaluate_context(
         for item in applicable:
             profile = profile_by_ip.get(item.host_ip)
             feature = None if profile is None else profile.controls.get(key)
-            observed.append(None if feature is None else str(bool(feature.value)).lower())
+            observed.append(
+                None if feature is None or feature.value is None or (
+                    feature.value is False
+                    and feature.source == "rule"
+                    and feature.evidence == "none observed"
+                )
+                else str(bool(feature.value)).lower()
+            )
         control_results[key] = _classification(expected, observed, ("false", "true"))
 
     human_only = all(item.label_source == "human" for item in truth)

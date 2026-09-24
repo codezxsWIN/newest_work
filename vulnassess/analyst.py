@@ -6,6 +6,7 @@ import json
 import re
 from typing import Any, Callable, Protocol
 
+from vulnassess.context import interpreted_control
 from vulnassess.errors import ConfigError, LLMUnavailable
 from vulnassess.explain import (
     DEFAULT_HOST,
@@ -25,6 +26,11 @@ MAX_SERVICES = 16
 MAX_PROMPT_CHARS = 12_000
 ANALYST_CONTEXT_TOKENS = 16_384
 CVE_IDENTIFIER = re.compile(r"\bCVE-\d{4}-\d{4,}\b", re.IGNORECASE)
+UNSUPPORTED_ASSURANCE = re.compile(
+    r"\b(?:no\s+(?:known\s+)?vulnerabilit(?:y|ies)\s+(?:found|detected|present)|"
+    r"(?:service|host|protocol|system)\s+(?:is|was|are|were)\s+(?:considered\s+)?secure)\b",
+    re.IGNORECASE,
+)
 
 ANALYSIS_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -174,7 +180,10 @@ def build_case(
         "role": dict(profile["role"]),
         "exposure": dict(profile["exposure"]),
         "segment": profile.get("segment"),
-        "controls": {key: dict(value) for key, value in profile.get("controls", {}).items()},
+        "controls": {
+            key: interpreted_control(value)
+            for key, value in profile.get("controls", {}).items()
+        },
         "manual": {key: dict(value) for key, value in profile.get("manual", {}).items()},
     }
     for name, feature in (
@@ -357,9 +366,12 @@ def build_prompt(case: dict[str, Any], evidence: list[dict[str, str]], alias_cou
         "what to inspect. The alternative must give a distinct benign explanation. "
         "Cite the observation supporting it. An investigation is unverified, "
         "never a new finding or authorization to scan. "
-        "If the case has zero vulnerability findings, explicitly state that this scan did not "
-        "establish any vulnerability; provide only cautious service-exposure observations or "
-        "verification steps grounded in service/context evidence, with empty finding_ids arrays. "
+        "If the case has zero vulnerability findings, explicitly state that this limited scan did not "
+        "establish a vulnerability; never say that no vulnerabilities exist, were found or detected, "
+        "or that a service is secure. Provide only cautious service-exposure observations or "
+        "verification steps, with empty finding_ids arrays. Each action must cite both an "
+        "observed service evidence ID and the exposure context evidence ID. Explain how the "
+        "exposure changes the verification priority; treat unknown controls as unknown, not absent. "
         "Never invent F0 or another finding label when there are no valid findings. "
         "Do not label an observed service or version as a vulnerability without supporting finding evidence. "
         "The deterministic scores are an auditable baseline: do not invent replacement scores. "
@@ -534,6 +546,20 @@ def validate_grounding(result: dict[str, Any], case: dict[str, Any]) -> None:
             raise LLMUnavailable("analyst output contains unsupported CVE identifiers")
         if set(NUMBER.findall(text)) - numbers:
             raise LLMUnavailable("analyst output contains unsupported numbers")
+    if not case["findings"]:
+        if any(UNSUPPORTED_ASSURANCE.search(text) for text in prose):
+            raise LLMUnavailable(
+                "Model response makes an unsupported assurance after a limited scan; "
+                "response rejected and no assessment stored"
+            )
+        service_ids = {item["evidence_id"] for item in case["services"]}
+        exposure_id = case["context"]["exposure"]["evidence_id"]
+        for action in result["recommended_actions"]:
+            cited = set(action["evidence_ids"])
+            if exposure_id not in cited:
+                raise LLMUnavailable("analyst action lacks exposure context citation")
+            if not cited & service_ids:
+                raise LLMUnavailable("analyst action lacks observed service citation")
 
 
 def analyze_target(

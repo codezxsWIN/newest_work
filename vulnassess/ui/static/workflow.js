@@ -1,4 +1,4 @@
-import {SIZE, EDGES, ICONS, buildNodes, connectedNodeIds, nodeDetails, evidenceKind} from './workflow-data.js';
+import {SIZE, EDGES, ICONS, buildNodes, connectedNodeIds, nodeDetails, evidenceKind, evidenceBasis} from './workflow-data.js';
 import {requestAnalystProgress} from './analyst-client.js';
 import {PREVIEW_SCENARIOS} from './workflow-preview.js';
 
@@ -753,6 +753,25 @@ function renderAnalyst() {
   button.disabled = !view.host || currentAnalysis()?.status === 'running';
   button.addEventListener('click', () => analyzeTarget());
   holder.append(button);
+  const basis = evidenceBasis(view.assessment, view.host);
+  let ledger = null;
+  if (basis) {
+    ledger = element('div', 'analyst-basis');
+    ledger.append(element('h3', '', 'Evidence-only view · no AI conclusion'));
+    for (const [heading, lines] of [
+      ['Observed', basis.observed.length ? basis.observed : ['No services recorded.']],
+      ['Context effect', basis.context],
+      ['Not established', basis.notChecked.length ? basis.notChecked : ['No specific coverage gap recorded.']],
+      ['Next verification', [basis.nextVerification]],
+    ]) {
+      const section = element('section', 'analyst-basis-section');
+      section.append(element('h4', '', heading));
+      const list = element('ul', '');
+      for (const line of lines) list.append(element('li', '', line));
+      section.append(list);
+      ledger.append(section);
+    }
+  }
   const live = currentAnalysis();
   if (live) {
     const progress = element('ol', 'analysis-progress');
@@ -790,6 +809,7 @@ function renderAnalyst() {
     appendInvestigation(holder, result);
     for (const uncertainty of result.analysis.uncertainties) holder.append(element('p', 'boundary-note', uncertainty));
   }
+  if (ledger) holder.append(ledger);
   content.append(holder);
 }
 

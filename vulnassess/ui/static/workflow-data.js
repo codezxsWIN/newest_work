@@ -108,7 +108,39 @@ export function connectedNodeIds(identity) {
 
 function quotesFromFeatures(profile) {
   return [['Role', profile.role], ['Exposure', profile.exposure], ...Object.entries(profile.controls || {}), ...Object.entries(profile.manual || {})]
-    .filter(([, feature]) => feature).map(([name, feature]) => ({label: name.replaceAll('_', ' '), value: feature.value, confidence: feature.confidence, source: feature.source, quote: feature.evidence}));
+    .filter(([, feature]) => feature).map(([name, feature]) => {
+      const legacyUnknown = Object.hasOwn(profile.controls || {}, name) && feature.value === false && feature.source === 'rule' && feature.evidence === 'none observed';
+      return {label: name.replaceAll('_', ' '), value: legacyUnknown || feature.value === null ? 'Unknown' : feature.value, confidence: legacyUnknown ? 0 : feature.confidence, source: feature.source, quote: feature.evidence};
+    });
+}
+
+export function evidenceBasis(assessment, hostIp) {
+  const host = (assessment?.hosts || []).find(item => item.ip === hostIp);
+  const profile = (assessment?.context || []).find(item => item.host_ip === hostIp);
+  if (!host || !profile) return null;
+  const imports = (assessment.run?.summary?.imports || []).filter(item => item.target_ip === hostIp);
+  const findings = (assessment.findings || []).filter(item => item.host_ip === hostIp);
+  const hasTool = tool => imports.some(item => Object.hasOwn(item.findings || {}, tool)) || findings.some(item => item.tool === tool);
+  const notChecked = [];
+  for (const [tool, name] of [['zap', 'ZAP'], ['nikto', 'Nikto']]) {
+    if (!hasTool(tool)) notChecked.push(`No ${name} evidence attached; its coverage is unknown.`);
+  }
+  for (const [key, label] of [['waf', 'WAF'], ['auth_required', 'Authentication'], ['rate_limiting', 'Rate limiting'], ['tls', 'TLS']]) {
+    const feature = profile.controls?.[key];
+    if (!feature || feature.value === null || (feature.value === false && feature.source === 'rule' && feature.evidence === 'none observed')) {
+      notChecked.push(`${label} presence was not established by the attached evidence.`);
+    }
+  }
+  if (!findings.length) notChecked.push('No vulnerability findings were recorded; this does not prove the target is vulnerability-free.');
+  return {
+    observed: (host.services || []).map(service => `${service.port}/${service.protocol} ${service.name || 'service'}${service.product ? ` · ${service.product}` : ''}${service.version ? ` ${service.version}` : ''}`),
+    context: [
+      `Role inferred from evidence: ${String(profile.role?.value || 'unknown').replaceAll('_', ' ')}.`,
+      `Exposure inferred from scope/address: ${String(profile.exposure?.value || 'unknown').replaceAll('_', ' ')}. This guides verification priority, not vulnerability certainty.`,
+    ],
+    notChecked,
+    nextVerification: 'Review intended exposure and validate observed service configuration using authorised tests.',
+  };
 }
 
 export function nodeDetails(identity, assessment, scope, weights, selection = {}, analysis = null) {
@@ -141,7 +173,7 @@ export function nodeDetails(identity, assessment, scope, weights, selection = {}
     message: slice.enrichments.length ? 'These are stored matches; loading this diagram does not rematch records.' : 'No enrichment stored for this selection. A native-severity fallback may still be recorded.', provenance: 'intel.py / enrichments'};
   if (identity === 'context') return {...base, input: 'Services, scanner evidence and scope tags', operation: 'Retain the role, exposure and controls that the context pipeline recorded, including their source and confidence.', output: 'Deployment context',
     quotes: slice.profiles.flatMap(profile => quotesFromFeatures(profile).map(item => ({...item, label: `${profile.host_ip} / ${item.label}`}))), records: slice.profiles,
-    message: 'Source labels show rule, manual or learned provenance. Confidence and severity remain separate.', provenance: 'context.py / context_profiles'};
+    message: 'Source labels show rule, manual or learned provenance. Older rule records encoded “none observed” as false; this view interprets those controls as unknown without rewriting the raw record.', provenance: 'context.py / context_profiles'};
   if (identity === 'shadow') return {...base, input: 'Host service features', operation: 'The optional local role classifier predicts a role from scan-derived features. Its use belongs to pipeline configuration.', output: 'Optional learned role evidence', records: slice.profiles.filter(profile => profile.role?.source === 'llm'),
     message: 'The graph does not run this classifier. A recorded learned-source role is shown as recorded, not claimed to be a fresh prediction.', provenance: 'role_model.py / context.py'};
   if (identity === 'score') return {...base, input: 'Context + CVSS + EPSS + KEV', operation: 'Apply the published deterministic formula and configuration. This is arithmetic, not an LLM judgment.', output: 'Stored score breakdown',

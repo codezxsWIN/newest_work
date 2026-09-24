@@ -129,6 +129,20 @@ class TestContextEvaluation(unittest.TestCase):
         self.assertIsNone(result["controls"]["tls"]["accuracy"])
         self.assertIsNone(result["controls"]["tls"]["macro_f1"])
 
+    def test_unknown_control_abstains_instead_of_counting_as_false(self):
+        profiles = [profile("192.0.2.1", "web_frontend", "internal")]
+        profiles[0].controls["waf"] = feature(None, 0.0, "none observed")
+        labels = [truth("192.0.2.1", "web_frontend", "internal", controls={"waf": False})]
+
+        result = evaluate_context(profiles, labels)
+
+        self.assertEqual(result["controls"]["waf"]["coverage"], 0.0)
+        self.assertEqual(result["controls"]["waf"]["accuracy"], 0.0)
+
+        profiles[0].controls["waf"] = feature(False, 0.5, "none observed")
+        legacy = evaluate_context(profiles, labels)
+        self.assertEqual(legacy["controls"]["waf"]["coverage"], 0.0)
+
     def test_rule_model_disagreement_retains_rule_evidence(self):
         profiles = [
             profile(

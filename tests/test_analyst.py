@@ -73,6 +73,27 @@ def test_case_packages_all_target_evidence_without_mutating_records():
     assert any(item["kind"] == "deterministic_priority" for item in evidence)
 
 
+def test_legacy_unobserved_controls_are_unknown_in_model_case():
+    payload = demo_payload()
+    profile = next(item for item in payload["context"] if item["host_ip"] == "172.28.0.12")
+    profile["controls"]["waf"] = {
+        "value": False, "confidence": 0.5, "source": "rule", "evidence": "none observed"
+    }
+    original = copy.deepcopy(payload)
+
+    case, _, _ = analyst.build_case(payload, "172.28.0.12")
+
+    assert case["context"]["controls"]["waf"]["value"] is None
+    assert case["context"]["controls"]["waf"]["confidence"] == 0.0
+    assert payload == original
+
+
+def test_explicit_negative_control_evidence_remains_false():
+    record = {"value": False, "confidence": 0.95, "source": "manual", "evidence": "Owner confirmed no WAF"}
+
+    assert analyst.interpreted_control(record) == record
+
+
 def test_analysis_runs_local_model_and_preserves_canonical_scores():
     payload = demo_payload()
     case, evidence, alias_map = analyst.build_case(payload, "172.28.0.12")
@@ -92,6 +113,9 @@ def test_analysis_can_assess_live_services_when_scan_has_no_vulnerability_findin
     payload["findings"] = []
     payload["scores"] = []
     payload["enrichments"] = []
+    case, _, _ = analyst.build_case(payload, "172.28.0.12")
+    service_id = case["services"][0]["evidence_id"]
+    exposure_id = case["context"]["exposure"]["evidence_id"]
     response = {
         "summary": "The light scan observed SSH and HTTP; it did not establish a vulnerability.",
         "confidence": "low",
@@ -100,7 +124,7 @@ def test_analysis_can_assess_live_services_when_scan_has_no_vulnerability_findin
             "action": "Verify service versions and restrict exposure to intended users.",
             "reason": "The scan observed internet-facing SSH and HTTP services only.",
             "finding_ids": [],
-            "evidence_ids": ["E1"],
+            "evidence_ids": [service_id, exposure_id],
         }],
         "correlations": [],
         "uncertainties": ["No exploit checks or authenticated tests were run."],
@@ -112,6 +136,55 @@ def test_analysis_can_assess_live_services_when_scan_has_no_vulnerability_findin
     assert "zero vulnerability findings" in client.prompt.lower()
     assert "not run" in client.prompt.lower()
     assert "not checked" in client.prompt.lower()
+
+
+def test_zero_finding_case_rejects_clean_bill_of_health():
+    payload = demo_payload()
+    payload["findings"] = []
+    payload["scores"] = []
+    payload["enrichments"] = []
+    case, _, _ = analyst.build_case(payload, "172.28.0.12")
+    response = {
+        "summary": "No known vulnerabilities found; the SSH protocol is considered secure.",
+        "confidence": "low",
+        "recommended_actions": [{
+            "order": 1,
+            "action": "Review the exposed service.",
+            "reason": "Service was observed on an internet-facing host.",
+            "finding_ids": [],
+            "evidence_ids": [
+                case["services"][0]["evidence_id"],
+                case["context"]["exposure"]["evidence_id"],
+            ],
+        }],
+        "correlations": [],
+        "uncertainties": ["No authenticated testing was performed."],
+    }
+    with pytest.raises(LLMUnavailable, match="unsupported assurance"):
+        analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
+
+
+def test_zero_finding_action_must_cite_service_and_exposure():
+    payload = demo_payload()
+    payload["findings"] = []
+    payload["scores"] = []
+    payload["enrichments"] = []
+    case, _, _ = analyst.build_case(payload, "172.28.0.12")
+    response = {
+        "summary": "This light scan did not establish a vulnerability.",
+        "confidence": "low",
+        "recommended_actions": [{
+            "order": 1,
+            "action": "Review the exposed SSH service.",
+            "reason": "The service is reachable from the internet.",
+            "finding_ids": [],
+            "evidence_ids": [case["services"][0]["evidence_id"]],
+        }],
+        "correlations": [],
+        "uncertainties": ["No authenticated testing was performed."],
+    }
+    with pytest.raises(LLMUnavailable, match="exposure context"):
+        analyst.analyze_target(payload, "172.28.0.12", FakeClient(response))
 
 
 def test_analysis_reports_only_completed_real_stages():

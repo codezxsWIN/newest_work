@@ -5,6 +5,7 @@ from html import escape
 from math import cos, radians, sin
 from typing import Any
 
+from vulnassess.context import interpreted_control
 from vulnassess.ui.drawings import BAND_CLASSES, building, door
 from vulnassess.ui.entry import evidence, evidence_items, pipeline_map, run_strip
 
@@ -437,7 +438,7 @@ def _feature(feature: dict[str, Any], label: str, threshold: float | None = None
     return (
         '<div class="feature-row"><div class="feature-name">'
         f'<span class="eyebrow">{escape(label)}</span>{state}</div>'
-        f'<div class="feature-value"><span class="inferred">{escape(_text(feature["value"]).replace("_", " "))}</span>'
+        f'<div class="feature-value"><span class="inferred">{escape(("Unknown" if feature["value"] is None else _text(feature["value"])).replace("_", " "))}</span>'
         f'<span class="confidence" aria-label="Confidence {confidence}">{ring}{confidence}</span></div>'
         + '<details class="feature-evidence"><summary>Source evidence</summary>'
         + evidence(feature["evidence"], f"{feature['source']} / {label} evidence")
@@ -465,7 +466,7 @@ def _context_stage(payload: dict[str, Any], config: dict[str, Any]) -> str:
             profile["exposure"], "Exposure", threshold
         )
         features += "".join(
-            _feature(feature, name.replace("_", " "), threshold)
+            _feature(interpreted_control(feature), name.replace("_", " "), threshold)
             for name, feature in profile["controls"].items()
         )
         features += "".join(

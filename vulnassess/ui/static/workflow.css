@@ -214,6 +214,10 @@ select { background: var(--flow-paper); padding: 8px 24px 8px 10px; border: 1px 
 .neighbour-link:hover { background: var(--flow-soft); }
 .analyst-action { margin-block: 18px; }
 .analyst-scope { font: 11px var(--flow-mono); line-height: 1.7; }
+.analyst-basis { display: grid; gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid var(--flow-line); border-radius: 6px; background: var(--flow-soft); }
+.analyst-basis > h3 { margin: 0; font-size: 12px; }
+.analyst-basis-section h4 { margin: 0 0 5px; color: var(--flow-muted); font: 10px var(--flow-mono); text-transform: uppercase; }
+.analyst-basis-section ul { margin: 0; padding-left: 17px; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 .analyze-button { background: var(--flow-ink); color: var(--flow-paper); border: 1px solid var(--flow-ink); border-radius: 5px; padding: 11px 17px; font-size: 12px; width: 100%; }
 .analysis-progress { list-style: none; margin: 18px 0; padding: 0; border: 1px solid var(--flow-line); border-radius: 6px; }
 .analysis-progress-step { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 3px 10px; padding: 12px; font-size: 11px; }
